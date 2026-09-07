@@ -1,0 +1,511 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>CompanyRegWidget</class>
+ <widget class="QWidget" name="CompanyRegWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>850</width>
+    <height>650</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>업체등록</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">
+    QWidget#CompanyRegWidget {
+        background-color: #B0B0B0;
+    }
+    QLabel {
+        font-family: "Malgun Gothic", "Gulim";
+        font-size: 12px;
+        color: #000000;
+    }
+    QLineEdit {
+        background-color: #FFFFFF;
+        border: 1px solid #7F9DB9;
+        font-family: "Malgun Gothic", "Gulim";
+        font-size: 12px;
+        height: 20px;
+    }
+   </string>
+  </property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <property name="spacing">
+    <number>4</number>
+   </property>
+   <property name="leftMargin">
+    <number>6</number>
+   </property>
+   <property name="topMargin">
+    <number>6</number>
+   </property>
+   <property name="rightMargin">
+    <number>6</number>
+   </property>
+   <property name="bottomMargin">
+    <number>6</number>
+   </property>
+
+   <!-- 1. 최상단 헤더 영역 -->
+   <item>
+    <widget class="QFrame" name="frame_top_header">
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>45</height>
+      </size>
+     </property>
+     <property name="frameShape">
+      <enum>QFrame::Panel</enum>
+     </property>
+     <property name="frameShadow">
+      <enum>QFrame::Raised</enum>
+     </property>
+     <layout class="QHBoxLayout" name="lay_top_header">
+      <property name="spacing">
+       <number>2</number>
+      </property>
+      <property name="leftMargin">
+       <number>2</number>
+      </property>
+      <property name="topMargin">
+       <number>2</number>
+      </property>
+      <property name="rightMargin">
+       <number>2</number>
+      </property>
+      <property name="bottomMargin">
+       <number>2</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="lbl_logo">
+        <property name="minimumSize">
+         <size>
+          <width>85</width>
+          <height>35</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">background-color: #000080; color: white; font-weight: bold; font-size: 11px;</string>
+        </property>
+        <property name="text">
+         <string>MEATSoft</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="lbl_main_title">
+        <property name="minimumSize">
+         <size>
+          <width>400</width>
+          <height>35</height>
+         </size>
+        </property>
+        <property name="styleSheet">
+         <string notr="true">background-color: #0070C0; color: white; font-weight: bold; font-size: 16px; border: 2px solid #004080;</string>
+        </property>
+        <property name="text">
+         <string>업 체 등 록</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="spacer_header">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </spacer>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_confirm">
+        <property name="minimumSize">
+         <size>
+          <width>50</width>
+          <height>35</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>확인</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="btn_close">
+        <property name="minimumSize">
+         <size>
+          <width>50</width>
+          <height>35</height>
+         </size>
+        </property>
+        <property name="text">
+         <string>닫기</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <!-- 2. 안내 문구 -->
+   <item>
+    <widget class="QLabel" name="lbl_guide_top">
+     <property name="styleSheet">
+      <string notr="true">margin-left: 45px; font-weight: bold; font-size: 12px; color: #000000;</string>
+     </property>
+     <property name="text">
+      <string>회사정보를 등록하여 주시기 바랍니다.</string>
+     </property>
+    </widget>
+   </item>
+
+   <!-- 3. 메인 입력 폼 & 우측 영역 -->
+   <item>
+    <layout class="QHBoxLayout" name="lay_body_main">
+     <property name="leftMargin">
+      <number>40</number>
+     </property>
+     <property name="rightMargin">
+      <number>10</number>
+     </property>
+     <item>
+      <!-- 좌측 메인 흰색 프레임 -->
+      <widget class="QFrame" name="frame_form_box">
+       <property name="styleSheet">
+        <string notr="true">background-color: #FFFFFF; border: 1px solid #7F9DB9;</string>
+       </property>
+       <layout class="QGridLayout" name="lay_form_grid">
+        <property name="leftMargin">
+         <number>15</number>
+        </property>
+        <property name="topMargin">
+         <number>15</number>
+        </property>
+        <property name="rightMargin">
+         <number>15</number>
+        </property>
+        <property name="bottomMargin">
+         <number>15</number>
+        </property>
+        <property name="horizontalSpacing">
+         <number>4</number>
+        </property>
+        <property name="verticalSpacing">
+         <number>4</number>
+        </property>
+
+        <!-- (1) 사업자명 -->
+        <item row="0" column="0">
+         <widget class="QLabel" name="lbl_comp_name">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>(*)  사업자명 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="0" column="1" colspan="3">
+         <widget class="QLineEdit" name="txt_comp_name"/>
+        </item>
+
+        <!-- (2) 사업자명(영문) -->
+        <item row="1" column="0">
+         <widget class="QLabel" name="lbl_comp_name_en">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>(*) 사업자명(영문):</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="1" column="1" colspan="3">
+         <widget class="QLineEdit" name="txt_comp_name_en"/>
+        </item>
+
+        <!-- (3) 대표자명 -->
+        <item row="2" column="0">
+         <widget class="QLabel" name="lbl_ceo_name">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>(*)   대표자명 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QLineEdit" name="txt_ceo_name">
+          <property name="maximumSize"><size><width>150</width><height>16777215</height></size></property>
+         </widget>
+        </item>
+
+        <!-- (4) 우편번호 -->
+        <item row="3" column="0">
+         <widget class="QLabel" name="lbl_zip_code">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>(*)   우편번호 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="QLineEdit" name="txt_zip_code">
+          <property name="maximumSize"><size><width>100</width><height>16777215</height></size></property>
+         </widget>
+        </item>
+
+        <!-- (5) 주소 -->
+        <item row="4" column="0">
+         <widget class="QLabel" name="lbl_address">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>(*)       주소 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="4" column="1" colspan="3">
+         <widget class="QLineEdit" name="txt_address"/>
+        </item>
+
+        <!-- (6) 등록번호 -->
+        <item row="5" column="0">
+         <widget class="QLabel" name="lbl_biz_no">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>(*)   등록번호 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="5" column="1">
+         <widget class="QLineEdit" name="txt_biz_no">
+          <property name="maximumSize"><size><width>130</width><height>16777215</height></size></property>
+         </widget>
+        </item>
+
+        <!-- (7) 업태 -->
+        <item row="6" column="0">
+         <widget class="QLabel" name="lbl_uptae">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>(*)       업태 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="6" column="1" colspan="3">
+         <widget class="QLineEdit" name="txt_uptae"/>
+        </item>
+
+        <!-- (8) 업종 -->
+        <item row="7" column="0">
+         <widget class="QLabel" name="lbl_upjong">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>(*)       업종 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="7" column="1" colspan="3">
+         <widget class="QLineEdit" name="txt_upjong"/>
+        </item>
+
+        <!-- (9) 영업허가번호 -->
+        <item row="8" column="0">
+         <widget class="QLabel" name="lbl_lic_no">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>(*)영업허가번호 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="8" column="1">
+         <widget class="QLineEdit" name="txt_lic_no">
+          <property name="maximumSize"><size><width>200</width><height>16777215</height></size></property>
+         </widget>
+        </item>
+
+        <!-- (10) 계좌번호1 -->
+        <item row="9" column="0">
+         <widget class="QLabel" name="lbl_bank1">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>계좌번호1 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="9" column="1" colspan="3">
+         <widget class="QLineEdit" name="txt_bank1"/>
+        </item>
+
+        <!-- (11) 계좌번호2 -->
+        <item row="10" column="0">
+         <widget class="QLabel" name="lbl_bank2">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>계좌번호2 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="10" column="1" colspan="3">
+         <widget class="QLineEdit" name="txt_bank2"/>
+        </item>
+
+        <!-- (12) 전화번호 -->
+        <item row="11" column="0">
+         <widget class="QLabel" name="lbl_tel">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>전화번호 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="11" column="1">
+         <widget class="QLineEdit" name="txt_tel">
+          <property name="maximumSize"><size><width>150</width><height>16777215</height></size></property>
+         </widget>
+        </item>
+
+        <!-- (13) 팩스번호 -->
+        <item row="12" column="0">
+         <widget class="QLabel" name="lbl_fax">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>팩스번호 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="12" column="1">
+         <widget class="QLineEdit" name="txt_fax">
+          <property name="maximumSize"><size><width>150</width><height>16777215</height></size></property>
+         </widget>
+        </item>
+
+        <!-- (14) PCS 번호 -->
+        <item row="13" column="0">
+         <widget class="QLabel" name="lbl_pcs">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>PCS 번호 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="13" column="1">
+         <widget class="QLineEdit" name="txt_pcs">
+          <property name="maximumSize"><size><width>150</width><height>16777215</height></size></property>
+         </widget>
+        </item>
+
+        <!-- (15) Email ID / 제품관련상담 -->
+        <item row="14" column="0">
+         <widget class="QLabel" name="lbl_email">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>Email ID :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="14" column="1">
+         <widget class="QLineEdit" name="txt_email"/>
+        </item>
+        <item row="14" column="2">
+         <widget class="QLabel" name="lbl_consult">
+          <property name="minimumSize"><size><width>110</width><height>22</height></size></property>
+          <property name="styleSheet"><string notr="true">background-color: #ECE9D8; border: 1px solid #999999;</string></property>
+          <property name="text"><string>제품관련상담 :</string></property>
+          <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+         </widget>
+        </item>
+        <item row="14" column="3">
+         <widget class="QLineEdit" name="txt_consult"/>
+        </item>
+
+       </layout>
+      </widget>
+     </item>
+
+     <!-- 우측: 매출이익원가재계산 -->
+     <item>
+      <layout class="QVBoxLayout" name="lay_right_side">
+       <property name="topMargin"><number>5</number></property>
+       <item>
+        <widget class="QPushButton" name="btn_recalc">
+         <property name="minimumSize"><size><width>150</width><height>28</height></size></property>
+         <property name="styleSheet">
+          <string notr="true">font-weight: bold; font-size: 13px; background-color: #FFFFFF; border: 1px solid #7F9DB9;</string>
+         </property>
+         <property name="text">
+          <string>매출이익원가재계산</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="lay_recalc_inputs">
+         <item>
+          <widget class="QLineEdit" name="txt_recalc_1">
+           <property name="maximumSize"><size><width>60</width><height>22</height></size></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="lbl_slash">
+           <property name="text"><string>/</string></property>
+           <property name="alignment"><set>Qt::AlignCenter</set></property>
+           <property name="styleSheet"><string notr="true">font-weight: bold; font-size: 14px;</string></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="txt_recalc_2">
+           <property name="maximumSize"><size><width>60</width><height>22</height></size></property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <spacer name="spacer_right_bottom">
+         <property name="orientation"><enum>Qt::Vertical</enum></property>
+         <property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+
+   <item>
+    <spacer name="spacer_body_bottom">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>20</width><height>20</height></size></property>
+    </spacer>
+   </item>
+
+   <!-- 4. 하단 저작권 문구 -->
+   <item>
+    <layout class="QVBoxLayout" name="lay_footer">
+     <property name="leftMargin"><number>45</number></property>
+     <property name="bottomMargin"><number>10</number></property>
+     <item>
+      <widget class="QLabel" name="lbl_copy1">
+       <property name="styleSheet"><string notr="true">font-weight: bold; font-size: 12px; color: #000000;</string></property>
+       <property name="text">
+        <string>제품과 사용설명서는 저작권법에 의해 보호되어 있습니다.</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="lbl_copy2">
+       <property name="styleSheet"><string notr="true">font-weight: bold; font-size: 12px; color: #000000;</string></property>
+       <property name="text">
+        <string>개발업체의 사전 서면 동의 없이 복사나 복제를 하실 수 없습니다.</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

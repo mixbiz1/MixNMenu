@@ -1,0 +1,525 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1249</width>
+    <height>678</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget"/>
+  <widget class="QMenuBar" name="menuBar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1249</width>
+     <height>33</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menu1">
+    <property name="title">
+     <string>1.시스템관리</string>
+    </property>
+    <addaction name="action_company_reg"/>
+    <addaction name="action2"/>
+    <addaction name="action3"/>
+    <addaction name="separator"/>
+    <addaction name="action4"/>
+    <addaction name="action5"/>
+    <addaction name="action6"/>
+    <addaction name="action7"/>
+    <addaction name="action8"/>
+    <addaction name="separator"/>
+    <addaction name="action9"/>
+   </widget>
+   <widget class="QMenu" name="menu2">
+    <property name="title">
+     <string>2.코드관리</string>
+    </property>
+    <widget class="QMenu" name="menu1_2">
+     <property name="title">
+      <string>1.사용자관리</string>
+     </property>
+     <addaction name="action1_9"/>
+     <addaction name="action2_9"/>
+     <addaction name="action3_8"/>
+     <addaction name="action4_7"/>
+    </widget>
+    <addaction name="menu1_2"/>
+    <addaction name="action2_2"/>
+    <addaction name="action3_2"/>
+    <addaction name="action4_iU"/>
+   </widget>
+   <widget class="QMenu" name="menu3">
+    <property name="title">
+     <string>3.수입관리</string>
+    </property>
+    <addaction name="action1_3"/>
+    <addaction name="action2_3"/>
+   </widget>
+   <widget class="QMenu" name="menu4">
+    <property name="title">
+     <string>4.상품입/출고관리</string>
+    </property>
+    <addaction name="action1_4"/>
+    <addaction name="action2_4"/>
+    <addaction name="action3_3"/>
+    <addaction name="action4_2"/>
+    <addaction name="action5_2"/>
+    <addaction name="action6_2"/>
+    <addaction name="action7_2"/>
+    <addaction name="action8_2"/>
+    <addaction name="action9_2"/>
+    <addaction name="action10"/>
+    <addaction name="action11"/>
+   </widget>
+   <widget class="QMenu" name="menu5">
+    <property name="title">
+     <string>5.입금/출금관리</string>
+    </property>
+    <addaction name="action1_5"/>
+    <addaction name="action2_5"/>
+    <addaction name="action3_4"/>
+    <addaction name="action4_3"/>
+    <addaction name="action5_3"/>
+   </widget>
+   <widget class="QMenu" name="menu6">
+    <property name="title">
+     <string>6.월재고마감관리</string>
+    </property>
+    <addaction name="action1_6"/>
+    <addaction name="action2_6"/>
+    <addaction name="action3_5"/>
+    <addaction name="action4_4"/>
+   </widget>
+   <widget class="QMenu" name="menu7">
+    <property name="title">
+     <string>7.조회/출력</string>
+    </property>
+    <addaction name="action1_7"/>
+    <addaction name="action2_7"/>
+    <addaction name="action3_6"/>
+    <addaction name="action4_5"/>
+    <addaction name="action5_4"/>
+    <addaction name="action6_3"/>
+    <addaction name="action7_3"/>
+    <addaction name="action8_3"/>
+    <addaction name="action9_3"/>
+    <addaction name="action10_DM"/>
+    <addaction name="action11_2"/>
+    <addaction name="action12"/>
+    <addaction name="action13"/>
+    <addaction name="action14"/>
+    <addaction name="action15"/>
+    <addaction name="action16"/>
+    <addaction name="action17"/>
+    <addaction name="action18"/>
+    <addaction name="action19"/>
+    <addaction name="action20"/>
+    <addaction name="action21"/>
+    <addaction name="action22"/>
+   </widget>
+   <widget class="QMenu" name="menu8">
+    <property name="title">
+     <string>8.계산서관리</string>
+    </property>
+    <addaction name="action1_8"/>
+    <addaction name="action2_8"/>
+    <addaction name="action3_7"/>
+    <addaction name="action4_6"/>
+    <addaction name="action5_5"/>
+    <addaction name="action6_4"/>
+    <addaction name="action7_4"/>
+   </widget>
+   <widget class="QMenu" name="menu9">
+    <property name="title">
+     <string>9.파이낸싱/계약판매</string>
+    </property>
+   </widget>
+   <addaction name="menu1"/>
+   <addaction name="menu2"/>
+   <addaction name="menu3"/>
+   <addaction name="menu4"/>
+   <addaction name="menu5"/>
+   <addaction name="menu6"/>
+   <addaction name="menu7"/>
+   <addaction name="menu8"/>
+   <addaction name="menu9"/>
+  </widget>
+  <widget class="QStatusBar" name="statusBar"/>
+  <action name="action_company_reg">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>1.업체등록</string>
+   </property>
+   <property name="2.비밀번호변경" stdset="0">
+    <string/>
+   </property>
+  </action>
+  <action name="action2">
+   <property name="text">
+    <string>2.비밀번호변경</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action3">
+   <property name="text">
+    <string>3.프린터설정</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action4">
+   <property name="text">
+    <string>4.우편번호조회</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action5">
+   <property name="text">
+    <string>5.단축메뉴</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action6">
+   <property name="text">
+    <string>6.원격지원</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action7">
+   <property name="text">
+    <string>7.환경설정</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action8">
+   <property name="text">
+    <string>8.미트통신 열기</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action9">
+   <property name="text">
+    <string>9.종료</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="action2_2">
+   <property name="text">
+    <string>2.코드관리</string>
+   </property>
+  </action>
+  <action name="action3_2">
+   <property name="text">
+    <string>3.거래처 기초잔액 입력</string>
+   </property>
+  </action>
+  <action name="action4_iU">
+   <property name="text">
+    <string>4.더존iU연동관리</string>
+   </property>
+  </action>
+  <action name="action1_3">
+   <property name="text">
+    <string>1.오퍼관리</string>
+   </property>
+  </action>
+  <action name="action2_3">
+   <property name="text">
+    <string>2.수입부대비용관리</string>
+   </property>
+  </action>
+  <action name="action1_4">
+   <property name="text">
+    <string>1.입고전표(직수입)</string>
+   </property>
+  </action>
+  <action name="action2_4">
+   <property name="text">
+    <string>2.입고전표(국내)</string>
+   </property>
+  </action>
+  <action name="action3_3">
+   <property name="text">
+    <string>3.출고전표</string>
+   </property>
+  </action>
+  <action name="action4_2">
+   <property name="text">
+    <string>4.창고이동</string>
+   </property>
+  </action>
+  <action name="action5_2">
+   <property name="text">
+    <string>5.로스출고</string>
+   </property>
+  </action>
+  <action name="action6_2">
+   <property name="text">
+    <string>6.생산일보</string>
+   </property>
+  </action>
+  <action name="action7_2">
+   <property name="text">
+    <string>7.지육구매입고/판매출고</string>
+   </property>
+  </action>
+  <action name="action8_2">
+   <property name="text">
+    <string>8.지육생산입고</string>
+   </property>
+  </action>
+  <action name="action9_2">
+   <property name="text">
+    <string>9.거래처 자료 일괄전환</string>
+   </property>
+  </action>
+  <action name="action10">
+   <property name="text">
+    <string>10.견적서</string>
+   </property>
+  </action>
+  <action name="action11">
+   <property name="text">
+    <string>11.생산 가공계획</string>
+   </property>
+  </action>
+  <action name="action1_5">
+   <property name="text">
+    <string>1.입금(미수금)관리</string>
+   </property>
+  </action>
+  <action name="action2_5">
+   <property name="text">
+    <string>2.출금(미지급)관리</string>
+   </property>
+  </action>
+  <action name="action3_4">
+   <property name="text">
+    <string>3.입금(경비)관리</string>
+   </property>
+  </action>
+  <action name="action4_3">
+   <property name="text">
+    <string>4.출금(경비)관리</string>
+   </property>
+  </action>
+  <action name="action5_3">
+   <property name="text">
+    <string>5.통장이체</string>
+   </property>
+  </action>
+  <action name="action1_6">
+   <property name="text">
+    <string>1.재고마감관리</string>
+   </property>
+  </action>
+  <action name="action2_6">
+   <property name="text">
+    <string>2.일마감</string>
+   </property>
+  </action>
+  <action name="action3_5">
+   <property name="text">
+    <string>3.더존연동</string>
+   </property>
+  </action>
+  <action name="action4_4">
+   <property name="text">
+    <string>4.매출이익정산</string>
+   </property>
+  </action>
+  <action name="action1_7">
+   <property name="text">
+    <string>1.코드현황</string>
+   </property>
+  </action>
+  <action name="action2_7">
+   <property name="text">
+    <string>2.매입현황</string>
+   </property>
+  </action>
+  <action name="action3_6">
+   <property name="text">
+    <string>3.판매현황</string>
+   </property>
+  </action>
+  <action name="action4_5">
+   <property name="text">
+    <string>4.원장출력</string>
+   </property>
+  </action>
+  <action name="action5_4">
+   <property name="text">
+    <string>5.일계표</string>
+   </property>
+  </action>
+  <action name="action6_3">
+   <property name="text">
+    <string>6.매출이익</string>
+   </property>
+  </action>
+  <action name="action7_3">
+   <property name="text">
+    <string>7.입출금현황</string>
+   </property>
+  </action>
+  <action name="action8_3">
+   <property name="text">
+    <string>8.미수/미지급현황</string>
+   </property>
+  </action>
+  <action name="action9_3">
+   <property name="text">
+    <string>9.상품재고현황</string>
+   </property>
+  </action>
+  <action name="action10_DM">
+   <property name="text">
+    <string>10.DM발송</string>
+   </property>
+  </action>
+  <action name="action11_2">
+   <property name="text">
+    <string>11.손익계산서</string>
+   </property>
+  </action>
+  <action name="action12">
+   <property name="text">
+    <string>12.잔액확인서</string>
+   </property>
+  </action>
+  <action name="action13">
+   <property name="text">
+    <string>13.거래매역 확인서(월별)</string>
+   </property>
+  </action>
+  <action name="action14">
+   <property name="text">
+    <string>14.통장관리</string>
+   </property>
+  </action>
+  <action name="action15">
+   <property name="text">
+    <string>15.경리일보</string>
+   </property>
+  </action>
+  <action name="action16">
+   <property name="text">
+    <string>16.자산현황</string>
+   </property>
+  </action>
+  <action name="action17">
+   <property name="text">
+    <string>17.거래내역서</string>
+   </property>
+  </action>
+  <action name="action18">
+   <property name="text">
+    <string>18.생산현황</string>
+   </property>
+  </action>
+  <action name="action19">
+   <property name="text">
+    <string>19.거래명세표출력(일괄)</string>
+   </property>
+  </action>
+  <action name="action20">
+   <property name="text">
+    <string>20.생산라벨현황</string>
+   </property>
+  </action>
+  <action name="action21">
+   <property name="text">
+    <string>21.일일보고</string>
+   </property>
+  </action>
+  <action name="action22">
+   <property name="text">
+    <string>22.바코드현황</string>
+   </property>
+  </action>
+  <action name="action1_8">
+   <property name="text">
+    <string>1.계산서작업</string>
+   </property>
+  </action>
+  <action name="action2_8">
+   <property name="text">
+    <string>2.계산서입력</string>
+   </property>
+  </action>
+  <action name="action3_7">
+   <property name="text">
+    <string>3.계산서현황</string>
+   </property>
+  </action>
+  <action name="action4_6">
+   <property name="text">
+    <string>4.계산서출력(일괄)</string>
+   </property>
+  </action>
+  <action name="action5_5">
+   <property name="text">
+    <string>5.계산서삭제</string>
+   </property>
+  </action>
+  <action name="action6_4">
+   <property name="text">
+    <string>6.거래사실확인서</string>
+   </property>
+  </action>
+  <action name="action7_4">
+   <property name="text">
+    <string>7.전자계산서</string>
+   </property>
+  </action>
+  <action name="action1_9">
+   <property name="text">
+    <string>1.사용자등록</string>
+   </property>
+  </action>
+  <action name="action2_9">
+   <property name="text">
+    <string>2.사용자별 프로그램 권한</string>
+   </property>
+  </action>
+  <action name="action3_8">
+   <property name="text">
+    <string>3.전자계산서사용자등록</string>
+   </property>
+  </action>
+  <action name="action4_7">
+   <property name="text">
+    <string>4.사용자 접속현황</string>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

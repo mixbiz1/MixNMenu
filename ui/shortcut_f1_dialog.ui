@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ShortcutF1Dialog</class>
+ <widget class="QDialog" name="ShortcutF1Dialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1000</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>단축메뉴 (F1)</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">
+    QDialog#ShortcutF1Dialog {
+        background-color: #B0B0B0;
+    }
+    QLabel {
+        font-family: "Gulim", "Dotum", "Malgun Gothic";
+        font-size: 12px;
+        font-weight: bold;
+        color: #000080;
+    }
+    QPushButton {
+        background-color: #FFFFFF;
+        border-top: 2px solid #FFFFFF;
+        border-left: 2px solid #FFFFFF;
+        border-right: 2px solid #808080;
+        border-bottom: 2px solid #808080;
+        font-family: "Gulim", "Dotum";
+        font-size: 12px;
+        font-weight: bold;
+        color: #000000;
+        min-height: 25px;
+    }
+    QPushButton:pressed {
+        border-top: 2px solid #808080;
+        border-left: 2px solid #808080;
+        border-right: 2px solid #FFFFFF;
+        border-bottom: 2px solid #FFFFFF;
+    }
+   </string>
+  </property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <property name="spacing"><number>10</number></property>
+   <property name="leftMargin"><number>10</number></property>
+   <property name="topMargin"><number>10</number></property>
+   <property name="rightMargin"><number>10</number></property>
+   <property name="bottomMargin"><number>10</number></property>
+
+   <!-- 1. 최상단 상호 및 사용기한 정보 바 -->
+   <item>
+    <layout class="QHBoxLayout" name="lay_top_info">
+     <property name="spacing"><number>10</number></property>
+     <item>
+      <widget class="QLabel" name="lbl_company_info">
+       <property name="minimumSize"><size><width>220</width><height>26</height></size></property>
+       <property name="styleSheet">
+        <string notr="true">background-color: #D4D0C8; border-top: 2px solid #808080; border-left: 2px solid #808080; border-right: 2px solid #FFFFFF; border-bottom: 2px solid #FFFFFF; color: #000080; font-size: 12px;</string>
+       </property>
+       <property name="text">
+        <string>(주)믹스비즈  0505-810-1001</string>
+       </property>
+       <property name="alignment"><set>Qt::AlignCenter</set></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="lbl_expire_info">
+       <property name="minimumSize"><size><width>320</width><height>26</height></size></property>
+       <property name="styleSheet">
+        <string notr="true">background-color: #D4D0C8; border-top: 2px solid #808080; border-left: 2px solid #808080; border-right: 2px solid #FFFFFF; border-bottom: 2px solid #FFFFFF; color: #000080; font-size: 12px;</string>
+       </property>
+       <property name="text">
+        <string>사용기한 : 무제한 (영구 라이선스) [남은일수 : 무제한]</string>
+       </property>
+       <property name="alignment"><set>Qt::AlignCenter</set></property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="spacer_top">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+
+   <!-- 2. 메인 버튼 그리드 영역 (카테고리별 컬럼) -->
+   <item>
+    <layout class="QHBoxLayout" name="lay_columns">
+     <property name="spacing"><number>15</number></property>
+
+     <!-- 컬럼 1: 코드관리 & 기초등록 & 경비전표관리 -->
+     <item>
+      <layout class="QVBoxLayout" name="col_1">
+       <property name="spacing"><number>4</number></property>
+       <item><widget class="QLabel" name="lbl_cat_code"><property name="text"><string>&lt;&lt; 코드관리 &gt;&gt;</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+       <item><widget class="QPushButton" name="btn_code_common"><property name="text"><string>공통코드입력(공통)</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_code_goods"><property name="text"><string>공통코드입력(상품)</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_cust_entry"><property name="text"><string>거래처입력</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_goods_entry"><property name="text"><string>상품입력</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_exp_code"><property name="text"><string>경비코드입력</string></property></widget></item>
+       <item><spacer name="sp_col1_1"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="maximumSize"><size><width>20</width><height>15</height></size></property></spacer></item>
+
+       <item><widget class="QLabel" name="lbl_cat_basic"><property name="text"><string>&lt;&lt; 기초등록 &gt;&gt;</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+       <item><widget class="QPushButton" name="btn_basic_bal"><property name="text"><string>기초잔액입력</string></property></widget></item>
+       <item><spacer name="sp_col1_2"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="maximumSize"><size><width>20</width><height>10</height></size></property></spacer></item>
+
+       <item><widget class="QLabel" name="lbl_cat_margin"><property name="text"><string>&lt;&lt; 매출이익정산 &gt;&gt;</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+       <item><widget class="QPushButton" name="btn_margin_calc"><property name="text"><string>매출이익정산</string></property></widget></item>
+       <item><spacer name="sp_col1_3"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="maximumSize"><size><width>20</width><height>10</height></size></property></spacer></item>
+
+       <item><widget class="QLabel" name="lbl_cat_exp"><property name="text"><string>&lt;&lt; 경비전표관리 &gt;&gt;</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+       <item><widget class="QPushButton" name="btn_exp_in"><property name="text"><string>입금(경비)입력</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_exp_out"><property name="text"><string>출금(경비)입력</string></property></widget></item>
+       <item><spacer name="sp_col1_end"><property name="orientation"><enum>Qt::Vertical</enum></property></spacer></item>
+      </layout>
+     </item>
+
+     <!-- 컬럼 2: 전표관리 & 유통이력신고파일 -->
+     <item>
+      <layout class="QVBoxLayout" name="col_2">
+       <property name="spacing"><number>4</number></property>
+       <item><widget class="QLabel" name="lbl_cat_slip"><property name="text"><string>&lt;&lt; 전표관리 &gt;&gt;</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+       <item><widget class="QPushButton" name="btn_in_slip"><property name="text"><string>입고전표(입력/수정)</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_out_slip"><property name="text"><string>출고전표(입력/수정)</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_pay_in"><property name="text"><string>입금전표(입력/수정)</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_pay_out"><property name="text"><string>출금전표(입력/수정)</string></property></widget></item>
+       <item><spacer name="sp_col2_1"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="maximumSize"><size><width>20</width><height>20</height></size></property></spacer></item>
+
+       <item><widget class="QLabel" name="lbl_cat_meatwatch"><property name="text"><string>&lt;&lt; 유통이력신고파일 &gt;&gt;</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+       <item><widget class="QPushButton" name="btn_mw_importer"><property name="text"><string>미트와치 수입업자</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_mw_seller"><property name="text"><string>미트와치 판매업자</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_mw_packer"><property name="text"><string>미트와치 포장처리</string></property></widget></item>
+       <item><spacer name="sp_col2_2"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="maximumSize"><size><width>20</width><height>15</height></size></property></spacer></item>
+
+       <item><widget class="QPushButton" name="btn_domestic_beef"><property name="text"><string>국내산쇠고기</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_domestic_pork"><property name="text"><string>국내산돼지고기</string></property></widget></item>
+       <item><spacer name="sp_col2_end"><property name="orientation"><enum>Qt::Vertical</enum></property></spacer></item>
+      </layout>
+     </item>
+
+     <!-- 컬럼 3: 거래내역관리 & 이력관리양식 -->
+     <item>
+      <layout class="QVBoxLayout" name="col_3">
+       <property name="spacing"><number>4</number></property>
+       <item><widget class="QLabel" name="lbl_cat_trans"><property name="text"><string>&lt;&lt; 거래내역관리 &gt;&gt;</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+       <item><widget class="QPushButton" name="btn_daily_total"><property name="text"><string>일 계 표</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_cust_ledger"><property name="text"><string>거래처원장</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_unpaid_stat"><property name="text"><string>미수/미지급현황</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_stock_stat"><property name="text"><string>상품재고현황</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_accounting_daily"><property name="text"><string>경리일보</string></property></widget></item>
+       <item><spacer name="sp_col3_1"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="maximumSize"><size><width>20</width><height>15</height></size></property></spacer></item>
+
+       <item><widget class="QLabel" name="lbl_cat_history_form"><property name="text"><string>&lt;&lt; 이력관리양식 &gt;&gt;</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+       <item><widget class="QPushButton" name="btn_trans_detail"><property name="text"><string>거래내역서</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_sales_ship_stat"><property name="text"><string>판매·반출 실적</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_pack_stat"><property name="text"><string>포장처리 실적</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_bundle_no_detail"><property name="text"><string>묶음번호구성내역서</string></property></widget></item>
+       <item><spacer name="sp_col3_end"><property name="orientation"><enum>Qt::Vertical</enum></property></spacer></item>
+      </layout>
+     </item>
+
+     <!-- 컬럼 4: 계산서관리 -->
+     <item>
+      <layout class="QVBoxLayout" name="col_4">
+       <property name="spacing"><number>4</number></property>
+       <item><widget class="QLabel" name="lbl_cat_tax"><property name="text"><string>&lt;&lt; 계산서관리 &gt;&gt;</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+       <item><widget class="QPushButton" name="btn_buy_tax_entry"><property name="text"><string>매입계산서입력</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_sale_tax_entry"><property name="text"><string>매출계산서입력</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_tax_detail"><property name="text"><string>계산서내역</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_etax_send"><property name="text"><string>전자계산서전송</string></property></widget></item>
+       <item><spacer name="sp_col4_end"><property name="orientation"><enum>Qt::Vertical</enum></property></spacer></item>
+      </layout>
+     </item>
+
+     <!-- 컬럼 5: 부가서비스 & 원격지원 하단 영역 -->
+     <item>
+      <layout class="QVBoxLayout" name="col_5">
+       <property name="spacing"><number>4</number></property>
+       <item>
+        <widget class="QFrame" name="frame_extra_service">
+         <property name="styleSheet">
+          <string notr="true">QFrame#frame_extra_service { border: 2px solid #0000FF; background-color: transparent; }</string>
+         </property>
+         <layout class="QVBoxLayout" name="lay_extra">
+          <property name="spacing"><number>4</number></property>
+          <property name="leftMargin"><number>6</number></property>
+          <property name="topMargin"><number>6</number></property>
+          <property name="rightMargin"><number>6</number></property>
+          <property name="bottomMargin"><number>6</number></property>
+          <item><widget class="QLabel" name="lbl_cat_extra"><property name="text"><string>&lt;&lt; 부가서비스 &gt;&gt;</string></property><property name="alignment"><set>Qt::AlignCenter</set></property></widget></item>
+          <item><widget class="QPushButton" name="btn_sms"><property name="text"><string>문자발송</string></property></widget></item>
+          <item><widget class="QPushButton" name="btn_fax"><property name="text"><string>팩스발송</string></property></widget></item>
+          <item><widget class="QPushButton" name="btn_hometax"><property name="text"><string>국세청자료조회</string></property></widget></item>
+          <item><widget class="QPushButton" name="btn_popbill"><property name="text"><string>팝빌</string></property></widget></item>
+         </layout>
+        </widget>
+       </item>
+
+       <item><spacer name="sp_col5_1"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="maximumSize"><size><width>20</width><height>10</height></size></property></spacer></item>
+
+       <item>
+        <widget class="QPushButton" name="btn_remote">
+         <property name="styleSheet"><string notr="true">background-color: #FFFFE0; color: #FF0000; border: 1px solid #D3D3D3;</string></property>
+         <property name="text"><string>원격지원</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btn_faq">
+         <property name="styleSheet"><string notr="true">background-color: #FFFFE0; color: #FF0000; border: 1px solid #D3D3D3;</string></property>
+         <property name="text"><string>자주묻는질문</string></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btn_manual">
+         <property name="styleSheet"><string notr="true">background-color: #FFFFE0; color: #FF0000; border: 1px solid #D3D3D3;</string></property>
+         <property name="text"><string>프로그램 사용설명서</string></property>
+        </widget>
+       </item>
+
+       <item><spacer name="sp_col5_end"><property name="orientation"><enum>Qt::Vertical</enum></property></spacer></item>
+      </layout>
+     </item>
+
+     <item>
+      <spacer name="spacer_right">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+      </spacer>
+     </item>
+
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
