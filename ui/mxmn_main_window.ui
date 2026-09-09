@@ -32,12 +32,12 @@
     <addaction name="action3"/>
     <addaction name="separator"/>
     <addaction name="action4"/>
-    <addaction name="action5"/>
+    <addaction name="action_shortcut"/>
     <addaction name="action6"/>
     <addaction name="action7"/>
     <addaction name="action8"/>
     <addaction name="separator"/>
-    <addaction name="action9"/>
+    <addaction name="action_exit"/>
    </widget>
    <widget class="QMenu" name="menu2">
     <property name="title">
@@ -155,11 +155,11 @@
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
   <action name="action_company_reg">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
    <property name="text">
     <string>1.업체등록</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
    </property>
    <property name="2.비밀번호변경" stdset="0">
     <string/>
@@ -189,7 +189,7 @@
     <enum>QAction::MenuRole::NoRole</enum>
    </property>
   </action>
-  <action name="action5">
+  <action name="action_shortcut">
    <property name="text">
     <string>5.단축메뉴</string>
    </property>
@@ -221,7 +221,7 @@
     <enum>QAction::MenuRole::NoRole</enum>
    </property>
   </action>
-  <action name="action9">
+  <action name="action_exit">
    <property name="text">
     <string>9.종료</string>
    </property>

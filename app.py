@@ -22,7 +22,7 @@ class LoginWorker(QThread):
     def run(self):
         try:
             payload = {"user_id": self.user_id, "password": self.password}
-            response = httpx.post("http://127.0.0.1:8000/api/v1/auth/login", json=payload, timeout=5.0)
+            response = httpx.post("http://127.0.0.1:8000/api/v1/auth/login", json=payload, timeout=15.0)
             
             if response.status_code == 200:
                 data = response.json()
