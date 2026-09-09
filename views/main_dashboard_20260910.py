@@ -86,20 +86,7 @@ class MainDashboard(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(self.ui)
         
-        # 상단 설명 라벨에서 '(주)믹스비즈 - ' 문구 제거
-        title_label = self.ui.findChild(QLabel, "lbl_title")  # ui 상의 라벨 객체명
-        if not title_label:
-            # objectName이 지정되지 않은 경우를 대비해 첫 번째 QLabel 탐색
-            for label in self.ui.findChildren(QLabel):
-                if "(주)믹스비즈" in label.text():
-                    title_label = label
-                    break
-
-        if title_label:
-            new_text = title_label.text().replace("(주)믹스비즈 - ", "")
-            title_label.setText(new_text)
-
-        # 2. 카테고리별 단축메뉴 구성 데이터 ('계약판매' 우측 배치)
+        # 2. 카테고리별 단축메뉴 구성 데이터
         menu_structure = {
             "코드관리": [
                 "공통코드입력(공통)",
@@ -121,11 +108,6 @@ class MainDashboard(QWidget):
                 "출고전표(삭제)",
                 "입고전표(직수입)",
                 "직수입고전표(삭제)"
-            ],
-            "계약판매": [
-                "수입대행",
-                "BL양수도",
-                "국내매입"
             ]
         }
         
@@ -139,60 +121,14 @@ class MainDashboard(QWidget):
                 grid_layout.addWidget(card, 0, col, Qt.AlignTop)
                 col += 1
 
-    def show_popup_msg(self, title: str, message: str, icon_type: str = "info"):
-        """다크모드 / 라이트모드 환경과 상관없이 고정 가독성을 보장하는 팝업 메시지창"""
-        msg = QMessageBox(self)
-        msg.setWindowTitle(title)
-        msg.setText(message)
-        
-        if icon_type == "info":
-            msg.setIcon(QMessageBox.Information)
-        elif icon_type == "warning":
-            msg.setIcon(QMessageBox.Warning)
-        elif icon_type == "critical":
-            msg.setIcon(QMessageBox.Critical)
-
-        msg.setStyleSheet("""
-            QMessageBox {
-                background-color: #f8f9fa !important;
-            }
-            QMessageBox QLabel {
-                color: #1a1a1a !important;
-                font-size: 13px;
-                font-weight: bold;
-                background-color: transparent !important;
-            }
-            QPushButton {
-                background-color: #ffffff !important;
-                color: #222222 !important;
-                border: 1px solid #b0b0b0 !important;
-                border-radius: 4px;
-                padding: 5px 18px;
-                min-width: 65px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #005a9e !important;
-                color: #ffffff !important;
-                border-color: #005a9e !important;
-            }
-            QPushButton:pressed {
-                background-color: #004578 !important;
-                color: #ffffff !important;
-            }
-        """)
-        msg.exec()
-
     def handle_menu_click(self, menu_name: str):
         """단축메뉴 버튼 클릭 시 상위/세부 화면을 연결하는 공통 핸들러"""
         print(f"[단축메뉴 클릭]: {menu_name}")
         
         if menu_name == "거래처입력":
-            self.show_popup_msg("메뉴 실행", "거래처 입력(업체등록) 화면을 연동합니다.")
-        elif menu_name in ["수입대행", "BL양수도", "국내매입"]:
-            self.show_popup_msg("계약판매 실행", f"[{menu_name}] 계약 및 파이낸싱 관리 화면을 연동합니다.")
+            QMessageBox.information(self, "메뉴 실행", "거래처 입력(업체등록) 화면을 연동합니다.")
         else:
-            self.show_popup_msg("메뉴 선택", f"'{menu_name}' 메뉴가 선택되었습니다.")
+            QMessageBox.information(self, "메뉴 선택", f"'{menu_name}' 메뉴가 선택되었습니다.")
 
 
 if __name__ == "__main__":
