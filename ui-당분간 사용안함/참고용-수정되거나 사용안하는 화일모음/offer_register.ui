@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>OfferRegisterWindow</class>
+ <widget class="QMainWindow" name="OfferRegisterWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1280</width>
+    <height>850</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>오파등록</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">
+    QMainWindow { background-color: #D4D0C8; }
+    QWidget { font-family: "맑은 고딕", "Malgun Gothic", sans-serif; font-size: 9pt; color: #000000; }
+    QLineEdit, QDateEdit, QComboBox { background-color: #FFFFFF; border: 1px solid #7F9DB9; min-height: 20px; }
+    QLabel { background-color: #E2EAD3; border: 1px solid #99B288; qproperty-alignment: 'AlignCenter'; font-weight: bold; }
+    QLabel#lblRed { color: #C00000; }
+    QLabel#lblBlue { color: #0000C0; }
+    QLabel#lblNormal { color: #000000; }
+    QTableWidget { background-color: #FFFFFF; gridline-color: #B0B0B0; }
+    QHeaderView::section { background-color: #D4D0C8; border: 1px solid #808080; font-weight: bold; }
+   </string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="mainLayout">
+    <property name="spacing"><number>4</number></property>
+    <property name="leftMargin"><number>6</number></property>
+    <property name="topMargin"><number>6</number></property>
+    <property name="rightMargin"><number>6</number></property>
+    <property name="bottomMargin"><number>6</number></property>
+
+    <!-- 1. 최상단 메인 툴바 -->
+    <item>
+     <widget class="QFrame" name="topFrame">
+      <property name="styleSheet"><string>QFrame { background-color: #D4D0C8; border: 1px solid #808080; }</string></property>
+      <layout class="QHBoxLayout" name="topLayout">
+       <property name="margin"><number>2</number></property>
+       <item>
+        <widget class="QLabel" name="lblTitle">
+         <property name="styleSheet"><string>background: transparent; border: none; font-size: 14pt; font-weight: bold; color: #000080;</string></property>
+         <property name="text"><string>  오파등록</string></property>
+        </widget>
+       </item>
+       <item><spacer name="sp1"><property name="orientation"><enum>Qt::Horizontal</enum></property></spacer></item>
+       <item><widget class="QPushButton" name="btnSearch"><property name="text"><string>조회[F7]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btnNew"><property name="text"><string>신규[F2]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btnEdit"><property name="text"><string>수정[F3]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btnDelete"><property name="text"><string>삭제[F6]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btnCancel"><property name="text"><string>취소[F5]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btnSave"><property name="text"><string>저장[F4]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btnClose"><property name="text"><string>닫기</string></property></widget></item>
+      </layout>
+     </widget>
+    </item>
+
+    <!-- 2. 검색 조건 바 -->
+    <item>
+     <widget class="QFrame" name="searchFrame">
+      <property name="styleSheet"><string>QFrame { background-color: #D4D0C8; border: 1px solid #808080; }</string></property>
+      <layout class="QHBoxLayout" name="searchLayout">
+       <property name="margin"><number>4</number></property>
+       <item><widget class="QLabel" name="lblSearchOrder"><property name="styleSheet"><string>background:transparent; border:none;</string></property><property name="text"><string>오더일자입력</string></property></widget></item>
+       <item><widget class="QDateEdit" name="dtSearchFrom"><property name="calendarPopup"><bool>true</bool></property></widget></item>
+       <item><widget class="QLabel" name="lblSearchWave"><property name="styleSheet"><string>background:transparent; border:none;</string></property><property name="text"><string>에서</string></property></widget></item>
+       <item><widget class="QDateEdit" name="dtSearchTo"><property name="calendarPopup"><bool>true</bool></property></widget></item>
+       <item><widget class="QLabel" name="lblSearchTo"><property name="styleSheet"><string>background:transparent; border:none;</string></property><property name="text"><string>까지</string></property></widget></item>
+       <item><widget class="QLabel" name="lblSearchCont"><property name="styleSheet"><string>background:transparent; border:none;</string></property><property name="text"><string>Cont No</string></property></widget></item>
+       <item><widget class="QLineEdit" name="txtSearchCont"><property name="maximumWidth"><number>120</number></property></widget></item>
+       <item><widget class="QLabel" name="lblSearchItem"><property name="styleSheet"><string>background:transparent; border:none;</string></property><property name="text"><string>상품명입력</string></property></widget></item>
+       <item><widget class="QLineEdit" name="txtSearchItem"><property name="maximumWidth"><number>200</number></property></widget></item>
+       <item><spacer name="sp2"><property name="orientation"><enum>Qt::Horizontal</enum></property></spacer></item>
+       <item><widget class="QPushButton" name="btnExcel"><property name="text"><string>엑셀내보내기</string></property></widget></item>
+      </layout>
+     </widget>
+    </item>
+
+    <!-- 3. 메인 상단 그리드 & 하단 상세 Splitter -->
+    <item>
+     <widget class="QSplitter" name="splitter">
+      <property name="orientation"><enum>Qt::Vertical</enum></property>
+
+      <!-- 상단 리스트 -->
+      <widget class="QTableWidget" name="tableMain">
+       <property name="selectionMode"><enum>QAbstractItemView::SingleSelection</enum></property>
+       <property name="selectionBehavior"><enum>QAbstractItemView::SelectRows</enum></property>
+       <column><property name="text"><string>계약번호</string></property></column>
+       <column><property name="text"><string>계약 월</string></property></column>
+       <column><property name="text"><string>관리번호</string></property></column>
+       <column><property name="text"><string>브랜드</string></property></column>
+       <column><property name="text"><string>등급</string></property></column>
+       <column><property name="text"><string>품명</string></property></column>
+       <column><property name="text"><string>포장</string></property></column>
+       <column><property name="text"><string>공장번호</string></property></column>
+       <column><property name="text"><string>물량(Kg)</string></property></column>
+       <column><property name="text"><string>단가(Kg)</string></property></column>
+       <column><property name="text"><string>단위</string></property></column>
+       <column><property name="text"><string>Amount</string></property></column>
+       <column><property name="text"><string>BOX</string></property></column>
+       <column><property name="text"><string>평균중량</string></property></column>
+       <column><property name="text"><string>선적일</string></property></column>
+       <column><property name="text"><string>입항</string></property></column>
+       <column><property name="text"><string>입고</string></property></column>
+       <column><property name="text"><string>검역</string></property></column>
+       <column><property name="text"><string>수입일</string></property></column>
+      </widget>
+
+      <!-- 하단 상세 폼 (그리드 패널) -->
+      <widget class="QWidget" name="detailPanel">
+       <layout class="QHBoxLayout" name="detailMainLayout">
+        <property name="margin"><number>2</number></property>
+        <item>
+         <layout class="QGridLayout" name="gridDetail">
+          <property name="spacing"><number>2</number></property>
+
+          <!-- Row 0: 계약 및 기본정보 -->
+          <item row="0" column="0"><widget class="QLabel" name="lblRed"><property name="text"><string>계약번호</string></property></widget></item>
+          <item row="0" column="1" colspan="3"><widget class="QLineEdit" name="txtContractNo"/></item>
+          <item row="0" column="4"><widget class="QLabel" name="lblRed"><property name="text"><string>계약일</string></property></widget></item>
+          <item row="0" column="5" colspan="2"><widget class="QLineEdit" name="txtContractDate"/></item>
+          <item row="0" column="7"><widget class="QLabel" name="lblRed"><property name="text"><string>구분</string></property></widget></item>
+          <item row="0" column="8" colspan="2"><widget class="QComboBox" name="cmbType"><item><property name="text"><string>수입(직수입)</string></property></item></widget></item>
+          <item row="0" column="10"><widget class="QLabel" name="lblNormal"><property name="text"><string>관리번호</string></property></widget></item>
+          <item row="0" column="11" colspan="3"><widget class="QLineEdit" name="txtManageNo"/></item>
+
+          <!-- Row 1: 상품 정보 -->
+          <item row="1" column="0"><widget class="QLabel" name="lblRed"><property name="text"><string>상품코드</string></property></widget></item>
+          <item row="1" column="1"><widget class="QLineEdit" name="txtItemCode"/></item>
+          <item row="1" column="2" colspan="5"><widget class="QLineEdit" name="txtItemName"/></item>
+          <item row="1" column="7"><widget class="QLabel" name="lblNormal"><property name="text"><string>공장번호</string></property></widget></item>
+          <item row="1" column="8" colspan="6"><widget class="QLineEdit" name="txtFactoryNo"/></item>
+
+          <!-- Row 2: 물량 및 수량 단가 -->
+          <item row="2" column="0"><widget class="QLabel" name="lblRed"><property name="text"><string>물량(Kg)</string></property></widget></item>
+          <item row="2" column="1" colspan="2"><widget class="QLineEdit" name="txtQty"/></item>
+          <item row="2" column="3"><widget class="QLabel" name="lblRed"><property name="text"><string>단가단위</string></property></widget></item>
+          <item row="2" column="4"><widget class="QLineEdit" name="txtCurrency"/></item>
+          <item row="2" column="5"><widget class="QLabel" name="lblRed"><property name="text"><string>단가(Kg)</string></property></widget></item>
+          <item row="2" column="6"><widget class="QLineEdit" name="txtUnitPrice"/></item>
+          <item row="2" column="7"><widget class="QLabel" name="lblRed"><property name="text"><string>Amount</string></property></widget></item>
+          <item row="2" column="8" colspan="2"><widget class="QLineEdit" name="txtAmount"/></item>
+          <item row="2" column="10"><widget class="QLabel" name="lblNormal"><property name="text"><string>BOX</string></property></widget></item>
+          <item row="2" column="11"><widget class="QLineEdit" name="txtBoxQty"/></item>
+          <item row="2" column="12"><widget class="QLabel" name="lblNormal"><property name="text"><string>평균중량</string></property></widget></item>
+          <item row="2" column="13"><widget class="QLineEdit" name="txtAvgWeight"/></item>
+
+          <!-- Row 3: 일정 헤더 -->
+          <item row="3" column="0" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>선적일</string></property></widget></item>
+          <item row="3" column="2" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>입항일</string></property></widget></item>
+          <item row="3" column="4" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>입고일</string></property></widget></item>
+          <item row="3" column="6" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>검역일</string></property></widget></item>
+          <item row="3" column="8" colspan="2"><widget class="QLabel" name="lblRed"><property name="text"><string>수입일</string></property></widget></item>
+          <item row="3" column="10"><widget class="QLabel" name="lblRed"><property name="text"><string>CNTR. NO</string></property></widget></item>
+          <item row="3" column="11" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>이력번호</string></property></widget></item>
+          <item row="3" column="13"><widget class="QLabel" name="lblRed"><property name="text"><string>보관창고</string></property></widget></item>
+
+          <!-- Row 4: 일정 데이터 입력 -->
+          <item row="4" column="0" colspan="2"><widget class="QLineEdit" name="txtShipDate"/></item>
+          <item row="4" column="2" colspan="2"><widget class="QLineEdit" name="txtArrDate"/></item>
+          <item row="4" column="4" colspan="2"><widget class="QLineEdit" name="txtInDate"/></item>
+          <item row="4" column="6" colspan="2"><widget class="QLineEdit" name="txtQuarantineDate"/></item>
+          <item row="4" column="8" colspan="2"><widget class="QLineEdit" name="txtImportDate"/></item>
+          <item row="4" column="10"><widget class="QLineEdit" name="txtCntrNo"/></item>
+          <item row="4" column="11" colspan="2"><widget class="QLineEdit" name="txtHistoryNo"/></item>
+          <item row="4" column="13"><widget class="QLineEdit" name="txtWarehouse"/></item>
+
+          <!-- Row 5: 결제 및 물대 비용 1 -->
+          <item row="5" column="0" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>생산일자(F)</string></property></widget></item>
+          <item row="5" column="2" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>생산일자(T)</string></property></widget></item>
+          <item row="5" column="4"><widget class="QLabel" name="lblNormal"><property name="text"><string>LC일자</string></property></widget></item>
+          <item row="5" column="5"><widget class="QLabel" name="lblNormal"><property name="text"><string>물대결제일</string></property></widget></item>
+          <item row="5" column="6" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>물대적용환율</string></property></widget></item>
+          <item row="5" column="8" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>물대</string></property></widget></item>
+          <item row="5" column="10" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>결제수수료</string></property></widget></item>
+          <item row="5" column="12" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>하역료</string></property></widget></item>
+
+          <item row="6" column="0" colspan="2"><widget class="QLineEdit" name="txtProdFrom"/></item>
+          <item row="6" column="2" colspan="2"><widget class="QLineEdit" name="txtProdTo"/></item>
+          <item row="6" column="4"><widget class="QLineEdit" name="txtLcDate"/></item>
+          <item row="6" column="5"><widget class="QLineEdit" name="txtPayDate"/></item>
+          <item row="6" column="6" colspan="2"><widget class="QLineEdit" name="txtFxRate"/></item>
+          <item row="6" column="8" colspan="2"><widget class="QLineEdit" name="txtGoodsAmount"/></item>
+          <item row="6" column="10" colspan="2"><widget class="QLineEdit" name="txtPayFee"/></item>
+          <item row="6" column="12" colspan="2"><widget class="QLineEdit" name="txtUnloadFee"/></item>
+
+          <!-- Row 7: 관세 및 수수료 2 -->
+          <item row="7" column="0" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>보관일수</string></property></widget></item>
+          <item row="7" column="2" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>보관료</string></property></widget></item>
+          <item row="7" column="4"><widget class="QLabel" name="lblNormal"><property name="text"><string>관세</string></property></widget></item>
+          <item row="7" column="5"><widget class="QLabel" name="lblNormal"><property name="text"><string>관세적용환율</string></property></widget></item>
+          <item row="7" column="6" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>통관수수료</string></property></widget></item>
+          <item row="7" column="8" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>입항료외</string></property></widget></item>
+          <item row="7" column="10" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>적하보험료</string></property></widget></item>
+          <item row="7" column="12" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>관세공제액</string></property></widget></item>
+
+          <item row="8" column="0" colspan="2"><widget class="QLineEdit" name="txtStorageDays"/></item>
+          <item row="8" column="2" colspan="2"><widget class="QLineEdit" name="txtStorageFee"/></item>
+          <item row="8" column="4"><widget class="QLineEdit" name="txtCustomsTax"/></item>
+          <item row="8" column="5"><widget class="QLineEdit" name="txtTaxFxRate"/></item>
+          <item row="8" column="6" colspan="2"><widget class="QLineEdit" name="txtCustomsFee"/></item>
+          <item row="8" column="8" colspan="2"><widget class="QLineEdit" name="txtPortFee"/></item>
+          <item row="8" column="10" colspan="2"><widget class="QLineEdit" name="txtInsuranceFee"/></item>
+          <item row="8" column="12" colspan="2"><widget class="QLineEdit" name="txtDeductTax"/></item>
+
+          <!-- Row 9: 원가 및 종합 정보 3 -->
+          <item row="9" column="0" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>합계</string></property></widget></item>
+          <item row="9" column="2" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>예상원가</string></property></widget></item>
+          <item row="9" column="4"><widget class="QLabel" name="lblNormal"><property name="text"><string>통관일</string></property></widget></item>
+          <item row="9" column="5"><widget class="QLabel" name="lblNormal"><property name="text"><string>금리</string></property></widget></item>
+          <item row="9" column="6" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>판매일</string></property></widget></item>
+          <item row="9" column="8" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>수입필증</string></property></widget></item>
+          <item row="9" column="10" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>관리품목</string></property></widget></item>
+          <item row="9" column="12" colspan="2"><widget class="QLabel" name="lblNormal"><property name="text"><string>소비기한</string></property></widget></item>
+
+          <item row="10" column="0" colspan="2"><widget class="QLineEdit" name="txtTotalCost"/></item>
+          <item row="10" column="2" colspan="2"><widget class="QLineEdit" name="txtEstCost"/></item>
+          <item row="10" column="4"><widget class="QLineEdit" name="txtClearanceDate"/></item>
+          <item row="10" column="5"><widget class="QLineEdit" name="txtInterestRate"/></item>
+          <item row="10" column="6" colspan="2"><widget class="QLineEdit" name="txtSaleDate"/></item>
+          <item row="10" column="8" colspan="2"><widget class="QLineEdit" name="txtImportCert"/></item>
+          <item row="10" column="10" colspan="2"><widget class="QLineEdit" name="txtManageItem"/></item>
+          <item row="10" column="12" colspan="2"><widget class="QLineEdit" name="txtExpDate"/></item>
+
+          <!-- Row 11: LC NO, BL NO, 매입처 -->
+          <item row="11" column="0" colspan="2"><widget class="QLabel" name="lblBlue"><property name="text"><string>LC NO</string></property></widget></item>
+          <item row="11" column="2" colspan="3"><widget class="QLineEdit" name="txtLcNo"/></item>
+          <item row="11" column="5"><widget class="QLabel" name="lblBlue"><property name="text"><string>BL NO</string></property></widget></item>
+          <item row="11" column="6" colspan="3"><widget class="QLineEdit" name="txtBlNo"/></item>
+          <item row="11" column="9"><widget class="QLabel" name="lblNormal"><property name="text"><string>매입처</string></property></widget></item>
+          <item row="11" column="10" colspan="4"><widget class="QLineEdit" name="txtSupplier"/></item>
+         </layout>
+        </item>
+
+        <!-- 우측 액션 버튼 2개 -->
+        <item>
+         <layout class="QVBoxLayout" name="sideBtnLayout">
+          <property name="spacing"><number>6</number></property>
+          <item><widget class="QPushButton" name="btnDetailNew"><property name="text"><string>신규</string></property></widget></item>
+          <item><widget class="QPushButton" name="btnPrintCost"><property name="text"><string>원가정산서 인쇄</string></property></widget></item>
+          <item><spacer name="sp3"><property name="orientation"><enum>Qt::Vertical</enum></property></spacer></item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

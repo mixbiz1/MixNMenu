@@ -1,0 +1,316 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ProductInputDialog</class>
+ <widget class="QDialog" name="ProductInputDialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1150</width>
+    <height>680</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>상품입력</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">
+    QDialog#ProductInputDialog {
+        background-color: #B0B0B0;
+    }
+    QLabel {
+        font-family: "Gulim", "Dotum", "Malgun Gothic";
+        font-size: 12px;
+    }
+    QPushButton {
+        background-color: #D4D0C8;
+        border-top: 2px solid #FFFFFF;
+        border-left: 2px solid #FFFFFF;
+        border-right: 2px solid #808080;
+        border-bottom: 2px solid #808080;
+        font-family: "Gulim", "Dotum";
+        font-size: 12px;
+        font-weight: bold;
+        min-height: 22px;
+        padding: 2px 8px;
+    }
+    QPushButton:pressed {
+        border-top: 2px solid #808080;
+        border-left: 2px solid #808080;
+        border-right: 2px solid #FFFFFF;
+        border-bottom: 2px solid #FFFFFF;
+    }
+    QLineEdit, QComboBox {
+        background-color: #FFFFFF;
+        border: 1px solid #707070;
+        font-family: "Gulim", "Dotum";
+        font-size: 12px;
+        padding: 2px;
+    }
+    QTreeWidget, QTableWidget {
+        background-color: #FFFFFF;
+        gridline-color: #C0C0C0;
+        font-family: "Gulim", "Dotum";
+        font-size: 12px;
+    }
+    QHeaderView::section {
+        background-color: #D4D0C8;
+        color: #000080;
+        font-weight: bold;
+        border: 1px solid #808080;
+        padding: 4px;
+    }
+    QCheckBox {
+        font-family: "Gulim", "Dotum";
+        font-size: 12px;
+        font-weight: bold;
+    }
+   </string>
+  </property>
+  <layout class="QVBoxLayout" name="mainLayout">
+   <property name="spacing"><number>6</number></property>
+   <property name="leftMargin"><number>6</number></property>
+   <property name="topMargin"><number>6</number></property>
+   <property name="rightMargin"><number>6</number></property>
+   <property name="bottomMargin"><number>6</number></property>
+
+   <!-- 1. 최상단 타이틀, 툴바 및 옵션 영역 -->
+   <item>
+    <layout class="QHBoxLayout" name="lay_top_header">
+     <property name="spacing"><number>10</number></property>
+     <item>
+      <widget class="QLabel" name="lbl_title">
+       <property name="minimumSize"><size><width>280</width><height>32</height></size></property>
+       <property name="styleSheet">
+        <string notr="true">background-color: #3A6EA5; color: #FFFFFF; font-size: 15px; font-weight: bold; border: 2px inset #FFFFFF;</string>
+       </property>
+       <property name="text">
+        <string>  상품입력</string>
+       </property>
+       <property name="alignment"><set>Qt::AlignVCenter|Qt::AlignLeft</set></property>
+      </widget>
+     </item>
+
+     <!-- 상단 액션 버튼 그룹 -->
+     <item>
+      <layout class="QHBoxLayout" name="lay_top_buttons">
+       <property name="spacing"><number>4</number></property>
+       <item><widget class="QPushButton" name="btn_search"><property name="text"><string>조회 [F7]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_new"><property name="text"><string>신규 [F2]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_edit"><property name="text"><string>수정 [F3]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_delete"><property name="text"><string>삭제 [F6]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_cancel"><property name="text"><string>취소 [F5]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_save"><property name="text"><string>저장 [F4]</string></property></widget></item>
+       <item><widget class="QPushButton" name="btn_close"><property name="text"><string>닫기</string></property></widget></item>
+      </layout>
+     </item>
+
+     <!-- 우측 옵션 체크박스 그룹 -->
+     <item>
+      <layout class="QHBoxLayout" name="lay_options">
+       <property name="spacing"><number>10</number></property>
+       <item><widget class="QCheckBox" name="chk_copy_new"><property name="text"><string>복사신규</string></property></widget></item>
+       <item><widget class="QCheckBox" name="chk_dup_check"><property name="text"><string>상품명중복체크</string></property><property name="checked"><bool>true</bool></property></widget></item>
+       <item><widget class="QCheckBox" name="chk_touch_menu"><property name="text"><string>터치메뉴에 등록</string></property></widget></item>
+      </layout>
+     </item>
+     <item><spacer name="sp_header"><property name="orientation"><enum>Qt::Horizontal</enum></property></spacer></item>
+    </layout>
+   </item>
+
+   <!-- 2. 메인 콘텐츠 (좌측 트리 & 찾기 / 우측 상세 및 테이블) -->
+   <item>
+    <layout class="QHBoxLayout" name="lay_body">
+     <property name="spacing"><number>8</number></property>
+
+     <!-- 좌측: 찾기 영역 + 상품 트리뷰 -->
+     <item>
+      <layout class="QVBoxLayout" name="lay_left">
+       <property name="spacing"><number>4</number></property>
+       
+       <!-- 찾기 영역 -->
+       <item>
+        <widget class="QFrame" name="frame_search">
+         <property name="styleSheet"><string notr="true">background-color: #D4D0C8; border: 1px solid #808080;</string></property>
+         <layout class="QHBoxLayout" name="lay_search_inner">
+          <property name="leftMargin"><number>4</number></property>
+          <property name="topMargin"><number>4</number></property>
+          <property name="rightMargin"><number>4</number></property>
+          <property name="bottomMargin"><number>4</number></property>
+          <property name="spacing"><number>4</number></property>
+          <item><widget class="QLabel" name="lbl_search_code"><property name="text"><string>찾기\n상품코드</string></property></widget></item>
+          <item><widget class="QLineEdit" name="txt_search_code"><property name="maximumSize"><size><width>60</width><height>16777215</height></size></property></widget></item>
+          <item><widget class="QLabel" name="lbl_search_name"><property name="text"><string>상품명</string></property></widget></item>
+          <item><widget class="QLineEdit" name="txt_search_name"/></item>
+          <item><widget class="QPushButton" name="btn_find"><property name="text"><string>🔍</string></property><property name="maximumSize"><size><width>30</width><height>22</height></size></property></widget></item>
+         </layout>
+        </widget>
+       </item>
+
+       <!-- 상품 카테고리 트리 -->
+       <item>
+        <widget class="QTreeWidget" name="tree_products">
+         <property name="maximumSize"><size><width>260</width><height>16777215</height></size></property>
+         <property name="headerHidden"><bool>true</bool></property>
+         <column><property name="text"><string>분류</string></property></column>
+        </widget>
+       </item>
+      </layout>
+     </item>
+
+     <!-- 우측: 상세 설정 및 데이터 테이블 -->
+     <item>
+      <layout class="QVBoxLayout" name="lay_right">
+       <property name="spacing"><number>6</number></property>
+
+       <!-- 상품 기본정보 & 일괄적용 설정 프레임 -->
+       <item>
+        <widget class="QFrame" name="frame_item_header">
+         <property name="styleSheet"><string notr="true">background-color: #D4D0C8; border: 1px solid #808080;</string></property>
+         <layout class="QGridLayout" name="grid_header_fields">
+          <property name="leftMargin"><number>8</number></property>
+          <property name="topMargin"><number>8</number></property>
+          <property name="rightMargin"><number>8</number></property>
+          <property name="bottomMargin"><number>8</number></property>
+          <property name="horizontalSpacing"><number>6</number></property>
+          <property name="verticalSpacing"><number>4</number></property>
+
+          <!-- 상품 라벨 -->
+          <item row="0" column="0">
+           <widget class="QLabel" name="lbl_prod_code_title">
+            <property name="text"><string>상품</string></property>
+            <property name="styleSheet"><string notr="true">color: #000080; font-weight: bold;</string></property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLineEdit" name="txt_prod_code"/>
+          </item>
+
+          <!-- 상품명 형식 -->
+          <item row="0" column="2">
+           <widget class="QLabel" name="lbl_prod_name_fmt">
+            <property name="text"><string>상품명형식</string></property>
+            <property name="styleSheet"><string notr="true">color: #000080; font-weight: bold;</string></property>
+           </widget>
+          </item>
+          <item row="0" column="3" colspan="2">
+           <widget class="QComboBox" name="cb_name_format">
+            <item><property name="text"><string>브랜드+'+'+등급+'+'+중분류+'+'+냉장+'+'+원산지</string></property></item>
+           </widget>
+          </item>
+
+          <!-- 식육종류/표준부위 & 일괄적용 -->
+          <item row="1" column="1">
+           <widget class="QLabel" name="lbl_meat_std">
+            <property name="text"><string>식육종류/표준부위</string></property>
+            <property name="styleSheet"><string notr="true">color: #000080; font-weight: bold;</string></property>
+            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item row="1" column="2">
+           <widget class="QComboBox" name="cb_meat_std_type"/>
+          </item>
+          <item row="1" column="3">
+           <widget class="QPushButton" name="btn_apply_meat"><property name="text"><string>일괄적용</string></property></widget>
+          </item>
+
+          <!-- 대분류 목록 타이틀 및 이력구분 -->
+          <item row="2" column="0" colspan="2">
+           <widget class="QLabel" name="lbl_category_title">
+            <property name="text"><string>상품 [대분류] 목록</string></property>
+            <property name="styleSheet"><string notr="true">color: #FF0000; font-weight: bold;</string></property>
+           </widget>
+          </item>
+          <item row="2" column="2">
+           <widget class="QLabel" name="lbl_history_type">
+            <property name="text"><string>이력구분</string></property>
+            <property name="styleSheet"><string notr="true">color: #000080; font-weight: bold;</string></property>
+            <property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property>
+           </widget>
+          </item>
+          <item row="2" column="3">
+           <widget class="QComboBox" name="cb_history_type"/>
+          </item>
+          <item row="2" column="4">
+           <widget class="QPushButton" name="btn_apply_history"><property name="text"><string>일괄적용</string></property></widget>
+          </item>
+
+         </layout>
+        </widget>
+       </item>
+
+       <!-- 대분류 코드/코드명 그리드 -->
+       <item>
+        <widget class="QTableWidget" name="tbl_category_list">
+         <column><property name="text"><string>코드</string></property></column>
+         <column><property name="text"><string>코드명</string></property></column>
+        </widget>
+       </item>
+
+      </layout>
+     </item>
+    </layout>
+   </item>
+
+   <!-- 3. 하단 상태 메시지 바 -->
+   <item>
+    <layout class="QHBoxLayout" name="lay_status_bar">
+     <property name="spacing"><number>6</number></property>
+     <item>
+      <widget class="QLabel" name="lbl_msg_tag">
+       <property name="text"><string>MESSAGE</string></property>
+       <property name="styleSheet"><string notr="true">color: #FF0000; font-weight: bold; font-style: italic;</string></property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="lbl_status_msg">
+       <property name="styleSheet"><string notr="true">background-color: #FF0000; color: #FFFFFF; font-weight: bold; padding: 3px 10px;</string></property>
+       <property name="text"><string>해당 자료가 조회되었습니다.</string></property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="sp_status">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+
+   <!-- 4. 최하단 출력선택 영역 -->
+   <item>
+    <widget class="QFrame" name="frame_bottom_options">
+     <property name="minimumSize"><size><width>0</width><height>45</height></size></property>
+     <property name="styleSheet"><string notr="true">background-color: #D4D0C8; border: 1px solid #808080;</string></property>
+     <layout class="QHBoxLayout" name="lay_print_opt">
+      <property name="leftMargin"><number>10</number></property>
+      <property name="topMargin"><number>4</number></property>
+      <property name="rightMargin"><number>10</number></property>
+      <property name="bottomMargin"><number>4</number></property>
+      <item>
+       <layout class="QVBoxLayout" name="lay_print_inner">
+        <item>
+         <widget class="QLabel" name="lbl_print_opt">
+          <property name="text"><string>출력선택</string></property>
+          <property name="styleSheet"><string notr="true">color: #000080; font-weight: bold; font-size: 11px;</string></property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="lay_print_buttons">
+          <property name="spacing"><number>4</number></property>
+          <item><widget class="QPushButton" name="btn_sort_code"><property name="text"><string>코드순</string></property></widget></item>
+          <item><widget class="QPushButton" name="btn_label_print_items"><property name="text"><string>라벨지인쇄항목</string></property></widget></item>
+          <item><widget class="QPushButton" name="btn_touch_menu_1st"><property name="text"><string>1차터치메뉴항목</string></property></widget></item>
+         </layout>
+        </item>
+       </layout>
+      </item>
+      <item><spacer name="sp_print_opt"><property name="orientation"><enum>Qt::Horizontal</enum></property></spacer></item>
+     </layout>
+    </widget>
+   </item>
+
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
