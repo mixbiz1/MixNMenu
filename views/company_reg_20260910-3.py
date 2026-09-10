@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QWidget, QApplication, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QTextEdit, QPushButton, QGroupBox, QDialog, QStyleFactory
 )
-from PySide6.QtCore import Qt, QEvent
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QPalette, QColor
 
 API_BASE_URL = "http://127.0.0.1:8000"
@@ -18,6 +18,7 @@ class CustomMessageBox(QDialog):
         self.setFixedSize(340, 160)
         self.setWindowFlags(Qt.Dialog | Qt.WindowTitleHint | Qt.WindowCloseButtonHint)
         
+        # 강제 라이트 팔레트
         palette = QPalette()
         palette.setColor(QPalette.Window, QColor("#ffffff"))
         palette.setColor(QPalette.WindowText, QColor("#111111"))
@@ -64,15 +65,18 @@ class CompanyRegWidget(QWidget):
         self.setWindowTitle("업체등록")
         self.resize(780, 640)
         
+        # QSS 스타일시트가 전체 배경에 적용되도록 설정
         self.setAttribute(Qt.WA_StyledBackground, True)
+        
+        # 라이트 팔레트 강제 재설정
         self.set_light_palette()
         
         self.init_ui()
-        self.setup_navigation_order()
         self.center_window()
         self.load_data()
 
     def set_light_palette(self):
+        """OS 다크모드가 적용되어 있어도 라이트 팔레트로 강제 재설정"""
         palette = QPalette()
         palette.setColor(QPalette.Window, QColor("#eef1f5"))
         palette.setColor(QPalette.WindowText, QColor("#222222"))
@@ -145,7 +149,6 @@ class CompanyRegWidget(QWidget):
         self.txt_consult = QTextEdit()
         self.txt_consult.setMaximumHeight(55)
 
-        # 그리드 배치 (좌측 0~8행, 우측 0~8행)
         grid.addWidget(QLabel("사업자명(*)"), 0, 0)
         grid.addWidget(self.txt_comp_name, 0, 1)
 
@@ -216,7 +219,7 @@ class CompanyRegWidget(QWidget):
         btn_layout.addWidget(self.btn_close)
         main_layout.addLayout(btn_layout)
 
-        # 4. QSS 스타일시트
+        # 4. QSS 스타일시트 적용 (MDI SubWindow 프레임 및 전체 밝은 배경 반영)
         self.setStyleSheet("""
             QWidget#CompanyRegWidget {
                 background-color: #eef1f5;
@@ -302,96 +305,10 @@ class CompanyRegWidget(QWidget):
             }
         """)
 
-    def setup_navigation_order(self):
-        """Enter(아래) 및 Tab(우측->다음행) 키 입력 포커스 이동 정의"""
-        
-        # 1. Enter (아래 방향 순서)
-        self.enter_order = [
-            self.txt_comp_name,
-            self.txt_comp_name_en,
-            self.txt_ceo_name,
-            self.txt_biz_no,
-            self.txt_zip_code,
-            self.txt_address,
-            self.txt_uptae,
-            self.txt_upjong,
-            self.txt_lic_no,
-            self.txt_tel,
-            self.txt_fax,
-            self.txt_pcs,
-            self.txt_email,
-            self.txt_bank1,
-            self.txt_bank2,
-            self.txt_consult,
-            self.btn_confirm
-        ]
-
-        # 2. Tab (가로 -> 오른쪽 없으면 다음 행의 왼쪽)
-        self.tab_order = [
-            self.txt_comp_name,     self.txt_tel,
-            self.txt_comp_name_en,  self.txt_fax,
-            self.txt_ceo_name,      self.txt_pcs,
-            self.txt_biz_no,        self.txt_email,
-            self.txt_zip_code,      self.txt_bank1,
-            self.txt_address,       
-            self.txt_uptae,         self.txt_bank2,
-            self.txt_upjong,        self.txt_consult,
-            self.txt_lic_no,        self.btn_confirm
-        ]
-
-        # 모든 입력필드에 이벤트 필터 등록
-        all_widgets = set(self.enter_order + self.tab_order)
-        for w in all_widgets:
-            w.installEventFilter(self)
-
-    def eventFilter(self, obj, event):
-        """키보드 Enter 및 Tab 이벤트 가로채기 처리"""
-        if event.type() == QEvent.KeyPress:
-            key = event.key()
-            is_shift = bool(event.modifiers() & Qt.ShiftModifier)
-            is_ctrl = bool(event.modifiers() & Qt.ControlModifier)
-
-            # A. Enter / Return 키 (아래 방향 이동)
-            if key in (Qt.Key_Return, Qt.Key_Enter):
-                # QTextEdit 메모 필드: Ctrl+Enter 눌렀을 때만 이동 (일반 Enter는 줄바꿈)
-                if isinstance(obj, QTextEdit) and not is_ctrl:
-                    return super().eventFilter(obj, event)
-
-                if obj in self.enter_order:
-                    idx = self.enter_order.index(obj)
-                    next_idx = (idx - 1) if is_shift else (idx + 1)
-                    if 0 <= next_idx < len(self.enter_order):
-                        self.enter_order[next_idx].setFocus()
-                        if isinstance(self.enter_order[next_idx], QLineEdit):
-                            self.enter_order[next_idx].selectAll()
-                        return True
-
-            # B. Tab 키 (우측 -> 다음 행 이동)
-            elif key == Qt.Key_Tab:
-                if obj in self.tab_order:
-                    idx = self.tab_order.index(obj)
-                    next_idx = (idx - 1) if is_shift else (idx + 1)
-                    if 0 <= next_idx < len(self.tab_order):
-                        self.tab_order[next_idx].setFocus()
-                        if isinstance(self.tab_order[next_idx], QLineEdit):
-                            self.tab_order[next_idx].selectAll()
-                        return True
-
-            # C. Backtab 키 (Shift + Tab)
-            elif key == Qt.Key_Backtab:
-                if obj in self.tab_order:
-                    idx = self.tab_order.index(obj)
-                    prev_idx = idx - 1
-                    if 0 <= prev_idx < len(self.tab_order):
-                        self.tab_order[prev_idx].setFocus()
-                        if isinstance(self.tab_order[prev_idx], QLineEdit):
-                            self.tab_order[prev_idx].selectAll()
-                        return True
-
-        return super().eventFilter(obj, event)
-
     def close_window(self):
-        """MDI SubWindow 또는 일반 창 닫기"""
+        """
+        MDI SubWindow 프레임이 존재하는 경우 서브윈도우 래퍼만 깔끔하게 닫기
+        """
         parent_widget = self.parentWidget()
         if parent_widget is not None and parent_widget.inherits("QMdiSubWindow"):
             parent_widget.close()

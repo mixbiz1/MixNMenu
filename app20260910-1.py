@@ -2,7 +2,7 @@ import sys
 import httpx
 from PySide6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-    QLineEdit, QPushButton, QMessageBox, QFrame, QStyleFactory
+    QLineEdit, QPushButton, QMessageBox, QFrame
 )
 from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtGui import QFont
@@ -232,9 +232,6 @@ class LoginDialog(QDialog):
 # 메인 실행부
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
-    # OS 다크모드로 인한 전체 앱 스타일 왜곡 방지
-    app.setStyle(QStyleFactory.create("Fusion"))
     
     # 1. 로그인 창 띄우기 (FastAPI -> DB 인증)
     login_dialog = LoginDialog()
