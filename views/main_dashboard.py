@@ -1,9 +1,8 @@
-# views/main_dashboard.py
 import sys
 import os
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QLabel, 
-    QPushButton, QFrame, QMessageBox
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QLabel, QPushButton, QFrame, QMessageBox, QScrollArea
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
@@ -11,7 +10,7 @@ from PySide6.QtUiTools import QUiLoader
 
 
 class DashboardCard(QFrame):
-    """카테고리별 단축메뉴 카드 위젯 (UI 하위 컴포넌트)"""
+    """카테고리별 단축메뉴 카드 위젯"""
     def __init__(self, category_title: str, button_names: list, on_button_click):
         super().__init__()
         self.on_button_click = on_button_click
@@ -36,7 +35,7 @@ class DashboardCard(QFrame):
         lbl_title.setStyleSheet("color: #003399; margin-bottom: 4px;")
         layout.addWidget(lbl_title)
         
-        # 버튼 생성 및 스타일/이벤트 적용
+        # 버튼 생성 및 이벤트 연결
         for btn_name in button_names:
             btn = QPushButton(btn_name)
             btn.setFont(QFont("Malgun Gothic", 10))
@@ -68,43 +67,67 @@ class DashboardCard(QFrame):
 
 
 class MainDashboard(QWidget):
-    """ui/main_dashboard.ui 파일을 읽어와서 제어하는 View 클래스"""
-    def __init__(self):
+    """단축메뉴 바탕화면 메인 위젯"""
+    def __init__(self, main_window=None):
         super().__init__()
+        self.main_window = main_window
         self.init_ui()
         
     def init_ui(self):
-        # 1. .ui 파일 경로 탐색 및 로드
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         ui_file_path = os.path.join(base_dir, "ui", "main_dashboard.ui")
         
-        loader = QUiLoader()
-        self.ui = loader.load(ui_file_path, self)
+        grid_layout = None
         
-        # 메인 레이아웃 적용
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(self.ui)
-        
-        # 상단 설명 라벨에서 '(주)믹스비즈 - ' 문구 제거
-        title_label = self.ui.findChild(QLabel, "lbl_title")  # ui 상의 라벨 객체명
-        if not title_label:
-            # objectName이 지정되지 않은 경우를 대비해 첫 번째 QLabel 탐색
-            for label in self.ui.findChildren(QLabel):
-                if "(주)믹스비즈" in label.text():
-                    title_label = label
-                    break
+        # 1. .ui 파일이 정상 존재하는 경우 UI 로드
+        if os.path.exists(ui_file_path):
+            try:
+                loader = QUiLoader()
+                self.ui = loader.load(ui_file_path, self)
+                main_layout.addWidget(self.ui)
+                
+                title_label = self.ui.findChild(QLabel, "lbl_title")
+                if not title_label:
+                    for label in self.ui.findChildren(QLabel):
+                        if "(주)믹스비즈" in label.text():
+                            title_label = label
+                            break
+                if title_label:
+                    title_label.setText(title_label.text().replace("(주)믹스비즈 - ", ""))
 
-        if title_label:
-            new_text = title_label.text().replace("(주)믹스비즈 - ", "")
-            title_label.setText(new_text)
+                grid_layout = self.ui.findChild(object, "gridLayout_cards")
+            except Exception as e:
+                print(f"[Warning] .ui 파일 로드 실패, 순수 파이썬 레이아웃으로 대체합니다: {e}")
 
-        # 2. 카테고리별 단축메뉴 구성 데이터 ('계약판매' 우측 배치)
+        # 2. .ui 파일이 없거나 로드 실패 시 파이썬 코드로 UI 자동 동적 생성 (Fallback)
+        if grid_layout is None:
+            # 상단 제목 영역
+            title_lbl = QLabel("바탕화면 단축메뉴")
+            title_lbl.setFont(QFont("Malgun Gothic", 14, QFont.Bold))
+            title_lbl.setStyleSheet("color: #1a5ac7; margin-bottom: 10px;")
+            main_layout.addWidget(title_lbl)
+            
+            # 카드가 배치될 스크롤/그리드 영역
+            scroll_area = QScrollArea()
+            scroll_area.setWidgetResizable(True)
+            scroll_area.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
+            
+            container = QWidget()
+            grid_layout = QGridLayout(container)
+            grid_layout.setSpacing(15)
+            scroll_area.setWidget(container)
+            
+            main_layout.addWidget(scroll_area)
+
+        # 3. 단축메요 데이터구조 정의 (업체등록 제거 및 거래처입력을 맨 위로 변경)
         menu_structure = {
             "코드관리": [
+                "거래처입력",            # 맨 위로 이동 완료
                 "공통코드입력(공통)",
                 "공통코드입력(상품)",
-                "거래처입력",
                 "상품입력",
                 "경비코드입력"
             ],
@@ -129,18 +152,15 @@ class MainDashboard(QWidget):
             ]
         }
         
-        # 3. .ui 파일 상의 gridLayout_cards 영역에 단축메뉴 카드 배치
-        grid_layout = self.ui.findChild(object, "gridLayout_cards")
-        
-        if grid_layout:
-            col = 0
-            for category, buttons in menu_structure.items():
-                card = DashboardCard(category, buttons, self.handle_menu_click)
-                grid_layout.addWidget(card, 0, col, Qt.AlignTop)
-                col += 1
+        # 4. 카테고리 카드 그리드 배치
+        col = 0
+        for category, buttons in menu_structure.items():
+            card = DashboardCard(category, buttons, self.handle_menu_click)
+            grid_layout.addWidget(card, 0, col, Qt.AlignTop)
+            col += 1
 
     def show_popup_msg(self, title: str, message: str, icon_type: str = "info"):
-        """다크모드 / 라이트모드 환경과 상관없이 고정 가독성을 보장하는 팝업 메시지창"""
+        """가독성이 보장된 팝업 메세지창"""
         msg = QMessageBox(self)
         msg.setWindowTitle(title)
         msg.setText(message)
@@ -153,46 +173,31 @@ class MainDashboard(QWidget):
             msg.setIcon(QMessageBox.Critical)
 
         msg.setStyleSheet("""
-            QMessageBox {
-                background-color: #f8f9fa !important;
-            }
-            QMessageBox QLabel {
-                color: #1a1a1a !important;
-                font-size: 13px;
-                font-weight: bold;
-                background-color: transparent !important;
-            }
+            QMessageBox { background-color: #f8f9fa !important; }
+            QMessageBox QLabel { color: #1a1a1a !important; font-size: 13px; font-weight: bold; }
             QPushButton {
-                background-color: #ffffff !important;
-                color: #222222 !important;
-                border: 1px solid #b0b0b0 !important;
-                border-radius: 4px;
-                padding: 5px 18px;
-                min-width: 65px;
-                font-weight: bold;
+                background-color: #ffffff !important; color: #222222 !important;
+                border: 1px solid #b0b0b0 !important; border-radius: 4px; padding: 5px 18px; min-width: 65px;
             }
-            QPushButton:hover {
-                background-color: #005a9e !important;
-                color: #ffffff !important;
-                border-color: #005a9e !important;
-            }
-            QPushButton:pressed {
-                background-color: #004578 !important;
-                color: #ffffff !important;
-            }
+            QPushButton:hover { background-color: #005a9e !important; color: #ffffff !important; }
         """)
         msg.exec()
 
     def handle_menu_click(self, menu_name: str):
-        """단축메뉴 버튼 클릭 시 상위/세부 화면을 연결하는 공통 핸들러"""
+        """단축메뉴 클릭 이벤트 연동"""
         print(f"[단축메뉴 클릭]: {menu_name}")
         
+        # 1. 거래처입력
         if menu_name == "거래처입력":
-            self.show_popup_msg("메뉴 실행", "거래처 입력(업체등록) 화면을 연동합니다.")
+            self.show_popup_msg("안내", "거래처 입력 화면을 연결합니다.")
+            
+        # 2. 계약 및 파이낸싱
         elif menu_name in ["수입대행", "BL양수도", "국내매입"]:
-            self.show_popup_msg("계약판매 실행", f"[{menu_name}] 계약 및 파이낸싱 관리 화면을 연동합니다.")
+            self.show_popup_msg("계약판매", f"[{menu_name}] 계약 및 파이낸싱 관리 화면 준비 중입니다.")
+            
+        # 3. 기타 메뉴
         else:
-            self.show_popup_msg("메뉴 선택", f"'{menu_name}' 메뉴가 선택되었습니다.")
+            self.show_popup_msg("메뉴 선택", f"'{menu_name}' 화면을 연결합니다.")
 
 
 if __name__ == "__main__":

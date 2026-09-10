@@ -5,10 +5,11 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QMessageBox, QFrame, QStyleFactory
 )
 from PySide6.QtCore import QThread, Signal, Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPalette, QColor
 
-# views/main_view.py에서 메인 UI 로드 함수 가져오기
-from views.main_view import load_main_window
+# views/mxmn_main_window.py에서 메인 윈도우 클래스만 불러옵니다.
+from views.mxmn_main_window import MixNMainWindow
+
 
 # 1. 비동기 로그인 통신 워커
 class LoginWorker(QThread):
@@ -26,7 +27,6 @@ class LoginWorker(QThread):
             
             if response.status_code == 200:
                 data = response.json()
-                # 사용자명이 반환되지 않으면 입력한 ID 사용
                 self.finished.emit(True, data.get("user_name", self.user_id))
             else:
                 err_msg = response.json().get("detail", "사용자 ID 또는 암호가 일치하지 않습니다.")
@@ -34,7 +34,8 @@ class LoginWorker(QThread):
         except Exception as e:
             self.finished.emit(False, f"서버 연결 실패: {str(e)}")
 
-# 2. 커스텀 스타일이 적용된 알림 창 (선명한 글자/버튼)
+
+# 2. 커스텀 알림 창 (선명한 대비 스타일 적용)
 def show_custom_message(parent, title, message, icon=QMessageBox.Information):
     msg_box = QMessageBox(parent)
     msg_box.setWindowTitle(title)
@@ -68,14 +69,15 @@ def show_custom_message(parent, title, message, icon=QMessageBox.Information):
     """)
     msg_box.exec()
 
+
 # 3. MXMN ERP 로그인 GUI 대화상자
 class LoginDialog(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("MXMN ERP")
         self.setFixedSize(650, 480)
-        self.setStyleSheet("background-color: #ffffff;")
-        self.user_name = ""  # 로그인 성공한 사용자 이름 저장
+        self.setStyleSheet("background-color: #ffffff; color: #000000;")
+        self.user_name = ""
         self.init_ui()
 
     def init_ui(self):
@@ -90,7 +92,7 @@ class LoginDialog(QDialog):
         
         logo_label = QLabel("MXMN")
         logo_label.setFont(QFont("Segoe UI", 32, QFont.Bold))
-        logo_label.setStyleSheet("color: #0d47a1; border: none;")
+        logo_label.setStyleSheet("color: #0d47a1; border: none; background-color: transparent;")
         logo_label.setAlignment(Qt.AlignCenter)
         logo_layout.addWidget(logo_label)
         
@@ -106,7 +108,7 @@ class LoginDialog(QDialog):
         id_label = QLabel("사용자 ID")
         id_label.setFixedWidth(80)
         id_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
-        id_label.setStyleSheet("color: #800000;")
+        id_label.setStyleSheet("color: #800000; background-color: transparent;")
         id_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         self.id_input = QLineEdit()
@@ -134,7 +136,7 @@ class LoginDialog(QDialog):
         pw_label = QLabel("암    호")
         pw_label.setFixedWidth(80)
         pw_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
-        pw_label.setStyleSheet("color: #800000;")
+        pw_label.setStyleSheet("color: #800000; background-color: transparent;")
         pw_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         self.pw_input = QLineEdit()
@@ -162,7 +164,7 @@ class LoginDialog(QDialog):
         form_layout.addLayout(pw_layout)
         main_layout.addLayout(form_layout)
 
-        # 버튼 영역 (확인 / 취소)
+        # 버튼 영역
         btn_layout = QHBoxLayout()
         btn_style = """
             QPushButton {
@@ -196,7 +198,7 @@ class LoginDialog(QDialog):
         # 하단 버전 정보
         version_label = QLabel("믹스앤메뉴 Ver.1.00")
         version_label.setFont(QFont("맑은 고딕", 10, QFont.Bold))
-        version_label.setStyleSheet("color: #000080;")
+        version_label.setStyleSheet("color: #000080; background-color: transparent;")
         version_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(version_label)
 
@@ -229,23 +231,44 @@ class LoginDialog(QDialog):
         else:
             show_custom_message(self, "로그인 실패", result_msg, QMessageBox.Critical)
 
-# 메인 실행부
+
+# OS 다크모드 강제 차단 팔레트 설정
+def apply_light_palette(app):
+    app.setStyle(QStyleFactory.create("Fusion"))
+    palette = QPalette()
+    palette.setColor(QPalette.Window, QColor(255, 255, 255))
+    palette.setColor(QPalette.WindowText, QColor(0, 0, 0))
+    palette.setColor(QPalette.Base, QColor(255, 255, 255))
+    palette.setColor(QPalette.AlternateBase, QColor(245, 245, 245))
+    palette.setColor(QPalette.ToolTipBase, QColor(255, 255, 255))
+    palette.setColor(QPalette.ToolTipText, QColor(0, 0, 0))
+    palette.setColor(QPalette.Text, QColor(0, 0, 0))
+    palette.setColor(QPalette.Button, QColor(240, 240, 240))
+    palette.setColor(QPalette.ButtonText, QColor(0, 0, 0))
+    palette.setColor(QPalette.BrightText, QColor(255, 0, 0))
+    palette.setColor(QPalette.Link, QColor(13, 71, 161))
+    palette.setColor(QPalette.Highlight, QColor(13, 71, 161))
+    palette.setColor(QPalette.HighlightedText, QColor(255, 255, 255))
+    app.setPalette(palette)
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     
-    # OS 다크모드로 인한 전체 앱 스타일 왜곡 방지
-    app.setStyle(QStyleFactory.create("Fusion"))
-    
-    # 1. 로그인 창 띄우기 (FastAPI -> DB 인증)
+    apply_light_palette(app)
+
     login_dialog = LoginDialog()
     if login_dialog.exec() == QDialog.Accepted:
-        # 2. ui/mxmn_main_window.ui 파일 기반의 메인 창 로드
-        main_win = load_main_window(login_dialog.user_name)
-        if main_win:
-            main_win.show()
-            sys.exit(app.exec())
-        else:
-            print("[Error] 메인 UI 파일(mxmn_main_window.ui)을 로드하지 못했습니다.")
-            sys.exit(1)
+        main_win = MixNMainWindow()
+        
+        try:
+            sb = main_win.statusBar()
+            if sb:
+                sb.showMessage(f"접속자: {login_dialog.user_name} | 시스템 준비 완료")
+        except Exception:
+            pass
+            
+        main_win.show()
+        sys.exit(app.exec())
     else:
         sys.exit(0)
