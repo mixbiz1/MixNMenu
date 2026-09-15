@@ -13,7 +13,7 @@ class Company(Base):
     """
     __tablename__ = "tb_company"
 
-    comp_code = Column(String(10), primary_key=True, index=True, default="00001") # 사업장코드
+    comp_code = Column(String(10), primary_key=True, index=True) # 사업장코드 (복수 법인: 명시 입력)
     comp_name = Column(String(100), nullable=False)             # 사업자명
     comp_name_en = Column(String(100), nullable=True)           # 사업자명(영문)
     biz_no = Column(String(20), nullable=False)                  # 등록번호(사업자번호)

@@ -1,0 +1,275 @@
+﻿==============================================================================
+MXMN DATABASE INSPECTION REPORT
+==============================================================================
+
+[1] DATABASE BASIC INFORMATION
+------------------------------------------------------------------------------
+Database : MXMN_DEV
+Server   : MIXBIZ1\SQLEXPRESS
+Version  : Microsoft SQL Server 2025 (RTM) - 17.0.1000.7 (X64) 
+	Oct 21 2025 12:05:57 
+	Copyright (C) 2025 Microsoft Corporation
+	Express Edition (64-bit) on Windows 10 Pro 10.0 <X64> (Build 26200: ) (Hypervisor)
+
+
+[2] USER TABLE LIST
+------------------------------------------------------------------------------
+Total tables: 6
+
+001. tb_account
+002. tb_company
+003. tb_product
+004. tb_slip_dtl
+005. tb_slip_hdr
+006. tb_user
+
+[3] TABLE / COLUMN STRUCTURE
+==============================================================================
+
+TABLE: tb_account
+------------------------------------------------------------------------------
+  account_id                     INTEGER                   NULL=False DEFAULT=None
+  account_code                   VARCHAR(20) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  account_name                   VARCHAR(100) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  biz_no                         VARCHAR(20) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  ceo_name                       VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  phone                          VARCHAR(20) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  use_yn                         BIT                       NULL=False DEFAULT=None
+  created_at                     DATETIMEOFFSET            NULL=True  DEFAULT=(getdate())
+
+TABLE: tb_company
+------------------------------------------------------------------------------
+  comp_code                      VARCHAR(10) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  comp_name                      VARCHAR(100) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  biz_no                         VARCHAR(20) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  meatwatch_bplc_no              VARCHAR(20) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  ceo_name                       VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  created_at                     DATETIMEOFFSET            NULL=True  DEFAULT=(getdate())
+  comp_name_en                   NVARCHAR(255) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  zip_code                       NVARCHAR(20) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  address                        NVARCHAR(500) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  uptae                          NVARCHAR(100) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  upjong                         NVARCHAR(100) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  lic_no                         NVARCHAR(100) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  bank1                          NVARCHAR(100) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  bank2                          NVARCHAR(100) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  tel                            NVARCHAR(50) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  fax                            NVARCHAR(50) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  pcs                            NVARCHAR(50) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  email                          NVARCHAR(255) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  consult                        NVARCHAR COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+
+TABLE: tb_product
+------------------------------------------------------------------------------
+  product_id                     INTEGER                   NULL=False DEFAULT=None
+  product_code                   VARCHAR(30) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  product_name                   VARCHAR(100) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  category                       VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  origin                         VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  unit_price                     NUMERIC(12, 2)            NULL=True  DEFAULT=None
+  use_yn                         BIT                       NULL=False DEFAULT=None
+  created_at                     DATETIMEOFFSET            NULL=True  DEFAULT=(getdate())
+
+TABLE: tb_slip_dtl
+------------------------------------------------------------------------------
+  slip_no                        VARCHAR(25) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  seq                            INTEGER                   NULL=False DEFAULT=None
+  product_id                     INTEGER                   NULL=False DEFAULT=None
+  history_no                     VARCHAR(20) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  box_qty                        INTEGER                   NULL=True  DEFAULT=None
+  weight                         NUMERIC(12, 2)            NULL=False DEFAULT=None
+  unit_price                     NUMERIC(18, 2)            NULL=False DEFAULT=None
+  supply_amount                  NUMERIC(18, 2)            NULL=False DEFAULT=None
+  vat                            NUMERIC(18, 2)            NULL=True  DEFAULT=None
+  wh_location_no                 VARCHAR(10) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+
+TABLE: tb_slip_hdr
+------------------------------------------------------------------------------
+  slip_no                        VARCHAR(25) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  comp_code                      VARCHAR(10) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  slip_date                      VARCHAR(8) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  slip_type                      VARCHAR(1) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  account_id                     INTEGER                   NULL=False DEFAULT=None
+  tax_type                       VARCHAR(1) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  total_qty                      INTEGER                   NULL=True  DEFAULT=None
+  total_weight                   NUMERIC(12, 2)            NULL=True  DEFAULT=None
+  total_amount                   NUMERIC(18, 2)            NULL=True  DEFAULT=None
+  vat_amount                     NUMERIC(18, 2)            NULL=True  DEFAULT=None
+  tax_bill_status                VARCHAR(1) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  meatwatch_yn                   VARCHAR(1) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  reg_user                       VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" NULL=True  DEFAULT=None
+  created_at                     DATETIMEOFFSET            NULL=True  DEFAULT=(getdate())
+
+TABLE: tb_user
+------------------------------------------------------------------------------
+  user_id                        VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  user_name                      VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  password_hash                  VARCHAR(255) COLLATE "Korean_Wansung_CI_AS" NULL=False DEFAULT=None
+  use_yn                         BIT                       NULL=False DEFAULT=None
+  created_at                     DATETIMEOFFSET            NULL=True  DEFAULT=(getdate())
+
+[4] PRIMARY KEYS
+==============================================================================
+
+TABLE: tb_account
+  Constraint : PK__tb_accou__46A222CD2FD8F4E5
+  Columns    : ['account_id']
+
+TABLE: tb_company
+  Constraint : PK__tb_compa__5846661A1481F54C
+  Columns    : ['comp_code']
+
+TABLE: tb_product
+  Constraint : PK__tb_produ__47027DF502DF5CB2
+  Columns    : ['product_id']
+
+TABLE: tb_slip_dtl
+  Constraint : PK__tb_slip___BE816EE6FC8A6A13
+  Columns    : ['slip_no', 'seq']
+
+TABLE: tb_slip_hdr
+  Constraint : PK__tb_slip___435C952DA8E3D46D
+  Columns    : ['slip_no']
+
+TABLE: tb_user
+  Constraint : PK__tb_user__B9BE370F0047ADC1
+  Columns    : ['user_id']
+
+[5] FOREIGN KEYS
+==============================================================================
+
+TABLE: tb_slip_dtl
+  FK__tb_slip_d__produ__0B91BA14 : ['product_id'] -> tb_product.['product_id']
+  FK__tb_slip_d__slip___0A9D95DB : ['slip_no'] -> tb_slip_hdr.['slip_no']
+
+TABLE: tb_slip_hdr
+  FK__tb_slip_h__accou__07C12930 : ['account_id'] -> tb_account.['account_id']
+  FK__tb_slip_h__comp___06CD04F7 : ['comp_code'] -> tb_company.['comp_code']
+
+[6] UNIQUE CONSTRAINTS
+==============================================================================
+
+TABLE: tb_account
+  ERROR: 
+
+TABLE: tb_company
+  ERROR: 
+
+TABLE: tb_product
+  ERROR: 
+
+TABLE: tb_slip_dtl
+  ERROR: 
+
+TABLE: tb_slip_hdr
+  ERROR: 
+
+TABLE: tb_user
+  ERROR: 
+
+[7] INDEXES
+==============================================================================
+
+TABLE: tb_account
+  ix_tb_account_account_code : ['account_code'] UNIQUE=True
+  ix_tb_account_account_id : ['account_id'] UNIQUE=False
+
+TABLE: tb_company
+  ix_tb_company_comp_code : ['comp_code'] UNIQUE=False
+
+TABLE: tb_product
+  ix_tb_product_product_code : ['product_code'] UNIQUE=True
+  ix_tb_product_product_id : ['product_id'] UNIQUE=False
+
+TABLE: tb_slip_dtl
+  ix_tb_slip_dtl_history_no : ['history_no'] UNIQUE=False
+
+TABLE: tb_slip_hdr
+  ix_tb_slip_hdr_slip_date : ['slip_date'] UNIQUE=False
+  ix_tb_slip_hdr_slip_no : ['slip_no'] UNIQUE=False
+
+TABLE: tb_user
+  ix_tb_user_user_id : ['user_id'] UNIQUE=False
+
+[8] MXMN FOCUS TABLES
+==============================================================================
+
+>>> tb_company
+    comp_code : VARCHAR(10) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    comp_name : VARCHAR(100) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    biz_no : VARCHAR(20) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    meatwatch_bplc_no : VARCHAR(20) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    ceo_name : VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    created_at : DATETIMEOFFSET (nullable=True)
+    comp_name_en : NVARCHAR(255) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    zip_code : NVARCHAR(20) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    address : NVARCHAR(500) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    uptae : NVARCHAR(100) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    upjong : NVARCHAR(100) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    lic_no : NVARCHAR(100) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    bank1 : NVARCHAR(100) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    bank2 : NVARCHAR(100) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    tel : NVARCHAR(50) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    fax : NVARCHAR(50) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    pcs : NVARCHAR(50) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    email : NVARCHAR(255) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    consult : NVARCHAR COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    PK : ['comp_code']
+
+>>> tb_product
+    product_id : INTEGER (nullable=False)
+    product_code : VARCHAR(30) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    product_name : VARCHAR(100) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    category : VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    origin : VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    unit_price : NUMERIC(12, 2) (nullable=True)
+    use_yn : BIT (nullable=False)
+    created_at : DATETIMEOFFSET (nullable=True)
+    PK : ['product_id']
+
+>>> tb_slip_dtl
+    slip_no : VARCHAR(25) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    seq : INTEGER (nullable=False)
+    product_id : INTEGER (nullable=False)
+    history_no : VARCHAR(20) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    box_qty : INTEGER (nullable=True)
+    weight : NUMERIC(12, 2) (nullable=False)
+    unit_price : NUMERIC(18, 2) (nullable=False)
+    supply_amount : NUMERIC(18, 2) (nullable=False)
+    vat : NUMERIC(18, 2) (nullable=True)
+    wh_location_no : VARCHAR(10) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    PK : ['slip_no', 'seq']
+    FK : ['product_id'] -> tb_product.['product_id']
+    FK : ['slip_no'] -> tb_slip_hdr.['slip_no']
+
+>>> tb_slip_hdr
+    slip_no : VARCHAR(25) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    comp_code : VARCHAR(10) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    slip_date : VARCHAR(8) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    slip_type : VARCHAR(1) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    account_id : INTEGER (nullable=False)
+    tax_type : VARCHAR(1) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    total_qty : INTEGER (nullable=True)
+    total_weight : NUMERIC(12, 2) (nullable=True)
+    total_amount : NUMERIC(18, 2) (nullable=True)
+    vat_amount : NUMERIC(18, 2) (nullable=True)
+    tax_bill_status : VARCHAR(1) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    meatwatch_yn : VARCHAR(1) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    reg_user : VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" (nullable=True)
+    created_at : DATETIMEOFFSET (nullable=True)
+    PK : ['slip_no']
+    FK : ['account_id'] -> tb_account.['account_id']
+    FK : ['comp_code'] -> tb_company.['comp_code']
+
+>>> tb_user
+    user_id : VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    user_name : VARCHAR(50) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    password_hash : VARCHAR(255) COLLATE "Korean_Wansung_CI_AS" (nullable=False)
+    use_yn : BIT (nullable=False)
+    created_at : DATETIMEOFFSET (nullable=True)
+    PK : ['user_id']
+
+==============================================================================
+INSPECTION COMPLETED
+Result file: C:\projects\MixNMenu\db_inspect_result.txt
+==============================================================================
