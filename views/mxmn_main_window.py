@@ -4,6 +4,7 @@ import traceback
 import httpx
 
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QApplication,
     QMainWindow,
     QWidget,
@@ -27,6 +28,12 @@ from PySide6.QtGui import QAction, QPalette, QColor
 
 # MXMN 공통 실행 Context
 from app_context import app_context
+
+# 거래처입력 화면
+try:
+    from views.account_reg import AccountRegWindow
+except ImportError:
+    from account_reg import AccountRegWindow
 
 
 # ============================================================
@@ -673,16 +680,27 @@ class MixNMainWindow(QMainWindow):
             )
         )
 
+        account_action = QAction(
+            "3.거래처입력",
+            self,
+        )
+        account_action.triggered.connect(
+            self.open_account_reg
+        )
+        self.menu2.addAction(
+            account_action
+        )
+
         self.menu2.addAction(
             QAction(
-                "3.거래처 기초잔액 입력",
+                "4.거래처 기초잔액 입력",
                 self,
             )
         )
 
         self.menu2.addAction(
             QAction(
-                "4.더존iU연동관리",
+                "5.더존iU연동관리",
                 self,
             )
         )
@@ -1073,37 +1091,72 @@ class MixNMainWindow(QMainWindow):
             )
 
 
-# ============================================================
-# 외부 호출용
-# ============================================================
+    # ========================================================
+    # Dashboard shortcut connection
+    # ========================================================
 
-def load_main_window(user_name=""):
+    def connect_account_shortcut(self):
+        """바탕화면 <<코드관리>> '거래처입력' 버튼을 동일 화면에 연결한다."""
+        connected = 0
 
-    return MixNMainWindow(
-        user_name=user_name
-    )
+        for button in self.findChildren(QAbstractButton):
+            if button.text().strip() == "거래처입력":
+                try:
+                    button.clicked.disconnect()
+                except (TypeError, RuntimeError):
+                    pass
 
+                button.clicked.connect(self.open_account_reg)
+                connected += 1
 
-# ============================================================
-# 단독 실행 테스트
-# ============================================================
+        return connected
 
-if __name__ == "__main__":
+    # ========================================================
+    # Account Registration
+    # ========================================================
 
-    app = QApplication(
-        sys.argv
-    )
+    def open_account_reg(self):
+        """거래처 등록/수정 화면을 MDI에 1개만 열고, 닫힌 후에는 정상 재생성한다."""
+        try:
+            for sub in self.mdi_area.subWindowList():
+                widget = sub.widget()
+                if widget is not None and isinstance(widget, AccountRegWindow):
+                    self.mdi_area.setActiveSubWindow(sub)
+                    sub.showNormal()
+                    sub.showMaximized()
+                    self.set_work_status("3.거래처입력 창이 활성화되었습니다.")
+                    return
 
-    app.setStyle(
-        QStyleFactory.create(
-            "Fusion"
-        )
-    )
+            # AccountRegWindow 실제 생성자는 parent=None만 받는다.
+            account_widget = AccountRegWindow()
 
-    main_win = MixNMainWindow()
+            sub_window = self.mdi_area.addSubWindow(account_widget)
+            sub_window.setAttribute(Qt.WA_DeleteOnClose, True)
+            sub_window.setWindowTitle(
+                f"거래처입력 - {app_context.company_name or app_context.company_code}"
+            )
 
-    main_win.show()
+            # 닫기 후 삭제되기 전까지 명시적 참조 유지
+            self._account_subwindow = sub_window
+            self._account_widget = account_widget
 
-    sys.exit(
-        app.exec()
-    )
+            def clear_account_refs(*args):
+                self._account_subwindow = None
+                self._account_widget = None
+
+            sub_window.destroyed.connect(clear_account_refs)
+
+            account_widget.show()
+            sub_window.show()
+            self.mdi_area.setActiveSubWindow(sub_window)
+            sub_window.showMaximized()
+
+            self.set_work_status("3.거래처입력 창이 열렸습니다.")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "거래처입력 실행 오류",
+                f"거래처입력 화면을 열 수 없습니다.\n\n{e}",
+            )
+

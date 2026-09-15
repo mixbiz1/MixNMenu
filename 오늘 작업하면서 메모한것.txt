@@ -1,0 +1,56 @@
+특히 좋은 부분은 로그인 요청을 UI Thread에서 직접 수행하지 않고 로 분리했다는 점입니다.
+
+GUI가 멈추는 것을 피하려는 구조
+
+현재 요청 주소는: http://127.0.0.1:8000/api/v1/auth/login 현재 서버 주소가 코드에 직접 들어가 있습니다.
+
+향후 Home Server 구조로 가면: 
+Home Server IP
+또는
+VPN/Tailscale 주소가 되어야 합니다.
+API_BASE_URL  을 환경설정 파일로 빼야 합니다.
+
+지금부터는 신규 Model을 이런 식으로 나누는 것을 권합니다.
+
+main.py
+  │
+  ├─ auth router
+  ├─ company router
+  ├─ customer router
+  ├─ product router
+  ├─ offer router
+  └─ financing router
+
+Enter 이동
+
+과거 Qt Designer 구조가 아직 일부 남아 있습니다
+이제 main_view.py는 Legacy로 분류하는 것이 맞습니다.
+따라서 main_view.py는 현재 실행 Main Path에는 필요하지 않습니다.
+
+전체 MXMN으로 보면 아직 초기이지만,
+기반 Framework는 상당 부분 만들어졌습니다.
+제가 보기에는 현재가 약:
+Framework 구축 60~70% / 실제 업무 Module 구축 10~15% 정도입니다.
+
+PySide6 VIEW
+     │
+     ▼
+Client API Service
+     │
+     │ HTTP
+     ▼
+FastAPI Router
+     │
+     ▼
+Business Service
+     │
+     ▼
+SQLAlchemy Model
+     │
+     ▼
+SQL Server
+
+
+
+미트소프트 분석/비교
+다음 단계에서는 이 KIMS.db의 실제 테이블·컬럼·PK/FK·인덱스·데이터 관계를 추출해서 「Legacy MeatSoft DB 역설계 보고서」를 만들고, 그 결과를 현재 models.py와 대조하는 작업으로 들어가면 됩니다.

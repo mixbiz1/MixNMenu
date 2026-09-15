@@ -51,26 +51,34 @@ class User(Base):
 
 
 class Account(Base):
-    """
-    거래처 정보 테이블 (파이낸싱/여신 및 세무 정보 포함)
-    """
+    """회사 간 공유하는 실제 사업자/거래처 Master."""
     __tablename__ = "tb_account"
 
     account_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    account_code = Column(String(20), unique=True, nullable=False, index=True) # 거래처코드
-    account_name = Column(String(100), nullable=False)                        # 거래처명
-    biz_no = Column(String(20), nullable=True)                                 # 사업자등록번호/주민번호
-    ceo_name = Column(String(50), nullable=True)                               # 대표자명
-    email = Column(String(100), nullable=True)                                 # 전자(세금)계산서 발송용 이메일
-    phone = Column(String(20), nullable=True)                                  # 전화번호
-    credit_limit = Column(Numeric(18, 2), default=0)                           # 여신한도 금액 (파이낸싱 관리)
-    meatwatch_cust_no = Column(String(20), nullable=True)                      # 축산물이력제 거래처관리번호 (예: '2028601098')
-    use_yn = Column(Boolean, default=True, nullable=False)                     # 사용여부
-    created_at = Column(DateTime(timezone=True), server_default=func.now())   # 등록일시
+    account_code = Column(String(20), unique=True, nullable=False, index=True)
+    account_name = Column(String(100), nullable=False)  # 실제 상호명
+    biz_no = Column(String(20), nullable=True)
+    corp_no = Column(String(20), nullable=True)
+    ceo_name = Column(String(50), nullable=True)
+    zip_code = Column(String(10), nullable=True)
+    address = Column(String(200), nullable=True)
+    address_detail = Column(String(200), nullable=True)
+    uptae = Column(String(100), nullable=True)
+    upjong = Column(String(100), nullable=True)
+    phone = Column(String(20), nullable=True)
+    fax = Column(String(30), nullable=True)
+    contact_name = Column(String(50), nullable=True)
+    contact_mobile = Column(String(30), nullable=True)
+    tax_email = Column(String(150), nullable=True)  # 전자(세금)계산서 이메일 1개
+    bank_name = Column(String(50), nullable=True)
+    bank_account_no = Column(String(80), nullable=True)
+    bank_account_holder = Column(String(100), nullable=True)
+    meatwatch_cust_no = Column(String(20), nullable=True)
+    memo = Column(String(1000), nullable=True)
+    use_yn = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # 관계 설정
     slips = relationship("SlipHeader", back_populates="account")
-
 
 class Product(Base):
     """
@@ -145,3 +153,21 @@ class SlipDetail(Base):
     # 관계 설정
     header = relationship("SlipHeader", back_populates="details")
     product = relationship("Product", back_populates="slip_details")
+
+class CompanyAccount(Base):
+    """업무회사별 거래처 관계 및 세무 자동화 설정."""
+    __tablename__ = "tb_company_account"
+    company_account_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False, index=True)
+    account_id = Column(Integer, ForeignKey("tb_account.account_id"), nullable=False, index=True)
+    trade_status = Column(String(20), default="TRADE", nullable=False)
+    trade_type = Column(String(30), default="GENERAL", nullable=False)
+    purchase_yn = Column(Boolean, default=False, nullable=False)
+    sales_yn = Column(Boolean, default=False, nullable=False)
+    tax_doc_type = Column(String(20), default="NONE", nullable=False)
+    sales_tax_auto_yn = Column(Boolean, default=False, nullable=False)
+    purchase_tax_manage_yn = Column(Boolean, default=False, nullable=False)
+    trade_stop_yn = Column(Boolean, default=False, nullable=False)
+    invoice_issue_yn = Column(Boolean, default=False, nullable=False)
+    use_yn = Column(Boolean, default=True, nullable=False)
+    memo = Column(String(1000), nullable=True)
