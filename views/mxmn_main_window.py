@@ -713,8 +713,19 @@ class MixNMainWindow(QMainWindow):
             goods_common_code_action
         )
 
+        product_action = QAction(
+            "4.상품코드입력",
+            self,
+        )
+        product_action.triggered.connect(
+            self.open_product_reg
+        )
+        self.menu2.addAction(
+            product_action
+        )
+
         account_action = QAction(
-            "4.거래처입력",
+            "5.거래처입력",
             self,
         )
         account_action.triggered.connect(
@@ -726,14 +737,14 @@ class MixNMainWindow(QMainWindow):
 
         self.menu2.addAction(
             QAction(
-                "5.거래처 기초잔액 입력",
+                "6.거래처 기초잔액 입력",
                 self,
             )
         )
 
         self.menu2.addAction(
             QAction(
-                "5.더존iU연동관리",
+                "7.더존iU연동관리",
                 self,
             )
         )
@@ -751,9 +762,6 @@ class MixNMainWindow(QMainWindow):
             "4.상품입/출고관리",
             self,
         )
-        product_action = QAction("1.상품입력", self)
-        product_action.triggered.connect(self.open_product_reg)
-        self.menu4.addAction(product_action)
 
         self.menu5 = QMenu(
             "5.입금/출금관리",
@@ -1292,7 +1300,7 @@ class MixNMainWindow(QMainWindow):
                     sub.showNormal()
                     sub.showMaximized()
                     self._bring_subwindow_to_front(sub)
-                    self.set_work_status("4.거래처입력 창이 활성화되었습니다.")
+                    self.set_work_status("5.거래처입력 창이 활성화되었습니다.")
                     return
 
             # AccountRegWindow 실제 생성자는 parent=None만 받는다.
@@ -1320,7 +1328,7 @@ class MixNMainWindow(QMainWindow):
             sub_window.showMaximized()
             self._bring_subwindow_to_front(sub_window)
 
-            self.set_work_status("4.거래처입력 창이 열렸습니다.")
+            self.set_work_status("5.거래처입력 창이 열렸습니다.")
 
         except Exception as e:
             QMessageBox.critical(

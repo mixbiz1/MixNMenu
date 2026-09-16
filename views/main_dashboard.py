@@ -230,6 +230,15 @@ class MainDashboard(QWidget):
                     "메인창의 거래처입력 기능과 연결되지 않았습니다.",
                     "warning",
                 )
+        elif menu_name == "상품입력":
+            if self.main_window and hasattr(self.main_window, "open_product_reg"):
+                self.main_window.open_product_reg()
+            else:
+                self.show_popup_msg(
+                    "실행 오류",
+                    "메인창의 상품코드입력 기능과 연결되지 않았습니다.",
+                    "warning",
+                )
         elif menu_name in ["수입대행", "BL양수도", "국내매입"]:
             self.show_popup_msg("계약판매", f"[{menu_name}] 계약 및 파이낸싱 관리 화면 준비 중입니다.")
         elif menu_name in ["매입계산서입력", "매출계산서입력", "계산서내역", "매입세금계산서입력", "매출세금계산서입력", "매출세금계산서내역"]:
