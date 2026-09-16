@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QMdiSubWindow,
+    QApplication,
 )
 
 try:
@@ -56,7 +57,7 @@ class GoodsCommonCodeWindow(QWidget):
         self._build_ui()
         self._apply_style()
         # MDI 창을 먼저 표시한 뒤 초기 자료를 조회해 클릭 반응을 즉시 보여준다.
-        QTimer.singleShot(50, self.load_categories)
+        QTimer.singleShot(50, self._initial_load)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -450,10 +451,27 @@ class GoodsCommonCodeWindow(QWidget):
         self.current_group_exists = True
 
     def refresh_data(self):
-        if self.current_group_code:
-            self.load_values()
-        else:
+        self._set_lookup_busy(True)
+        try:
+            if self.current_group_code:
+                self.load_values()
+            else:
+                self.load_categories()
+        finally:
+            self._set_lookup_busy(False)
+
+    def _initial_load(self):
+        self._set_lookup_busy(True)
+        try:
             self.load_categories()
+        finally:
+            self._set_lookup_busy(False)
+
+    def _set_lookup_busy(self, busy):
+        self.btn_refresh.setEnabled(not busy)
+        self.btn_refresh.setText("조회 중..." if busy else "조회")
+        self.search_input.setEnabled(not busy)
+        QApplication.processEvents()
 
     def load_values(self):
         if not self.current_group_code:
