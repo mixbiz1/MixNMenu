@@ -1,6 +1,6 @@
 import httpx
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -52,7 +52,8 @@ class CommonCodeWindow(QWidget):
         self.resize(1280, 760)
         self._build_ui()
         self._apply_style()
-        self.load_groups()
+        # MDI 창을 먼저 표시한 뒤 초기 자료를 조회해 클릭 반응을 즉시 보여준다.
+        QTimer.singleShot(50, self.load_groups)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
