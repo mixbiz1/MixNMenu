@@ -128,6 +128,23 @@ class Account(Base):
 
     slips = relationship("SlipHeader", back_populates="account")
 
+class ProductCategory(Base):
+    """대/중/소분류를 동일 테이블의 부모-자식 관계로 관리한다."""
+    __tablename__ = "tb_product_category"
+
+    category_id = Column(Integer, primary_key=True, autoincrement=True)
+    category_code = Column(String(20), unique=True, nullable=False, index=True)
+    category_name = Column(String(100), nullable=False)
+    parent_category_id = Column(
+        Integer, ForeignKey("tb_product_category.category_id"), nullable=True
+    )
+    category_level = Column(Integer, default=1, nullable=False)
+    description = Column(String(300), nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    use_yn = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Product(Base):
     """
     품목(수입육류) 정보 테이블
@@ -137,6 +154,9 @@ class Product(Base):
     product_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     product_code = Column(String(30), unique=True, nullable=False, index=True) # 품목코드
     product_name = Column(String(100), nullable=False)                        # 품목명 (예: 우삼겹, 삼겹살)
+    category_id = Column(Integer, ForeignKey("tb_product_category.category_id"), nullable=True)
+    specification = Column(String(200), nullable=True)
+    memo = Column(String(1000), nullable=True)
     category = Column(String(50), nullable=True)                              # 카테고리 (돈육/우육 등)
     origin = Column(String(50), nullable=True)                                # 원산지 (미국/칠레/스페인 등)
     meat_regn_code = Column(String(10), nullable=True)                        # 축산물이력제 부위코드 (예: 'BF008')
@@ -148,6 +168,27 @@ class Product(Base):
 
     # 관계 설정
     slip_details = relationship("SlipDetail", back_populates="product")
+    code_assignments = relationship(
+        "ProductCodeAssignment", back_populates="product", cascade="all, delete-orphan"
+    )
+
+
+class ProductCodeAssignment(Base):
+    """상품별 공통코드 조합. 한 상품에서 동일 그룹은 하나만 선택한다."""
+    __tablename__ = "tb_product_code_assignment"
+    __table_args__ = (
+        UniqueConstraint(
+            "product_id", "code_group_id", name="UQ_product_code_assignment_group"
+        ),
+    )
+
+    assignment_id = Column(Integer, primary_key=True, autoincrement=True)
+    product_id = Column(Integer, ForeignKey("tb_product.product_id"), nullable=False, index=True)
+    code_group_id = Column(Integer, ForeignKey("tb_code_group.code_group_id"), nullable=False)
+    code_value_id = Column(Integer, ForeignKey("tb_code_value.code_value_id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    product = relationship("Product", back_populates="code_assignments")
 
 
 # ==========================================

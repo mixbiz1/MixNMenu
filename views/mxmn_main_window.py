@@ -47,6 +47,12 @@ try:
 except ImportError:
     from goods_common_code_reg import GoodsCommonCodeWindow
 
+# 상품입력 화면
+try:
+    from views.product_reg import ProductRegWindow
+except ImportError:
+    from product_reg import ProductRegWindow
+
 
 # ============================================================
 # 1. 프로젝트 루트 및 views 폴더 경로 설정
@@ -745,6 +751,9 @@ class MixNMainWindow(QMainWindow):
             "4.상품입/출고관리",
             self,
         )
+        product_action = QAction("1.상품입력", self)
+        product_action.triggered.connect(self.open_product_reg)
+        self.menu4.addAction(product_action)
 
         self.menu5 = QMenu(
             "5.입금/출금관리",
@@ -1242,6 +1251,31 @@ class MixNMainWindow(QMainWindow):
                 "상품공통코드관리 실행 오류",
                 f"상품공통코드관리 화면을 열 수 없습니다.\n\n{e}",
             )
+
+
+    # ========================================================
+    # Product Registration
+    # ========================================================
+
+    def open_product_reg(self):
+        """계층형 상품분류 및 상품 Master 화면을 MDI에 1개만 연다."""
+        try:
+            for sub in self.mdi_area.subWindowList():
+                widget = sub.widget()
+                if widget is not None and isinstance(widget, ProductRegWindow):
+                    sub.showNormal(); sub.showMaximized()
+                    self._bring_subwindow_to_front(sub)
+                    self.set_work_status("상품입력 창이 활성화되었습니다.")
+                    return
+            widget = ProductRegWindow()
+            sub_window = self.mdi_area.addSubWindow(widget)
+            sub_window.setAttribute(Qt.WA_DeleteOnClose, True)
+            sub_window.setWindowTitle("상품입력")
+            widget.show(); sub_window.show(); sub_window.showMaximized()
+            self._bring_subwindow_to_front(sub_window)
+            self.set_work_status("상품입력 창이 열렸습니다.")
+        except Exception as e:
+            QMessageBox.critical(self, "상품입력 실행 오류", f"상품입력 화면을 열 수 없습니다.\n\n{e}")
 
 
     # ========================================================

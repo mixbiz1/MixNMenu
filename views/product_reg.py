@@ -1,0 +1,361 @@
+import httpx
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QAbstractItemView, QComboBox, QDoubleSpinBox, QGridLayout, QGroupBox,
+    QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QSplitter, QTableWidget, QTableWidgetItem, QTextEdit, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget, QMdiSubWindow,
+)
+
+try:
+    from views.common_code_reg import API_BASE_URL, ReadableCheckBox
+except ImportError:
+    from common_code_reg import API_BASE_URL, ReadableCheckBox
+
+
+class ProductRegWindow(QWidget):
+    """계층형 상품분류와 상품공통코드 조합을 지원하는 상품 Master 화면."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.current_category_id = None
+        self.current_product_id = None
+        self.categories = []
+        self.attribute_combos = {}
+        self.setWindowTitle("상품입력")
+        self.resize(1400, 820)
+        self._build_ui()
+        self._apply_style()
+        self.refresh_all()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        toolbar = QHBoxLayout()
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("상품코드 / 상품명 / 규격")
+        self.include_inactive = ReadableCheckBox("사용중지 포함")
+        self.btn_search = QPushButton("조회")
+        self.btn_refresh = QPushButton("새로고침")
+        self.btn_new = QPushButton("신규")
+        self.btn_save = QPushButton("저장")
+        self.btn_delete = QPushButton("삭제")
+        self.btn_close = QPushButton("닫기")
+        toolbar.addWidget(QLabel("검색")); toolbar.addWidget(self.search, 1)
+        toolbar.addWidget(self.include_inactive)
+        for button in (self.btn_search, self.btn_refresh, self.btn_new,
+                       self.btn_save, self.btn_delete, self.btn_close):
+            toolbar.addWidget(button)
+        root.addLayout(toolbar)
+
+        splitter = QSplitter(Qt.Horizontal)
+        root.addWidget(splitter, 1)
+
+        category_box = QGroupBox("상품분류 (대 → 중 → 소)")
+        category_layout = QVBoxLayout(category_box)
+        self.category_tree = QTreeWidget()
+        self.category_tree.setHeaderLabels(["분류", "코드"])
+        self.category_tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.category_tree.header().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        category_layout.addWidget(self.category_tree, 1)
+        category_form = QGridLayout()
+        self.category_code = QLineEdit(); self.category_code.setReadOnly(True)
+        self.category_code.setPlaceholderText("자동발번")
+        self.category_name = QLineEdit()
+        self.parent_category = QComboBox()
+        self.category_description = QLineEdit()
+        self.category_use = ReadableCheckBox("사용"); self.category_use.setChecked(True)
+        category_form.addWidget(QLabel("분류코드"), 0, 0); category_form.addWidget(self.category_code, 0, 1)
+        category_form.addWidget(QLabel("분류명 *"), 1, 0); category_form.addWidget(self.category_name, 1, 1)
+        category_form.addWidget(QLabel("상위분류"), 2, 0); category_form.addWidget(self.parent_category, 2, 1)
+        category_form.addWidget(QLabel("설명"), 3, 0); category_form.addWidget(self.category_description, 3, 1)
+        category_form.addWidget(self.category_use, 4, 1)
+        category_layout.addLayout(category_form)
+        category_buttons = QHBoxLayout()
+        self.btn_category_new = QPushButton("분류 신규")
+        self.btn_category_save = QPushButton("분류 저장")
+        self.btn_category_delete = QPushButton("분류 삭제")
+        for button in (self.btn_category_new, self.btn_category_save, self.btn_category_delete):
+            category_buttons.addWidget(button)
+        category_layout.addLayout(category_buttons)
+        splitter.addWidget(category_box)
+
+        center = QWidget(); center_layout = QVBoxLayout(center)
+        center_layout.addWidget(QLabel("상품 목록"))
+        self.product_table = QTableWidget(0, 5)
+        self.product_table.setHorizontalHeaderLabels(["상품코드", "상품명", "규격", "분류", "사용"])
+        self.product_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.product_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        ph = self.product_table.horizontalHeader()
+        ph.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        ph.setSectionResizeMode(1, QHeaderView.Stretch)
+        ph.setSectionResizeMode(2, QHeaderView.Stretch)
+        ph.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        ph.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        center_layout.addWidget(self.product_table)
+        splitter.addWidget(center)
+
+        detail_box = QGroupBox("상품 Master")
+        detail_layout = QVBoxLayout(detail_box)
+        form = QGridLayout()
+        self.product_code = QLineEdit(); self.product_code.setReadOnly(True)
+        self.product_code.setPlaceholderText("자동발번")
+        self.product_name = QLineEdit()
+        self.product_category = QComboBox()
+        self.specification = QLineEdit()
+        self.tax_type = QComboBox(); self.tax_type.addItem("면세", "2"); self.tax_type.addItem("과세", "1")
+        self.unit_price = QDoubleSpinBox(); self.unit_price.setRange(0, 9999999999); self.unit_price.setDecimals(2)
+        self.meat_regn_code = QLineEdit(); self.meat_regn_name = QLineEdit()
+        self.product_use = ReadableCheckBox("사용"); self.product_use.setChecked(True)
+        self.memo = QTextEdit(); self.memo.setMaximumHeight(70)
+        form.addWidget(QLabel("상품코드"), 0, 0); form.addWidget(self.product_code, 0, 1)
+        form.addWidget(QLabel("상품명 *"), 0, 2); form.addWidget(self.product_name, 0, 3)
+        form.addWidget(QLabel("상품분류"), 1, 0); form.addWidget(self.product_category, 1, 1, 1, 3)
+        form.addWidget(QLabel("규격"), 2, 0); form.addWidget(self.specification, 2, 1, 1, 3)
+        form.addWidget(QLabel("과세구분"), 3, 0); form.addWidget(self.tax_type, 3, 1)
+        form.addWidget(QLabel("기본단가"), 3, 2); form.addWidget(self.unit_price, 3, 3)
+        form.addWidget(QLabel("이력부위코드"), 4, 0); form.addWidget(self.meat_regn_code, 4, 1)
+        form.addWidget(QLabel("이력부위명"), 4, 2); form.addWidget(self.meat_regn_name, 4, 3)
+        form.addWidget(self.product_use, 5, 1)
+        form.addWidget(QLabel("메모"), 6, 0); form.addWidget(self.memo, 6, 1, 1, 3)
+        detail_layout.addLayout(form)
+
+        attributes_box = QGroupBox("상품공통코드 조합 (선택하지 않아도 단독 상품 등록 가능)")
+        attributes_layout = QVBoxLayout(attributes_box)
+        self.attribute_table = QTableWidget(0, 2)
+        self.attribute_table.setHorizontalHeaderLabels(["코드그룹", "선택값"])
+        self.attribute_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.attribute_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.attribute_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        attributes_layout.addWidget(self.attribute_table)
+        self.btn_apply_combination = QPushButton("선택 코드로 상품명 조합")
+        self.btn_apply_combination.setToolTip("조합 후에도 상품명은 자유롭게 수정할 수 있습니다.")
+        attributes_layout.addWidget(self.btn_apply_combination)
+        detail_layout.addWidget(attributes_box, 1)
+        splitter.addWidget(detail_box)
+        splitter.setSizes([330, 460, 610])
+
+        self.btn_search.clicked.connect(self.load_products)
+        self.search.returnPressed.connect(self.load_products)
+        self.btn_refresh.clicked.connect(self.refresh_all)
+        self.include_inactive.stateChanged.connect(self.load_products)
+        self.btn_new.clicked.connect(self.new_product)
+        self.btn_save.clicked.connect(self.save_product)
+        self.btn_delete.clicked.connect(self.delete_product)
+        self.btn_close.clicked.connect(self.close_window)
+        self.category_tree.itemClicked.connect(self.on_category_selected)
+        self.product_table.itemSelectionChanged.connect(self.on_product_selected)
+        self.btn_category_new.clicked.connect(self.new_category)
+        self.btn_category_save.clicked.connect(self.save_category)
+        self.btn_category_delete.clicked.connect(self.delete_category)
+        self.btn_apply_combination.clicked.connect(self.apply_combination_name)
+
+    def _apply_style(self):
+        dark = self.palette().window().color().lightness() < 128
+        if dark:
+            window, panel, field, text_color, border, selected = "#202124", "#292a2d", "#303134", "#f1f3f4", "#5f6368", "#174ea6"
+        else:
+            window, panel, field, text_color, border, selected = "#f4f6f8", "#ffffff", "#ffffff", "#111111", "#aeb6bf", "#cfe8ff"
+        self.setStyleSheet(f"""
+            QWidget {{ background:{window}; color:{text_color}; font-family:'맑은 고딕'; font-size:9pt; }}
+            QGroupBox {{ background:{panel}; border:1px solid {border}; border-radius:4px; margin-top:10px; padding-top:8px; font-weight:bold; }}
+            QGroupBox::title {{ subcontrol-origin:margin; left:8px; padding:0 4px; }}
+            QLineEdit, QTextEdit, QComboBox, QDoubleSpinBox {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:2px; min-height:25px; padding:2px 5px; }}
+            QPushButton {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:3px; min-height:28px; padding:3px 10px; }}
+            QTableWidget, QTreeWidget {{ background:{field}; color:{text_color}; gridline-color:{border}; border:1px solid {border}; selection-background-color:{selected}; }}
+            QHeaderView::section {{ background:{panel}; color:{text_color}; border:0; border-right:1px solid {border}; border-bottom:1px solid {border}; padding:5px; font-weight:bold; }}
+            QCheckBox[mxmnReadable="true"] {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:3px; min-height:28px; padding:3px 10px; font-weight:bold; }}
+            QCheckBox[mxmnReadable="true"]:checked {{ background:{selected}; border:2px solid #0067c0; }}
+            QCheckBox[mxmnReadable="true"]::indicator {{ width:0px; height:0px; }}
+        """)
+
+    @staticmethod
+    def _detail(response, fallback):
+        try: return response.json().get("detail", fallback)
+        except Exception: return fallback
+
+    @staticmethod
+    def _set_combo(combo, data):
+        index = combo.findData(data)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+
+    def refresh_all(self):
+        self.search.clear()
+        self.current_category_id = None
+        self.load_categories()
+        self.load_attributes()
+        self.load_products()
+        self.new_product()
+
+    def load_categories(self):
+        try:
+            response = httpx.get(f"{API_BASE_URL}/product-categories", params={"include_inactive": "true"}, timeout=10)
+            response.raise_for_status(); self.categories = response.json()
+            self.category_tree.clear()
+            root = QTreeWidgetItem(["전체 상품", ""]); root.setData(0, Qt.UserRole, None)
+            self.category_tree.addTopLevelItem(root)
+            items = {}
+            for category in self.categories:
+                if not category.get("use_yn") and not self.include_inactive.isChecked(): continue
+                item = QTreeWidgetItem([category["category_name"], category["category_code"]])
+                item.setData(0, Qt.UserRole, category); items[category["category_id"]] = item
+            for category in self.categories:
+                item = items.get(category["category_id"])
+                if item is None: continue
+                parent = items.get(category.get("parent_category_id"))
+                (parent.addChild(item) if parent else self.category_tree.addTopLevelItem(item))
+            self.category_tree.expandAll(); self.category_tree.setCurrentItem(root)
+            self._fill_category_combos()
+        except Exception as exc: QMessageBox.critical(self, "분류 조회 오류", str(exc))
+
+    def _fill_category_combos(self):
+        self.parent_category.clear(); self.parent_category.addItem("상위분류 없음 (대분류)", None)
+        self.product_category.clear(); self.product_category.addItem("분류 없음 (단독 상품)", None)
+        for category in self.categories:
+            if not category.get("use_yn"): continue
+            indent = "　" * max(0, category.get("category_level", 1) - 1)
+            label = f"{indent}{category['category_name']}"
+            self.product_category.addItem(label, category["category_id"])
+            if category.get("category_level", 1) < 3:
+                self.parent_category.addItem(label, category["category_id"])
+
+    def on_category_selected(self, item, column):
+        category = item.data(0, Qt.UserRole)
+        self.search.clear()
+        if category is None:
+            self.current_category_id = None; self.new_category(clear_selection=False)
+        else:
+            self.current_category_id = category["category_id"]
+            self.category_code.setText(category["category_code"])
+            self.category_name.setText(category["category_name"])
+            self.category_description.setText(category.get("description") or "")
+            self.category_use.setChecked(bool(category.get("use_yn")))
+            self._set_combo(self.parent_category, category.get("parent_category_id"))
+        self.load_products()
+
+    def new_category(self, clear_selection=True):
+        self.current_category_id = None
+        self.category_code.clear(); self.category_name.clear(); self.category_description.clear()
+        self.parent_category.setCurrentIndex(0); self.category_use.setChecked(True)
+        try:
+            response = httpx.get(f"{API_BASE_URL}/product-categories/next-code", timeout=10)
+            response.raise_for_status(); self.category_code.setText(response.json()["category_code"])
+        except Exception as exc: QMessageBox.critical(self, "자동발번 오류", str(exc))
+        self.category_name.setFocus()
+
+    def save_category(self):
+        name = self.category_name.text().strip()
+        if not name: QMessageBox.warning(self, "입력 확인", "분류명은 필수입니다."); return
+        payload = {"category_code": self.category_code.text().strip(), "category_name": name,
+                   "parent_category_id": self.parent_category.currentData(),
+                   "description": self.category_description.text().strip() or None,
+                   "sort_order": 0, "use_yn": self.category_use.isChecked()}
+        try:
+            if self.current_category_id:
+                response = httpx.put(f"{API_BASE_URL}/product-categories/{self.current_category_id}", json=payload, timeout=10)
+            else: response = httpx.post(f"{API_BASE_URL}/product-categories", json=payload, timeout=10)
+            if response.status_code >= 400: raise RuntimeError(self._detail(response, response.text))
+            self.load_categories(); QMessageBox.information(self, "저장 완료", "상품분류가 저장되었습니다.")
+        except Exception as exc: QMessageBox.critical(self, "저장 오류", str(exc))
+
+    def delete_category(self):
+        if not self.current_category_id: QMessageBox.warning(self, "삭제 확인", "삭제할 분류를 선택하세요."); return
+        if QMessageBox.question(self, "분류 삭제 1차 확인", "선택 분류와 하위분류를 사용중지하시겠습니까?", QMessageBox.Yes|QMessageBox.No, QMessageBox.No) != QMessageBox.Yes: return
+        if QMessageBox.warning(self, "분류 삭제 최종 확인", "분류를 참조하는 상품은 보존됩니다. 정말 진행하시겠습니까?", QMessageBox.Yes|QMessageBox.No, QMessageBox.No) != QMessageBox.Yes: return
+        try:
+            response = httpx.delete(f"{API_BASE_URL}/product-categories/{self.current_category_id}", timeout=10)
+            if response.status_code >= 400: raise RuntimeError(self._detail(response, response.text))
+            self.load_categories(); self.load_products()
+        except Exception as exc: QMessageBox.critical(self, "삭제 오류", str(exc))
+
+    def load_attributes(self):
+        try:
+            response = httpx.get(f"{API_BASE_URL}/code-groups", timeout=10); response.raise_for_status()
+            groups = [g for g in response.json() if g.get("group_code", "").startswith("PC")]
+            self.attribute_table.setRowCount(len(groups)); self.attribute_combos = {}
+            for row, group in enumerate(groups):
+                self.attribute_table.setItem(row, 0, QTableWidgetItem(group["group_name"]))
+                combo = QComboBox(); combo.addItem("선택 안 함", None)
+                values = httpx.get(f"{API_BASE_URL}/code-groups/{group['group_code']}/values", timeout=10)
+                values.raise_for_status()
+                for value in values.json(): combo.addItem(f"{value['code']}  {value['code_name']}", value["code_value_id"])
+                self.attribute_table.setCellWidget(row, 1, combo); self.attribute_combos[group["group_code"]] = combo
+        except Exception as exc: QMessageBox.critical(self, "상품공통코드 조회 오류", str(exc))
+
+    def load_products(self):
+        try:
+            params = {"search": self.search.text().strip(), "include_inactive": str(self.include_inactive.isChecked()).lower()}
+            if self.current_category_id: params["category_id"] = self.current_category_id
+            response = httpx.get(f"{API_BASE_URL}/products", params=params, timeout=10); response.raise_for_status()
+            rows = response.json(); category_names = {c["category_id"]: c["category_name"] for c in self.categories}
+            self.product_table.setRowCount(len(rows))
+            for row, item in enumerate(rows):
+                values = [item.get("product_code", ""), item.get("product_name", ""), item.get("specification") or "",
+                          category_names.get(item.get("category_id"), "미분류"), "사용" if item.get("use_yn") else "중지"]
+                for col, value in enumerate(values): self.product_table.setItem(row, col, QTableWidgetItem(str(value)))
+                self.product_table.item(row, 0).setData(Qt.UserRole, item)
+        except Exception as exc: QMessageBox.critical(self, "상품 조회 오류", str(exc))
+
+    def new_product(self):
+        self.current_product_id = None
+        for widget in (self.product_code, self.product_name, self.specification, self.meat_regn_code, self.meat_regn_name): widget.clear()
+        self.memo.clear(); self.product_category.setCurrentIndex(0); self.tax_type.setCurrentIndex(0)
+        self.unit_price.setValue(0); self.product_use.setChecked(True)
+        for combo in self.attribute_combos.values(): combo.setCurrentIndex(0)
+        try:
+            response = httpx.get(f"{API_BASE_URL}/products/next-code", timeout=10); response.raise_for_status()
+            self.product_code.setText(response.json()["product_code"])
+        except Exception as exc: QMessageBox.critical(self, "자동발번 오류", str(exc))
+        self.product_name.setFocus()
+
+    def on_product_selected(self):
+        row = self.product_table.currentRow()
+        if row < 0 or self.product_table.item(row, 0) is None: return
+        item = self.product_table.item(row, 0).data(Qt.UserRole); self.current_product_id = item["product_id"]
+        self.product_code.setText(item["product_code"]); self.product_name.setText(item["product_name"])
+        self.specification.setText(item.get("specification") or ""); self._set_combo(self.product_category, item.get("category_id"))
+        self._set_combo(self.tax_type, item.get("tax_type", "2")); self.unit_price.setValue(float(item.get("unit_price") or 0))
+        self.meat_regn_code.setText(item.get("meat_regn_code") or ""); self.meat_regn_name.setText(item.get("meat_regn_name") or "")
+        self.memo.setPlainText(item.get("memo") or ""); self.product_use.setChecked(bool(item.get("use_yn")))
+        selected = set(item.get("code_value_ids") or [])
+        for combo in self.attribute_combos.values():
+            combo.setCurrentIndex(0)
+            for index in range(combo.count()):
+                if combo.itemData(index) in selected: combo.setCurrentIndex(index); break
+
+    def apply_combination_name(self):
+        names = [combo.currentText().split("  ", 1)[-1] for combo in self.attribute_combos.values() if combo.currentData() is not None]
+        if names: self.product_name.setText(" ".join(names))
+
+    def save_product(self):
+        name = self.product_name.text().strip()
+        if not name: QMessageBox.warning(self, "입력 확인", "상품명은 필수입니다."); return
+        payload = {"product_code": self.product_code.text().strip(), "product_name": name,
+                   "category_id": self.product_category.currentData(), "specification": self.specification.text().strip() or None,
+                   "meat_regn_code": self.meat_regn_code.text().strip() or None, "meat_regn_name": self.meat_regn_name.text().strip() or None,
+                   "tax_type": self.tax_type.currentData(), "unit_price": self.unit_price.value(),
+                   "memo": self.memo.toPlainText().strip() or None, "use_yn": self.product_use.isChecked(),
+                   "code_value_ids": [combo.currentData() for combo in self.attribute_combos.values() if combo.currentData() is not None]}
+        try:
+            if self.current_product_id: response = httpx.put(f"{API_BASE_URL}/products/{self.current_product_id}", json=payload, timeout=10)
+            else: response = httpx.post(f"{API_BASE_URL}/products", json=payload, timeout=10)
+            if response.status_code >= 400: raise RuntimeError(self._detail(response, response.text))
+            QMessageBox.information(self, "저장 완료", "상품이 저장되었습니다."); self.load_products(); self.new_product()
+        except Exception as exc: QMessageBox.critical(self, "저장 오류", str(exc))
+
+    def delete_product(self):
+        if not self.current_product_id: QMessageBox.warning(self, "삭제 확인", "삭제할 상품을 선택하세요."); return
+        if QMessageBox.question(self, "상품 삭제 1차 확인", "선택 상품을 사용중지하시겠습니까?", QMessageBox.Yes|QMessageBox.No, QMessageBox.No) != QMessageBox.Yes: return
+        if QMessageBox.warning(self, "상품 삭제 최종 확인", "입출고 참조를 위해 데이터는 보존됩니다. 정말 진행하시겠습니까?", QMessageBox.Yes|QMessageBox.No, QMessageBox.No) != QMessageBox.Yes: return
+        try:
+            response = httpx.delete(f"{API_BASE_URL}/products/{self.current_product_id}", timeout=10)
+            if response.status_code >= 400: raise RuntimeError(self._detail(response, response.text))
+            self.load_products(); self.new_product()
+        except Exception as exc: QMessageBox.critical(self, "삭제 오류", str(exc))
+
+    def close_window(self):
+        parent = self.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QMdiSubWindow): parent.close(); return
+            parent = parent.parentWidget()
+        self.close()

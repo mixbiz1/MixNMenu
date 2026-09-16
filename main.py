@@ -1,7 +1,7 @@
 from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -572,6 +572,257 @@ def deactivate_code_value(
     obj.use_yn = False
     db.commit()
     return {"message": "상세코드가 사용중지되었습니다."}
+
+
+# =============================================================================
+# Product Category / Product Master API
+# =============================================================================
+
+class ProductCategorySchema(BaseModel):
+    category_code: str
+    category_name: str
+    parent_category_id: Optional[int] = None
+    description: Optional[str] = None
+    sort_order: int = 0
+    use_yn: bool = True
+
+
+class ProductSchema(BaseModel):
+    product_code: str
+    product_name: str
+    category_id: Optional[int] = None
+    specification: Optional[str] = None
+    meat_regn_code: Optional[str] = None
+    meat_regn_name: Optional[str] = None
+    tax_type: str = "2"
+    unit_price: float = 0
+    memo: Optional[str] = None
+    use_yn: bool = True
+    code_value_ids: list[int] = Field(default_factory=list)
+
+
+def _next_category_code(db: Session):
+    numbers = []
+    for (code,) in db.query(models.ProductCategory.category_code).all():
+        if code and code.startswith("CAT") and code[3:].isdigit():
+            numbers.append(int(code[3:]))
+    return f"CAT{max(numbers, default=0) + 1:05d}"
+
+
+def _next_product_code(db: Session):
+    numbers = []
+    for (code,) in db.query(models.Product.product_code).all():
+        if code and code.startswith("P") and code[1:].isdigit():
+            numbers.append(int(code[1:]))
+    return f"P{max(numbers, default=0) + 1:05d}"
+
+
+def _category_level(parent_id: Optional[int], db: Session):
+    if parent_id is None:
+        return 1
+    parent = db.query(models.ProductCategory).filter(
+        models.ProductCategory.category_id == parent_id
+    ).first()
+    if not parent:
+        raise HTTPException(status_code=400, detail="상위 상품분류가 없습니다.")
+    if parent.category_level >= 3:
+        raise HTTPException(status_code=400, detail="상품분류는 대·중·소 3단계까지만 가능합니다.")
+    return parent.category_level + 1
+
+
+def _product_result(obj, db: Session):
+    assignments = db.query(models.ProductCodeAssignment, models.CodeGroup, models.CodeValue).join(
+        models.CodeGroup,
+        models.ProductCodeAssignment.code_group_id == models.CodeGroup.code_group_id,
+    ).join(
+        models.CodeValue,
+        models.ProductCodeAssignment.code_value_id == models.CodeValue.code_value_id,
+    ).filter(models.ProductCodeAssignment.product_id == obj.product_id).all()
+    return {
+        "product_id": obj.product_id,
+        "product_code": obj.product_code,
+        "product_name": obj.product_name,
+        "category_id": obj.category_id,
+        "specification": obj.specification,
+        "meat_regn_code": obj.meat_regn_code,
+        "meat_regn_name": obj.meat_regn_name,
+        "tax_type": obj.tax_type,
+        "unit_price": float(obj.unit_price or 0),
+        "memo": obj.memo,
+        "use_yn": obj.use_yn,
+        "code_value_ids": [value.code_value_id for _, _, value in assignments],
+        "attributes": [
+            {
+                "group_code": group.group_code,
+                "group_name": group.group_name,
+                "code_value_id": value.code_value_id,
+                "code": value.code,
+                "code_name": value.code_name,
+            }
+            for _, group, value in assignments
+        ],
+    }
+
+
+def _save_product_assignments(product_id: int, code_value_ids: list[int], db: Session):
+    ids = list(dict.fromkeys(code_value_ids))
+    values = db.query(models.CodeValue).filter(models.CodeValue.code_value_id.in_(ids)).all() if ids else []
+    if len(values) != len(ids):
+        raise HTTPException(status_code=400, detail="선택한 상품공통코드 중 등록되지 않은 값이 있습니다.")
+    group_ids = [value.code_group_id for value in values]
+    if len(group_ids) != len(set(group_ids)):
+        raise HTTPException(status_code=400, detail="동일 상품분류에서는 하나의 코드만 선택할 수 있습니다.")
+    db.query(models.ProductCodeAssignment).filter(
+        models.ProductCodeAssignment.product_id == product_id
+    ).delete(synchronize_session=False)
+    for value in values:
+        db.add(models.ProductCodeAssignment(
+            product_id=product_id,
+            code_group_id=value.code_group_id,
+            code_value_id=value.code_value_id,
+        ))
+
+
+@app.get("/api/v1/product-categories/next-code")
+def get_next_product_category_code(db: Session = Depends(get_db)):
+    return {"category_code": _next_category_code(db)}
+
+
+@app.get("/api/v1/product-categories")
+def get_product_categories(include_inactive: bool = False, db: Session = Depends(get_db)):
+    query = db.query(models.ProductCategory)
+    if not include_inactive:
+        query = query.filter(models.ProductCategory.use_yn == True)
+    return query.order_by(
+        models.ProductCategory.category_level,
+        models.ProductCategory.sort_order,
+        models.ProductCategory.category_code,
+    ).all()
+
+
+@app.post("/api/v1/product-categories", status_code=status.HTTP_201_CREATED)
+def create_product_category(data: ProductCategorySchema, db: Session = Depends(get_db)):
+    code = data.category_code.strip().upper() or _next_category_code(db)
+    if db.query(models.ProductCategory).filter(models.ProductCategory.category_code == code).first():
+        raise HTTPException(status_code=409, detail="이미 등록된 상품분류 코드입니다.")
+    obj = models.ProductCategory(
+        **data.model_dump(exclude={"category_code"}),
+        category_code=code,
+        category_level=_category_level(data.parent_category_id, db),
+    )
+    db.add(obj); db.commit(); db.refresh(obj)
+    return obj
+
+
+@app.put("/api/v1/product-categories/{category_id}")
+def update_product_category(category_id: int, data: ProductCategorySchema, db: Session = Depends(get_db)):
+    obj = db.query(models.ProductCategory).filter(models.ProductCategory.category_id == category_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="상품분류가 없습니다.")
+    if data.category_code.strip().upper() != obj.category_code:
+        raise HTTPException(status_code=400, detail="저장된 상품분류 코드는 변경할 수 없습니다.")
+    if data.parent_category_id == category_id:
+        raise HTTPException(status_code=400, detail="자기 자신을 상위분류로 지정할 수 없습니다.")
+    if data.parent_category_id != obj.parent_category_id:
+        has_children = db.query(models.ProductCategory).filter(
+            models.ProductCategory.parent_category_id == category_id
+        ).first()
+        if has_children:
+            raise HTTPException(
+                status_code=400,
+                detail="하위분류가 있는 분류는 상위분류를 변경할 수 없습니다.",
+            )
+    values = data.model_dump(exclude={"category_code"})
+    values["category_level"] = _category_level(data.parent_category_id, db)
+    for key, value in values.items(): setattr(obj, key, value)
+    db.commit(); db.refresh(obj)
+    return obj
+
+
+@app.delete("/api/v1/product-categories/{category_id}")
+def deactivate_product_category(category_id: int, db: Session = Depends(get_db)):
+    pending = [category_id]
+    affected = []
+    while pending:
+        current = pending.pop()
+        affected.append(current)
+        children = db.query(models.ProductCategory.category_id).filter(
+            models.ProductCategory.parent_category_id == current
+        ).all()
+        pending.extend(row[0] for row in children)
+    db.query(models.ProductCategory).filter(
+        models.ProductCategory.category_id.in_(affected)
+    ).update({models.ProductCategory.use_yn: False}, synchronize_session=False)
+    db.commit()
+    return {"message": "선택 분류와 하위분류가 사용중지되었습니다."}
+
+
+@app.get("/api/v1/products/next-code")
+def get_next_product_code(db: Session = Depends(get_db)):
+    return {"product_code": _next_product_code(db)}
+
+
+@app.get("/api/v1/products")
+def get_products(search: str = "", category_id: Optional[int] = None,
+                 include_inactive: bool = False, db: Session = Depends(get_db)):
+    query = db.query(models.Product)
+    if not include_inactive:
+        query = query.filter(models.Product.use_yn == True)
+    if category_id is not None:
+        query = query.filter(models.Product.category_id == category_id)
+    if search.strip():
+        keyword = f"%{search.strip()}%"
+        query = query.filter(
+            (models.Product.product_code.like(keyword)) |
+            (models.Product.product_name.like(keyword)) |
+            (models.Product.specification.like(keyword))
+        )
+    return [_product_result(obj, db) for obj in query.order_by(models.Product.product_code).all()]
+
+
+@app.get("/api/v1/products/{product_id}")
+def get_product(product_id: int, db: Session = Depends(get_db)):
+    obj = db.query(models.Product).filter(models.Product.product_id == product_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="상품이 없습니다.")
+    return _product_result(obj, db)
+
+
+@app.post("/api/v1/products", status_code=status.HTTP_201_CREATED)
+def create_product(data: ProductSchema, db: Session = Depends(get_db)):
+    code = data.product_code.strip().upper() or _next_product_code(db)
+    if db.query(models.Product).filter(models.Product.product_code == code).first():
+        raise HTTPException(status_code=409, detail="이미 등록된 상품코드입니다.")
+    values = data.model_dump(exclude={"product_code", "code_value_ids"})
+    obj = models.Product(**values, product_code=code)
+    db.add(obj); db.flush()
+    _save_product_assignments(obj.product_id, data.code_value_ids, db)
+    db.commit(); db.refresh(obj)
+    return _product_result(obj, db)
+
+
+@app.put("/api/v1/products/{product_id}")
+def update_product(product_id: int, data: ProductSchema, db: Session = Depends(get_db)):
+    obj = db.query(models.Product).filter(models.Product.product_id == product_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="상품이 없습니다.")
+    if data.product_code.strip().upper() != obj.product_code:
+        raise HTTPException(status_code=400, detail="저장된 상품코드는 변경할 수 없습니다.")
+    for key, value in data.model_dump(exclude={"product_code", "code_value_ids"}).items():
+        setattr(obj, key, value)
+    _save_product_assignments(obj.product_id, data.code_value_ids, db)
+    db.commit(); db.refresh(obj)
+    return _product_result(obj, db)
+
+
+@app.delete("/api/v1/products/{product_id}")
+def deactivate_product(product_id: int, db: Session = Depends(get_db)):
+    obj = db.query(models.Product).filter(models.Product.product_id == product_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="상품이 없습니다.")
+    obj.use_yn = False
+    db.commit()
+    return {"message": "상품이 사용중지되었습니다."}
 
 
 # =============================================================================
