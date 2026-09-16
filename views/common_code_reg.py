@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QMdiSubWindow,
+    QApplication,
 )
 
 
@@ -53,7 +54,7 @@ class CommonCodeWindow(QWidget):
         self._build_ui()
         self._apply_style()
         # MDI 창을 먼저 표시한 뒤 초기 자료를 조회해 클릭 반응을 즉시 보여준다.
-        QTimer.singleShot(50, self.load_groups)
+        QTimer.singleShot(50, self._initial_load)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -291,11 +292,28 @@ class CommonCodeWindow(QWidget):
 
     def refresh_data(self):
         """선택 그룹이 있으면 상세코드, 없으면 그룹목록을 검색한다."""
-        if self.current_group_code:
-            self.load_values()
-        else:
+        self._set_lookup_busy(True)
+        try:
+            if self.current_group_code:
+                self.load_values()
+            else:
+                self.load_groups()
+            self._apply_search_filter()
+        finally:
+            self._set_lookup_busy(False)
+
+    def _initial_load(self):
+        self._set_lookup_busy(True)
+        try:
             self.load_groups()
-        self._apply_search_filter()
+        finally:
+            self._set_lookup_busy(False)
+
+    def _set_lookup_busy(self, busy):
+        self.btn_refresh.setEnabled(not busy)
+        self.btn_refresh.setText("조회 중..." if busy else "조회")
+        self.search_input.setEnabled(not busy)
+        QApplication.processEvents()
 
     def reset_view(self):
         self.search_input.clear()
