@@ -412,9 +412,8 @@ def get_account(account_id: int, db: Session = Depends(get_db)):
 def create_account(data: AccountSchema, db: Session = Depends(get_db)):
     if db.query(models.Account).filter(models.Account.account_code == data.account_code).first():
         raise HTTPException(status_code=409, detail="이미 등록된 거래처코드입니다.")
-    # 같은 실제 사업자는 공통 Master 하나를 원칙으로 한다.
-    if data.biz_no and db.query(models.Account).filter(models.Account.biz_no == data.biz_no).first():
-        raise HTTPException(status_code=409, detail="동일한 사업자번호의 거래처가 이미 등록되어 있습니다.")
+    # 동일 사업자번호라도 업무 역할별로 복수의 거래처코드를 등록할 수 있다.
+    # 거래처코드(account_code)만 고유하게 관리한다.
     obj=models.Account(**data.model_dump())
     db.add(obj); db.commit(); db.refresh(obj)
     return obj

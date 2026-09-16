@@ -449,8 +449,8 @@ class AccountRegWindow(QWidget):
             w.clear()
         self.memo.clear()
         self._set_combo(self.trade_status,"TRADE"); self._set_combo(self.trade_type,"GENERAL")
-        self.purchase_yn.setChecked(False); self.sales_yn.setChecked(False)
-        self.invoice_issue_yn.setChecked(False); self.trade_stop_yn.setChecked(False)
+        self.purchase_yn.setChecked(True); self.sales_yn.setChecked(True)
+        self.invoice_issue_yn.setChecked(True); self.trade_stop_yn.setChecked(False)
         try:
             r=httpx.get(f"{API_BASE_URL}/accounts/next-code",timeout=10); r.raise_for_status()
             self.account_code.setText(r.json()["account_code"])
