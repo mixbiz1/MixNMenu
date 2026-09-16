@@ -59,9 +59,14 @@ class CommonCodeWindow(QWidget):
 
         toolbar = QHBoxLayout()
         self.include_inactive = ReadableCheckBox("사용중지 포함")
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("그룹코드 / 그룹명 / 상세코드 / 코드명")
+        self.search_input.setMinimumWidth(380)
         self.btn_refresh = QPushButton("조회")
         self.btn_close = QPushButton("닫기")
         toolbar.addWidget(QLabel("공통코드 그룹 및 상세코드"))
+        toolbar.addWidget(QLabel("검색"))
+        toolbar.addWidget(self.search_input)
         toolbar.addStretch()
         toolbar.addWidget(self.include_inactive)
         toolbar.addWidget(self.btn_refresh)
@@ -187,7 +192,8 @@ class CommonCodeWindow(QWidget):
         splitter.setStretchFactor(1, 6)
         splitter.setSizes([480, 800])
 
-        self.btn_refresh.clicked.connect(self.load_groups)
+        self.btn_refresh.clicked.connect(self.refresh_data)
+        self.search_input.returnPressed.connect(self.refresh_data)
         self.btn_close.clicked.connect(self.close_window)
         self.include_inactive.stateChanged.connect(self.load_groups)
         self.group_table.itemSelectionChanged.connect(self.on_group_selected)
@@ -196,6 +202,9 @@ class CommonCodeWindow(QWidget):
         self.btn_group_save.clicked.connect(self.save_group)
         self.btn_value_new.clicked.connect(self.new_value)
         self.btn_value_save.clicked.connect(self.save_value)
+        self.group_sort_direction.currentIndexChanged.connect(
+            self.apply_value_sort
+        )
 
     def _apply_style(self):
         dark = self.palette().window().color().lightness() < 128
@@ -259,8 +268,38 @@ class CommonCodeWindow(QWidget):
                 for col, value in enumerate(values):
                     self.group_table.setItem(row, col, QTableWidgetItem(str(value)))
                 self.group_table.item(row, 0).setData(Qt.UserRole, item)
+            self._apply_search_filter()
         except Exception as exc:
             QMessageBox.critical(self, "조회 오류", str(exc))
+
+    def refresh_data(self):
+        """조회 버튼과 Enter 키에서 그룹·상세 목록을 새로 읽고 검색한다."""
+        self.load_groups()
+        if self.current_group_code:
+            self.load_values()
+        self._apply_search_filter()
+
+    def _apply_search_filter(self):
+        keyword = self.search_input.text().strip().lower()
+        for table in (self.group_table, self.value_table):
+            for row in range(table.rowCount()):
+                row_text = " ".join(
+                    table.item(row, col).text()
+                    for col in range(table.columnCount())
+                    if table.item(row, col) is not None
+                ).lower()
+                table.setRowHidden(row, bool(keyword) and keyword not in row_text)
+
+    def apply_value_sort(self):
+        """정렬방식 선택 즉시 현재 상세코드 목록에 반영한다."""
+        if self.value_table.rowCount() == 0:
+            return
+        order = (
+            Qt.DescendingOrder
+            if self.group_sort_direction.currentData() == "DESC"
+            else Qt.AscendingOrder
+        )
+        self.value_table.sortItems(0, order)
 
     def on_group_selected(self):
         row = self.group_table.currentRow()
@@ -354,6 +393,8 @@ class CommonCodeWindow(QWidget):
                 for col, value in enumerate(values):
                     self.value_table.setItem(row, col, QTableWidgetItem(str(value)))
                 self.value_table.item(row, 0).setData(Qt.UserRole, item)
+            self.apply_value_sort()
+            self._apply_search_filter()
         except Exception as exc:
             QMessageBox.critical(self, "조회 오류", str(exc))
 
