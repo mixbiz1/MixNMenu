@@ -16,6 +16,19 @@ def table_exists(conn, table_name):
     ).scalar() > 0
 
 
+def column_exists(conn, table_name, column_name):
+    return conn.execute(
+        text(
+            """
+            SELECT COUNT(*)
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = :table_name AND COLUMN_NAME = :column_name
+            """
+        ),
+        {"table_name": table_name, "column_name": column_name},
+    ).scalar() > 0
+
+
 with engine.begin() as conn:
     print("=" * 72)
     print("MXMN COMMON CODE MIGRATION")
@@ -33,6 +46,8 @@ with engine.begin() as conn:
                     description NVARCHAR(300) NULL,
                     sort_order INT NOT NULL
                         CONSTRAINT DF_tb_code_group_sort_order DEFAULT 0,
+                    sort_direction VARCHAR(4) NOT NULL
+                        CONSTRAINT DF_tb_code_group_sort_direction DEFAULT 'ASC',
                     system_yn BIT NOT NULL
                         CONSTRAINT DF_tb_code_group_system_yn DEFAULT 0,
                     use_yn BIT NOT NULL
@@ -47,6 +62,21 @@ with engine.begin() as conn:
         print("[ADD] tb_code_group")
     else:
         print("[OK ] tb_code_group")
+
+    # 이미 공통코드 테이블을 만든 사업장에도 안전하게 정렬방식 컬럼만 추가한다.
+    if not column_exists(conn, "tb_code_group", "sort_direction"):
+        conn.execute(
+            text(
+                """
+                ALTER TABLE tb_code_group
+                ADD sort_direction VARCHAR(4) NOT NULL
+                    CONSTRAINT DF_tb_code_group_sort_direction DEFAULT 'ASC'
+                """
+            )
+        )
+        print("[ADD] tb_code_group.sort_direction")
+    else:
+        print("[OK ] tb_code_group.sort_direction")
 
     if not table_exists(conn, "tb_code_value"):
         conn.execute(

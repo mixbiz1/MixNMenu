@@ -59,6 +59,7 @@ class CodeGroup(Base):
     group_name = Column(String(100), nullable=False)
     description = Column(String(300), nullable=True)
     sort_order = Column(Integer, default=0, nullable=False)
+    sort_direction = Column(String(4), default="ASC", nullable=False)
     system_yn = Column(Boolean, default=False, nullable=False)
     use_yn = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

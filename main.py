@@ -318,6 +318,7 @@ class CodeGroupSchema(BaseModel):
     group_name: str
     description: Optional[str] = None
     sort_order: int = 0
+    sort_direction: str = "ASC"
     system_yn: bool = False
     use_yn: bool = True
 
@@ -353,6 +354,32 @@ def _get_code_group_or_404(group_code: str, db: Session):
     return group
 
 
+def _next_group_code(db: Session) -> str:
+    numbers = []
+    for (code,) in db.query(models.CodeGroup.group_code).all():
+        if code and code.upper().startswith("CG") and code[2:].isdigit():
+            numbers.append(int(code[2:]))
+    return f"CG{max(numbers, default=0) + 1:03d}"
+
+
+def _next_value_code(group_id: int, db: Session) -> str:
+    numbers = []
+    rows = db.query(models.CodeValue.code).filter(
+        models.CodeValue.code_group_id == group_id
+    ).all()
+    for (code,) in rows:
+        if code and code.isdigit():
+            numbers.append(int(code))
+    return f"{max(numbers, default=0) + 1:03d}"
+
+
+def _sort_direction(value: str) -> str:
+    direction = (value or "ASC").strip().upper()
+    if direction not in {"ASC", "DESC"}:
+        raise HTTPException(status_code=400, detail="정렬방식은 오름차순 또는 내림차순이어야 합니다.")
+    return direction
+
+
 @app.get("/api/v1/code-groups", response_model=list[CodeGroupResponse])
 def get_code_groups(include_inactive: bool = False, db: Session = Depends(get_db)):
     query = db.query(models.CodeGroup)
@@ -361,16 +388,26 @@ def get_code_groups(include_inactive: bool = False, db: Session = Depends(get_db
     return query.order_by(models.CodeGroup.sort_order, models.CodeGroup.group_code).all()
 
 
+@app.get("/api/v1/code-groups/next-code")
+def get_next_code_group_code(db: Session = Depends(get_db)):
+    return {"group_code": _next_group_code(db)}
+
+
 @app.post(
     "/api/v1/code-groups",
     response_model=CodeGroupResponse,
     status_code=status.HTTP_201_CREATED,
 )
 def create_code_group(data: CodeGroupSchema, db: Session = Depends(get_db)):
-    group_code = data.group_code.strip().upper()
+    group_code = data.group_code.strip().upper() or _next_group_code(db)
     if db.query(models.CodeGroup).filter(models.CodeGroup.group_code == group_code).first():
         raise HTTPException(status_code=409, detail="이미 등록된 코드그룹입니다.")
-    obj = models.CodeGroup(**data.model_dump(exclude={"group_code"}), group_code=group_code)
+    values = data.model_dump(exclude={"group_code", "sort_direction"})
+    obj = models.CodeGroup(
+        **values,
+        group_code=group_code,
+        sort_direction=_sort_direction(data.sort_direction),
+    )
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -386,11 +423,21 @@ def update_code_group(
     obj = _get_code_group_or_404(group_code, db)
     if data.group_code.strip().upper() != obj.group_code:
         raise HTTPException(status_code=400, detail="저장된 코드그룹 코드는 변경할 수 없습니다.")
-    for key, value in data.model_dump(exclude={"group_code"}).items():
+    values = data.model_dump(exclude={"group_code", "sort_direction"})
+    values["sort_direction"] = _sort_direction(data.sort_direction)
+    for key, value in values.items():
         setattr(obj, key, value)
     db.commit()
     db.refresh(obj)
     return obj
+
+
+@app.get(
+    "/api/v1/code-groups/{group_code}/values/next-code",
+)
+def get_next_code_value_code(group_code: str, db: Session = Depends(get_db)):
+    group = _get_code_group_or_404(group_code, db)
+    return {"code": _next_value_code(group.code_group_id, db)}
 
 
 @app.get(
@@ -408,7 +455,12 @@ def get_code_values(
     )
     if not include_inactive:
         query = query.filter(models.CodeValue.use_yn == True)
-    return query.order_by(models.CodeValue.sort_order, models.CodeValue.code).all()
+    code_order = (
+        models.CodeValue.code.desc()
+        if group.sort_direction == "DESC"
+        else models.CodeValue.code.asc()
+    )
+    return query.order_by(code_order).all()
 
 
 @app.post(
@@ -422,7 +474,7 @@ def create_code_value(
     db: Session = Depends(get_db),
 ):
     group = _get_code_group_or_404(group_code, db)
-    code = data.code.strip().upper()
+    code = data.code.strip().upper() or _next_value_code(group.code_group_id, db)
     duplicate = (
         db.query(models.CodeValue)
         .filter(

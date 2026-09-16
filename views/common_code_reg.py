@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QGridLayout,
     QGroupBox,
     QHeaderView,
@@ -12,7 +13,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -24,6 +24,21 @@ from PySide6.QtWidgets import (
 
 
 API_BASE_URL = "http://127.0.0.1:8000/api/v1"
+
+
+class ReadableCheckBox(QCheckBox):
+    """테마와 무관하게 선택 상태를 문자와 배경색으로 함께 표시한다."""
+
+    def __init__(self, label, parent=None):
+        super().__init__(parent)
+        self.label = label
+        self.setProperty("mxmnReadable", True)
+        self.stateChanged.connect(self._sync_text)
+        self._sync_text()
+
+    def _sync_text(self):
+        self.setText(f"{'☑' if self.isChecked() else '□'} {self.label}")
+        self.setAccessibleName(f"{self.label} {'선택' if self.isChecked() else '해제'}")
 
 
 class CommonCodeWindow(QWidget):
@@ -43,7 +58,7 @@ class CommonCodeWindow(QWidget):
         root = QVBoxLayout(self)
 
         toolbar = QHBoxLayout()
-        self.include_inactive = QCheckBox("사용중지 포함")
+        self.include_inactive = ReadableCheckBox("사용중지 포함")
         self.btn_refresh = QPushButton("조회")
         self.btn_close = QPushButton("닫기")
         toolbar.addWidget(QLabel("공통코드 그룹 및 상세코드"))
@@ -61,21 +76,26 @@ class CommonCodeWindow(QWidget):
         left_layout = QVBoxLayout(left)
         group_box = QGroupBox("코드그룹")
         group_layout = QVBoxLayout(group_box)
-        self.group_table = QTableWidget(0, 3)
-        self.group_table.setHorizontalHeaderLabels(["그룹코드", "그룹명", "사용"])
+        self.group_table = QTableWidget(0, 4)
+        self.group_table.setHorizontalHeaderLabels(["그룹코드", "그룹명", "정렬방식", "사용"])
         self.group_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.group_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.group_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.group_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.group_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.group_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         group_layout.addWidget(self.group_table)
 
         form = QGridLayout()
         self.group_code = QLineEdit()
+        self.group_code.setReadOnly(True)
+        self.group_code.setPlaceholderText("자동발번")
         self.group_name = QLineEdit()
-        self.group_sort = QSpinBox()
-        self.group_sort.setRange(0, 9999)
-        self.group_use = QCheckBox("사용")
+        self.group_sort_direction = QComboBox()
+        self.group_sort_direction.addItem("코드 오름차순 (001 → 999)", "ASC")
+        self.group_sort_direction.addItem("코드 내림차순 (999 → 001)", "DESC")
+        self.group_sort_direction.setToolTip("선택한 코드그룹의 상세코드 표시 순서입니다.")
+        self.group_use = ReadableCheckBox("사용")
         self.group_use.setChecked(True)
         self.group_description = QTextEdit()
         self.group_description.setMaximumHeight(55)
@@ -83,8 +103,8 @@ class CommonCodeWindow(QWidget):
         form.addWidget(self.group_code, 0, 1)
         form.addWidget(QLabel("그룹명 *"), 1, 0)
         form.addWidget(self.group_name, 1, 1)
-        form.addWidget(QLabel("정렬순서"), 2, 0)
-        form.addWidget(self.group_sort, 2, 1)
+        form.addWidget(QLabel("상세코드 정렬"), 2, 0)
+        form.addWidget(self.group_sort_direction, 2, 1)
         form.addWidget(QLabel("설명"), 3, 0)
         form.addWidget(self.group_description, 3, 1)
         form.addWidget(self.group_use, 4, 1)
@@ -108,9 +128,18 @@ class CommonCodeWindow(QWidget):
         self.selected_group_label = QLabel("코드그룹을 선택하세요.")
         value_layout.addWidget(self.selected_group_label)
 
-        self.value_table = QTableWidget(0, 5)
+        legacy_hint = QLabel(
+            "레거시 화면의 ‘코드구분 선택 → 목록 조회 → 신규·수정·저장’ 흐름을 유지합니다. "
+            "삭제 대신 사용중지를 사용하며, 창고 주소·전화·보관료나 상품 브랜드·원산지처럼 "
+            "전용 속성이 많은 정보는 각 전용 Master 화면에서 관리합니다."
+        )
+        legacy_hint.setObjectName("legacyHint")
+        legacy_hint.setWordWrap(True)
+        value_layout.addWidget(legacy_hint)
+
+        self.value_table = QTableWidget(0, 4)
         self.value_table.setHorizontalHeaderLabels(
-            ["코드", "코드명", "정렬", "사용", "설명"]
+            ["코드", "코드명", "사용", "설명"]
         )
         self.value_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.value_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -119,15 +148,14 @@ class CommonCodeWindow(QWidget):
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.Stretch)
         value_layout.addWidget(self.value_table)
 
         value_form = QGridLayout()
         self.value_code = QLineEdit()
+        self.value_code.setReadOnly(True)
+        self.value_code.setPlaceholderText("자동발번")
         self.value_name = QLineEdit()
-        self.value_sort = QSpinBox()
-        self.value_sort.setRange(0, 9999)
-        self.value_use = QCheckBox("사용")
+        self.value_use = ReadableCheckBox("사용")
         self.value_use.setChecked(True)
         self.value_description = QLineEdit()
         self.extra_value1 = QLineEdit()
@@ -136,9 +164,7 @@ class CommonCodeWindow(QWidget):
         value_form.addWidget(self.value_code, 0, 1)
         value_form.addWidget(QLabel("코드명 *"), 0, 2)
         value_form.addWidget(self.value_name, 0, 3)
-        value_form.addWidget(QLabel("정렬순서"), 1, 0)
-        value_form.addWidget(self.value_sort, 1, 1)
-        value_form.addWidget(self.value_use, 1, 3)
+        value_form.addWidget(self.value_use, 1, 1)
         value_form.addWidget(QLabel("설명"), 2, 0)
         value_form.addWidget(self.value_description, 2, 1, 1, 3)
         value_form.addWidget(QLabel("추가값1"), 3, 0)
@@ -185,7 +211,7 @@ class CommonCodeWindow(QWidget):
             QGroupBox {{ background:{panel}; border:1px solid {border}; border-radius:4px;
                          margin-top:10px; padding-top:8px; font-weight:bold; }}
             QGroupBox::title {{ subcontrol-origin:margin; left:8px; padding:0 4px; }}
-            QLineEdit, QTextEdit, QSpinBox {{ background:{field}; color:{text_color};
+            QLineEdit, QTextEdit, QComboBox {{ background:{field}; color:{text_color};
                          border:1px solid {border}; border-radius:2px; min-height:25px; padding:2px 5px; }}
             QPushButton {{ background:{field}; color:{text_color}; border:1px solid {border};
                            border-radius:3px; min-height:28px; padding:3px 12px; }}
@@ -195,6 +221,14 @@ class CommonCodeWindow(QWidget):
             QHeaderView::section {{ background:{panel}; color:{text_color}; border:0;
                                     border-right:1px solid {border}; border-bottom:1px solid {border};
                                     padding:5px; font-weight:bold; }}
+            QCheckBox[mxmnReadable="true"] {{ background:{field}; color:{text_color};
+                         border:1px solid {border}; border-radius:3px; min-height:28px;
+                         padding:3px 10px; font-weight:bold; }}
+            QCheckBox[mxmnReadable="true"]:checked {{ background:{selected};
+                         border:2px solid #0067c0; }}
+            QCheckBox[mxmnReadable="true"]::indicator {{ width:0px; height:0px; }}
+            QLabel#legacyHint {{ background:{panel}; border:1px solid {border};
+                         border-radius:3px; padding:6px; font-weight:normal; }}
             """
         )
 
@@ -219,6 +253,7 @@ class CommonCodeWindow(QWidget):
                 values = [
                     item.get("group_code", ""),
                     item.get("group_name", ""),
+                    "오름차순" if item.get("sort_direction", "ASC") == "ASC" else "내림차순",
                     "사용" if item.get("use_yn") else "중지",
                 ]
                 for col, value in enumerate(values):
@@ -234,10 +269,10 @@ class CommonCodeWindow(QWidget):
         item = self.group_table.item(row, 0).data(Qt.UserRole)
         self.current_group_code = item["group_code"]
         self.group_code.setText(item["group_code"])
-        self.group_code.setReadOnly(True)
         self.group_name.setText(item["group_name"])
         self.group_description.setPlainText(item.get("description") or "")
-        self.group_sort.setValue(item.get("sort_order") or 0)
+        index = self.group_sort_direction.findData(item.get("sort_direction", "ASC"))
+        self.group_sort_direction.setCurrentIndex(max(index, 0))
         self.group_use.setChecked(bool(item.get("use_yn")))
         self.selected_group_label.setText(
             f"{item['group_code']}  {item['group_name']}"
@@ -247,15 +282,21 @@ class CommonCodeWindow(QWidget):
 
     def new_group(self):
         self.current_group_code = None
-        self.group_code.setReadOnly(False)
         self.group_code.clear()
         self.group_name.clear()
         self.group_description.clear()
-        self.group_sort.setValue(0)
+        self.group_sort_direction.setCurrentIndex(0)
         self.group_use.setChecked(True)
         self.value_table.setRowCount(0)
         self.selected_group_label.setText("신규 코드그룹")
-        self.group_code.setFocus()
+        try:
+            response = httpx.get(f"{API_BASE_URL}/code-groups/next-code", timeout=10)
+            response.raise_for_status()
+            self.group_code.setText(response.json()["group_code"])
+        except Exception as exc:
+            QMessageBox.critical(self, "자동발번 오류", str(exc))
+            return
+        self.group_name.setFocus()
 
     def save_group(self):
         code = self.group_code.text().strip().upper()
@@ -267,7 +308,8 @@ class CommonCodeWindow(QWidget):
             "group_code": code,
             "group_name": name,
             "description": self.group_description.toPlainText().strip() or None,
-            "sort_order": self.group_sort.value(),
+            "sort_order": 0,
+            "sort_direction": self.group_sort_direction.currentData(),
             "system_yn": False,
             "use_yn": self.group_use.isChecked(),
         }
@@ -306,7 +348,6 @@ class CommonCodeWindow(QWidget):
                 values = [
                     item.get("code", ""),
                     item.get("code_name", ""),
-                    item.get("sort_order", 0),
                     "사용" if item.get("use_yn") else "중지",
                     item.get("description") or "",
                 ]
@@ -325,7 +366,6 @@ class CommonCodeWindow(QWidget):
         self.value_code.setText(item["code"])
         self.value_name.setText(item["code_name"])
         self.value_description.setText(item.get("description") or "")
-        self.value_sort.setValue(item.get("sort_order") or 0)
         self.extra_value1.setText(item.get("extra_value1") or "")
         self.extra_value2.setText(item.get("extra_value2") or "")
         self.value_use.setChecked(bool(item.get("use_yn")))
@@ -340,9 +380,19 @@ class CommonCodeWindow(QWidget):
             self.extra_value2,
         ):
             widget.clear()
-        self.value_sort.setValue(0)
         self.value_use.setChecked(True)
-        self.value_code.setFocus()
+        if self.current_group_code:
+            try:
+                response = httpx.get(
+                    f"{API_BASE_URL}/code-groups/{self.current_group_code}/values/next-code",
+                    timeout=10,
+                )
+                response.raise_for_status()
+                self.value_code.setText(response.json()["code"])
+            except Exception as exc:
+                QMessageBox.critical(self, "자동발번 오류", str(exc))
+                return
+        self.value_name.setFocus()
 
     def save_value(self):
         if not self.current_group_code:
@@ -357,7 +407,7 @@ class CommonCodeWindow(QWidget):
             "code": code,
             "code_name": name,
             "description": self.value_description.text().strip() or None,
-            "sort_order": self.value_sort.value(),
+            "sort_order": 0,
             "extra_value1": self.extra_value1.text().strip() or None,
             "extra_value2": self.extra_value2.text().strip() or None,
             "use_yn": self.value_use.isChecked(),
