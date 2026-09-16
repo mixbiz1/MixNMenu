@@ -66,10 +66,10 @@ class AccountRegWindow(QWidget):
         top=QHBoxLayout()
         self.search=QLineEdit(); self.search.setPlaceholderText("거래처명 / 코드 / 사업자번호")
         self.include_stopped=ReadableCheckBox("거래중단 포함")
-        self.btn_search=QPushButton("조회"); self.btn_new=QPushButton("신규")
+        self.btn_search=QPushButton("조회"); self.btn_refresh=QPushButton("새로고침"); self.btn_new=QPushButton("신규")
         self.btn_save=QPushButton("저장"); self.btn_close=QPushButton("닫기")
         top.addWidget(QLabel("검색")); top.addWidget(self.search,1); top.addWidget(self.include_stopped)
-        for b in (self.btn_search,self.btn_new,self.btn_save,self.btn_close): top.addWidget(b)
+        for b in (self.btn_search,self.btn_refresh,self.btn_new,self.btn_save,self.btn_close): top.addWidget(b)
         root.addLayout(top)
 
         sp=QSplitter(Qt.Horizontal); root.addWidget(sp,1)
@@ -152,6 +152,7 @@ class AccountRegWindow(QWidget):
         sp.setSizes([470,1050])
 
         self.btn_search.clicked.connect(self.load_accounts)
+        self.btn_refresh.clicked.connect(self.reset_view)
         self.include_stopped.stateChanged.connect(self.load_accounts)
         self.search.returnPressed.connect(self.load_accounts)
         self.btn_new.clicked.connect(self.new_account)
@@ -441,6 +442,11 @@ class AccountRegWindow(QWidget):
                 self.table.item(row,0).setData(Qt.UserRole,x.get("account_id"))
         except Exception as e:
             QMessageBox.critical(self,"조회 오류",str(e))
+
+    def reset_view(self):
+        self.search.clear()
+        self.table.clearSelection()
+        self.load_accounts()
 
     def new_account(self):
         self.current_account_id=None

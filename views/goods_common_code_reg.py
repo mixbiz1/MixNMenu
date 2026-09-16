@@ -66,6 +66,7 @@ class GoodsCommonCodeWindow(QWidget):
         self.search_input.setMinimumWidth(360)
         self.include_inactive = ReadableCheckBox("사용중지 포함")
         self.btn_refresh = QPushButton("조회")
+        self.btn_reset = QPushButton("새로고침")
         self.btn_close = QPushButton("닫기")
         toolbar.addWidget(QLabel("상품 관련 공통코드"))
         toolbar.addWidget(QLabel("검색"))
@@ -73,6 +74,7 @@ class GoodsCommonCodeWindow(QWidget):
         toolbar.addStretch()
         toolbar.addWidget(self.include_inactive)
         toolbar.addWidget(self.btn_refresh)
+        toolbar.addWidget(self.btn_reset)
         toolbar.addWidget(self.btn_close)
         root.addLayout(toolbar)
 
@@ -88,6 +90,30 @@ class GoodsCommonCodeWindow(QWidget):
         self.category_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.category_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         category_layout.addWidget(self.category_table)
+        category_form = QGridLayout()
+        self.category_code = QLineEdit()
+        self.category_code.setReadOnly(True)
+        self.category_code.setPlaceholderText("자동발번")
+        self.category_name = QLineEdit()
+        self.category_description = QLineEdit()
+        self.category_use = ReadableCheckBox("사용")
+        self.category_use.setChecked(True)
+        category_form.addWidget(QLabel("분류코드"), 0, 0)
+        category_form.addWidget(self.category_code, 0, 1)
+        category_form.addWidget(QLabel("분류명 *"), 1, 0)
+        category_form.addWidget(self.category_name, 1, 1)
+        category_form.addWidget(QLabel("설명"), 2, 0)
+        category_form.addWidget(self.category_description, 2, 1)
+        category_form.addWidget(self.category_use, 3, 1)
+        category_layout.addLayout(category_form)
+        category_buttons = QHBoxLayout()
+        self.btn_category_new = QPushButton("분류 신규")
+        self.btn_category_save = QPushButton("분류 저장")
+        self.btn_category_delete = QPushButton("분류 삭제")
+        category_buttons.addWidget(self.btn_category_new)
+        category_buttons.addWidget(self.btn_category_save)
+        category_buttons.addWidget(self.btn_category_delete)
+        category_layout.addLayout(category_buttons)
         category_hint = QLabel(
             "레거시 상품공통코드의 코드구분 선택 방식을 유지했습니다. "
             "왼쪽 구분을 선택하면 오른쪽에 해당 코드만 표시됩니다."
@@ -140,9 +166,11 @@ class GoodsCommonCodeWindow(QWidget):
         buttons = QHBoxLayout()
         self.btn_new = QPushButton("코드 신규")
         self.btn_save = QPushButton("코드 저장")
+        self.btn_delete = QPushButton("코드 삭제")
         buttons.addStretch()
         buttons.addWidget(self.btn_new)
         buttons.addWidget(self.btn_save)
+        buttons.addWidget(self.btn_delete)
         value_layout.addLayout(buttons)
         splitter.addWidget(value_box)
         splitter.setStretchFactor(0, 3)
@@ -152,10 +180,15 @@ class GoodsCommonCodeWindow(QWidget):
         self.category_table.itemSelectionChanged.connect(self.on_category_selected)
         self.value_table.itemSelectionChanged.connect(self.on_value_selected)
         self.btn_refresh.clicked.connect(self.refresh_data)
+        self.btn_reset.clicked.connect(self.reset_view)
         self.search_input.returnPressed.connect(self.refresh_data)
-        self.include_inactive.stateChanged.connect(self.refresh_data)
+        self.include_inactive.stateChanged.connect(self.load_categories)
         self.btn_new.clicked.connect(self.new_value)
         self.btn_save.clicked.connect(self.save_value)
+        self.btn_delete.clicked.connect(self.delete_value)
+        self.btn_category_new.clicked.connect(self.new_category)
+        self.btn_category_save.clicked.connect(self.save_category)
+        self.btn_category_delete.clicked.connect(self.delete_category)
         self.btn_close.clicked.connect(self.close_window)
 
     def _apply_style(self):
@@ -202,26 +235,170 @@ class GoodsCommonCodeWindow(QWidget):
             return fallback
 
     def load_categories(self):
-        self.category_table.setRowCount(len(PRODUCT_CODE_GROUPS))
-        for row, category in enumerate(PRODUCT_CODE_GROUPS):
-            group_code, group_name, description = category
-            self.category_table.setItem(row, 0, QTableWidgetItem(group_name))
-            self.category_table.setItem(row, 1, QTableWidgetItem(description))
-            self.category_table.item(row, 0).setData(Qt.UserRole, category)
-        if PRODUCT_CODE_GROUPS:
-            self.category_table.selectRow(0)
+        try:
+            response = httpx.get(
+                f"{API_BASE_URL}/code-groups",
+                params={"include_inactive": "true"},
+                timeout=10,
+            )
+            response.raise_for_status()
+            all_groups = response.json()
+            existing_codes = {item.get("group_code") for item in all_groups}
+
+            # 기존 고정 12개 분류를 최초 1회 실제 DB 그룹으로 전환한다.
+            for code, name, description in PRODUCT_CODE_GROUPS:
+                if code not in existing_codes:
+                    created = httpx.post(
+                        f"{API_BASE_URL}/code-groups",
+                        json={
+                            "group_code": code,
+                            "group_name": name,
+                            "description": description,
+                            "sort_order": 0,
+                            "sort_direction": "ASC",
+                            "system_yn": False,
+                            "use_yn": True,
+                        },
+                        timeout=10,
+                    )
+                    if created.status_code >= 400:
+                        raise RuntimeError(self._error_detail(created, created.text))
+            if any(code not in existing_codes for code, _, _ in PRODUCT_CODE_GROUPS):
+                response = httpx.get(
+                    f"{API_BASE_URL}/code-groups",
+                    params={"include_inactive": "true"},
+                    timeout=10,
+                )
+                response.raise_for_status()
+                all_groups = response.json()
+
+            rows = [
+                item for item in all_groups
+                if str(item.get("group_code", "")).startswith("PC")
+                and (self.include_inactive.isChecked() or item.get("use_yn"))
+            ]
+            rows.sort(key=lambda item: item.get("group_code", ""))
+            self.category_table.setRowCount(len(rows))
+            for row, item in enumerate(rows):
+                self.category_table.setItem(row, 0, QTableWidgetItem(item.get("group_name", "")))
+                self.category_table.setItem(row, 1, QTableWidgetItem(item.get("description") or ""))
+                self.category_table.item(row, 0).setData(Qt.UserRole, item)
+            if rows:
+                self.category_table.selectRow(0)
+        except Exception as exc:
+            QMessageBox.critical(self, "분류 조회 오류", str(exc))
 
     def on_category_selected(self):
         row = self.category_table.currentRow()
         if row < 0 or self.category_table.item(row, 0) is None:
             return
         category = self.category_table.item(row, 0).data(Qt.UserRole)
-        self.current_group_code, self.current_group_name, self.current_group_description = category
+        self.current_group_code = category["group_code"]
+        self.current_group_name = category["group_name"]
+        self.current_group_description = category.get("description") or ""
+        self.category_code.setText(self.current_group_code)
+        self.category_name.setText(self.current_group_name)
+        self.category_description.setText(self.current_group_description)
+        self.category_use.setChecked(bool(category.get("use_yn")))
         self.selected_group_label.setText(
             f"{self.current_group_name}  |  {self.current_group_description}"
         )
         self.new_value()
         self.load_values()
+
+    def new_category(self):
+        self.current_group_code = None
+        self.current_group_name = None
+        self.current_group_description = None
+        self.current_group_exists = False
+        self.category_code.clear()
+        self.category_name.clear()
+        self.category_description.clear()
+        self.category_use.setChecked(True)
+        self.value_table.setRowCount(0)
+        try:
+            response = httpx.get(
+                f"{API_BASE_URL}/code-groups/next-code",
+                params={"prefix": "PC"},
+                timeout=10,
+            )
+            response.raise_for_status()
+            self.category_code.setText(response.json()["group_code"])
+        except Exception as exc:
+            QMessageBox.critical(self, "자동발번 오류", str(exc))
+            return
+        self.category_name.setFocus()
+
+    def save_category(self):
+        code = self.category_code.text().strip().upper()
+        name = self.category_name.text().strip()
+        if not code or not name:
+            QMessageBox.warning(self, "입력 확인", "분류명은 필수입니다.")
+            return
+        payload = {
+            "group_code": code,
+            "group_name": name,
+            "description": self.category_description.text().strip() or None,
+            "sort_order": 0,
+            "sort_direction": "ASC",
+            "system_yn": False,
+            "use_yn": self.category_use.isChecked(),
+        }
+        try:
+            if self.current_group_code:
+                response = httpx.put(
+                    f"{API_BASE_URL}/code-groups/{self.current_group_code}",
+                    json=payload,
+                    timeout=10,
+                )
+            else:
+                response = httpx.post(
+                    f"{API_BASE_URL}/code-groups", json=payload, timeout=10
+                )
+            if response.status_code >= 400:
+                raise RuntimeError(self._error_detail(response, response.text))
+            QMessageBox.information(self, "저장 완료", "상품 코드분류가 저장되었습니다.")
+            self.load_categories()
+        except Exception as exc:
+            QMessageBox.critical(self, "저장 오류", str(exc))
+
+    def delete_category(self):
+        if not self.current_group_code:
+            QMessageBox.warning(self, "삭제 확인", "삭제할 상품 코드분류를 선택하세요.")
+            return
+        first = QMessageBox.question(
+            self,
+            "분류 삭제 1차 확인",
+            "이 분류와 소속 상세코드를 사용중지하시겠습니까?\n기존 자료 보존을 위해 물리삭제하지 않습니다.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if first != QMessageBox.Yes:
+            return
+        second = QMessageBox.warning(
+            self,
+            "분류 삭제 최종 확인",
+            f"[{self.current_group_name}] 분류를 정말 사용중지하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if second != QMessageBox.Yes:
+            return
+        try:
+            response = httpx.delete(
+                f"{API_BASE_URL}/code-groups/{self.current_group_code}", timeout=10
+            )
+            if response.status_code >= 400:
+                raise RuntimeError(self._error_detail(response, response.text))
+            self.current_group_code = None
+            self.load_categories()
+        except Exception as exc:
+            QMessageBox.critical(self, "삭제 오류", str(exc))
+
+    def reset_view(self):
+        self.search_input.clear()
+        self.current_value_id = None
+        self.load_categories()
 
     def _check_group_exists(self):
         response = httpx.get(
@@ -257,8 +434,7 @@ class GoodsCommonCodeWindow(QWidget):
         self.current_group_exists = True
 
     def refresh_data(self):
-        if self.current_group_code:
-            self.load_values()
+        self.load_categories()
 
     def load_values(self):
         if not self.current_group_code:
@@ -381,6 +557,40 @@ class GoodsCommonCodeWindow(QWidget):
             self.load_values()
         except Exception as exc:
             QMessageBox.critical(self, "저장 오류", str(exc))
+
+    def delete_value(self):
+        if not self.current_group_code or not self.current_value_id:
+            QMessageBox.warning(self, "삭제 확인", "삭제할 상세코드를 선택하세요.")
+            return
+        first = QMessageBox.question(
+            self,
+            "코드 삭제 1차 확인",
+            "선택한 코드를 사용중지하시겠습니까?\n기존 상품에서 사용 중일 수 있으므로 데이터는 보존됩니다.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if first != QMessageBox.Yes:
+            return
+        second = QMessageBox.warning(
+            self,
+            "코드 삭제 최종 확인",
+            f"[{self.value_code.text()} {self.value_name.text()}] 코드를 정말 사용중지하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if second != QMessageBox.Yes:
+            return
+        try:
+            response = httpx.delete(
+                f"{API_BASE_URL}/code-groups/{self.current_group_code}/values/{self.current_value_id}",
+                timeout=10,
+            )
+            if response.status_code >= 400:
+                raise RuntimeError(self._error_detail(response, response.text))
+            self.new_value()
+            self.load_values()
+        except Exception as exc:
+            QMessageBox.critical(self, "삭제 오류", str(exc))
 
     def close_window(self):
         parent = self.parentWidget()

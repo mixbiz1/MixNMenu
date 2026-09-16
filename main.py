@@ -354,12 +354,16 @@ def _get_code_group_or_404(group_code: str, db: Session):
     return group
 
 
-def _next_group_code(db: Session) -> str:
+def _next_group_code(db: Session, prefix: str = "CG") -> str:
+    prefix = (prefix or "CG").strip().upper()
+    if not prefix.isalpha() or len(prefix) > 5:
+        raise HTTPException(status_code=400, detail="코드 접두사는 영문 1~5자리여야 합니다.")
     numbers = []
     for (code,) in db.query(models.CodeGroup.group_code).all():
-        if code and code.upper().startswith("CG") and code[2:].isdigit():
-            numbers.append(int(code[2:]))
-    return f"CG{max(numbers, default=0) + 1:03d}"
+        suffix = code[len(prefix):] if code and code.upper().startswith(prefix) else ""
+        if suffix.isdigit():
+            numbers.append(int(suffix))
+    return f"{prefix}{max(numbers, default=0) + 1:03d}"
 
 
 def _next_value_code(group_id: int, db: Session) -> str:
@@ -389,8 +393,8 @@ def get_code_groups(include_inactive: bool = False, db: Session = Depends(get_db
 
 
 @app.get("/api/v1/code-groups/next-code")
-def get_next_code_group_code(db: Session = Depends(get_db)):
-    return {"group_code": _next_group_code(db)}
+def get_next_code_group_code(prefix: str = "CG", db: Session = Depends(get_db)):
+    return {"group_code": _next_group_code(db, prefix)}
 
 
 @app.post(
@@ -430,6 +434,18 @@ def update_code_group(
     db.commit()
     db.refresh(obj)
     return obj
+
+
+@app.delete("/api/v1/code-groups/{group_code}")
+def deactivate_code_group(group_code: str, db: Session = Depends(get_db)):
+    """참조 데이터 보호를 위해 물리삭제 대신 그룹과 상세코드를 사용중지한다."""
+    obj = _get_code_group_or_404(group_code, db)
+    obj.use_yn = False
+    db.query(models.CodeValue).filter(
+        models.CodeValue.code_group_id == obj.code_group_id
+    ).update({models.CodeValue.use_yn: False}, synchronize_session=False)
+    db.commit()
+    return {"message": "코드그룹과 소속 상세코드가 사용중지되었습니다."}
 
 
 @app.get(
@@ -537,6 +553,25 @@ def update_code_value(
     db.commit()
     db.refresh(obj)
     return obj
+
+
+@app.delete("/api/v1/code-groups/{group_code}/values/{code_value_id}")
+def deactivate_code_value(
+    group_code: str,
+    code_value_id: int,
+    db: Session = Depends(get_db),
+):
+    """향후 상품 참조를 보존할 수 있도록 상세코드를 물리삭제하지 않는다."""
+    group = _get_code_group_or_404(group_code, db)
+    obj = db.query(models.CodeValue).filter(
+        models.CodeValue.code_value_id == code_value_id,
+        models.CodeValue.code_group_id == group.code_group_id,
+    ).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="등록되지 않은 공통코드입니다.")
+    obj.use_yn = False
+    db.commit()
+    return {"message": "상세코드가 사용중지되었습니다."}
 
 
 # =============================================================================
@@ -709,4 +744,3 @@ def link_account_to_company(comp_code:str,account_id:int,data:CompanyAccountSche
 @app.put("/api/v1/companies/{comp_code}/accounts/{account_id}", response_model=CompanyAccountResponse)
 def update_company_account(comp_code:str,account_id:int,data:CompanyAccountSchema,db:Session=Depends(get_db)):
     return link_account_to_company(comp_code,account_id,data,db)
-

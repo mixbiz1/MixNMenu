@@ -63,6 +63,7 @@ class CommonCodeWindow(QWidget):
         self.search_input.setPlaceholderText("그룹코드 / 그룹명 / 상세코드 / 코드명")
         self.search_input.setMinimumWidth(380)
         self.btn_refresh = QPushButton("조회")
+        self.btn_reset = QPushButton("새로고침")
         self.btn_close = QPushButton("닫기")
         toolbar.addWidget(QLabel("공통코드 그룹 및 상세코드"))
         toolbar.addWidget(QLabel("검색"))
@@ -70,6 +71,7 @@ class CommonCodeWindow(QWidget):
         toolbar.addStretch()
         toolbar.addWidget(self.include_inactive)
         toolbar.addWidget(self.btn_refresh)
+        toolbar.addWidget(self.btn_reset)
         toolbar.addWidget(self.btn_close)
         root.addLayout(toolbar)
 
@@ -118,9 +120,11 @@ class CommonCodeWindow(QWidget):
         group_buttons = QHBoxLayout()
         self.btn_group_new = QPushButton("그룹 신규")
         self.btn_group_save = QPushButton("그룹 저장")
+        self.btn_group_delete = QPushButton("그룹 삭제")
         group_buttons.addStretch()
         group_buttons.addWidget(self.btn_group_new)
         group_buttons.addWidget(self.btn_group_save)
+        group_buttons.addWidget(self.btn_group_delete)
         group_layout.addLayout(group_buttons)
         left_layout.addWidget(group_box)
         splitter.addWidget(left)
@@ -181,9 +185,11 @@ class CommonCodeWindow(QWidget):
         value_buttons = QHBoxLayout()
         self.btn_value_new = QPushButton("코드 신규")
         self.btn_value_save = QPushButton("코드 저장")
+        self.btn_value_delete = QPushButton("코드 삭제")
         value_buttons.addStretch()
         value_buttons.addWidget(self.btn_value_new)
         value_buttons.addWidget(self.btn_value_save)
+        value_buttons.addWidget(self.btn_value_delete)
         value_layout.addLayout(value_buttons)
         right_layout.addWidget(value_box)
         splitter.addWidget(right)
@@ -193,6 +199,7 @@ class CommonCodeWindow(QWidget):
         splitter.setSizes([480, 800])
 
         self.btn_refresh.clicked.connect(self.refresh_data)
+        self.btn_reset.clicked.connect(self.reset_view)
         self.search_input.returnPressed.connect(self.refresh_data)
         self.btn_close.clicked.connect(self.close_window)
         self.include_inactive.stateChanged.connect(self.load_groups)
@@ -200,8 +207,10 @@ class CommonCodeWindow(QWidget):
         self.value_table.itemSelectionChanged.connect(self.on_value_selected)
         self.btn_group_new.clicked.connect(self.new_group)
         self.btn_group_save.clicked.connect(self.save_group)
+        self.btn_group_delete.clicked.connect(self.delete_group)
         self.btn_value_new.clicked.connect(self.new_value)
         self.btn_value_save.clicked.connect(self.save_value)
+        self.btn_value_delete.clicked.connect(self.delete_value)
         self.group_sort_direction.currentIndexChanged.connect(
             self.apply_value_sort
         )
@@ -278,6 +287,14 @@ class CommonCodeWindow(QWidget):
         if self.current_group_code:
             self.load_values()
         self._apply_search_filter()
+
+    def reset_view(self):
+        self.search_input.clear()
+        self.current_group_code = None
+        self.current_value_id = None
+        self.group_table.clearSelection()
+        self.value_table.setRowCount(0)
+        self.load_groups()
 
     def _apply_search_filter(self):
         keyword = self.search_input.text().strip().lower()
@@ -398,6 +415,32 @@ class CommonCodeWindow(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "조회 오류", str(exc))
 
+    def delete_group(self):
+        if not self.current_group_code:
+            QMessageBox.warning(self, "삭제 확인", "삭제할 코드그룹을 선택하세요.")
+            return
+        if QMessageBox.question(
+            self, "그룹 삭제 1차 확인",
+            "그룹과 소속 상세코드를 사용중지하시겠습니까?\n기존 데이터는 물리삭제하지 않습니다.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        if QMessageBox.warning(
+            self, "그룹 삭제 최종 확인",
+            f"[{self.current_group_code} {self.group_name.text()}] 그룹을 정말 사용중지하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        try:
+            response = httpx.delete(
+                f"{API_BASE_URL}/code-groups/{self.current_group_code}", timeout=10
+            )
+            if response.status_code >= 400:
+                raise RuntimeError(self._error_detail(response, response.text))
+            self.reset_view()
+        except Exception as exc:
+            QMessageBox.critical(self, "삭제 오류", str(exc))
+
     def on_value_selected(self):
         row = self.value_table.currentRow()
         if row < 0 or self.value_table.item(row, 0) is None:
@@ -468,6 +511,34 @@ class CommonCodeWindow(QWidget):
             self.load_values()
         except Exception as exc:
             QMessageBox.critical(self, "저장 오류", str(exc))
+
+    def delete_value(self):
+        if not self.current_group_code or not self.current_value_id:
+            QMessageBox.warning(self, "삭제 확인", "삭제할 상세코드를 선택하세요.")
+            return
+        if QMessageBox.question(
+            self, "코드 삭제 1차 확인",
+            "선택한 코드를 사용중지하시겠습니까?\n기존 참조 데이터는 보존됩니다.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        if QMessageBox.warning(
+            self, "코드 삭제 최종 확인",
+            f"[{self.value_code.text()} {self.value_name.text()}] 코드를 정말 사용중지하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        try:
+            response = httpx.delete(
+                f"{API_BASE_URL}/code-groups/{self.current_group_code}/values/{self.current_value_id}",
+                timeout=10,
+            )
+            if response.status_code >= 400:
+                raise RuntimeError(self._error_detail(response, response.text))
+            self.new_value()
+            self.load_values()
+        except Exception as exc:
+            QMessageBox.critical(self, "삭제 오류", str(exc))
 
     def close_window(self):
         parent = self.parentWidget()
