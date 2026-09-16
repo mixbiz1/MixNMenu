@@ -1,4 +1,5 @@
 import httpx
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import Qt, QEvent, QTimer
@@ -7,6 +8,7 @@ from PySide6.QtWidgets import (
     QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
     QInputDialog, QSplitter, QTableWidget, QTableWidgetItem, QTextEdit, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget, QMdiSubWindow, QApplication,
+    QToolButton, QMenu,
 )
 
 try:
@@ -207,6 +209,61 @@ class ProductRegWindow(QWidget):
     def _set_combo(combo, data):
         index = combo.findData(data)
         combo.setCurrentIndex(index if index >= 0 else 0)
+
+    @staticmethod
+    def _natural_key(value):
+        """한글/영문 명칭과 숫자가 섞인 코드를 사람이 읽는 순서로 정렬한다."""
+        return [(0, int(part)) if part.isdigit() else (1, part.casefold())
+                for part in re.split(r"(\d+)", str(value or ""))]
+
+    def _sort_attribute_combo(self, combo, mode):
+        current_id = combo.currentData()
+        entries = [
+            (combo.itemText(index), combo.itemData(index),
+             combo.itemData(index, Qt.UserRole + 1) or "")
+            for index in range(1, combo.count())
+        ]
+        by_code = mode.startswith("code")
+        reverse = mode.endswith("desc")
+        entries.sort(
+            key=lambda entry: self._natural_key(entry[2] if by_code else entry[0]),
+            reverse=reverse,
+        )
+        combo.blockSignals(True)
+        combo.clear(); combo.addItem("선택 안 함", None)
+        for name, value_id, code in entries:
+            combo.addItem(name, value_id)
+            combo.setItemData(combo.count() - 1, code, Qt.UserRole + 1)
+        self._set_combo(combo, current_id)
+        combo.blockSignals(False)
+        self.update_combination_name_live()
+
+    def _attribute_selector(self, combo):
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(3)
+        layout.addWidget(combo, 1)
+        sort_button = QToolButton()
+        sort_button.setText("⇅")
+        sort_button.setToolTip("정렬방식 선택")
+        sort_button.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(sort_button)
+        options = (
+            ("이름 오름차순 (가나다/ABC)", "name_asc"),
+            ("이름 내림차순", "name_desc"),
+            ("코드 오름차순", "code_asc"),
+            ("코드 내림차순", "code_desc"),
+        )
+        for label, mode in options:
+            action = menu.addAction(label)
+            action.triggered.connect(
+                lambda checked=False, selected_mode=mode: self._sort_attribute_combo(
+                    combo, selected_mode
+                )
+            )
+        sort_button.setMenu(menu)
+        layout.addWidget(sort_button)
+        return container
 
     def _setup_enter_navigation(self):
         """단일행 입력에서 Enter를 Tab처럼 다음 입력항목 이동으로 사용한다."""
@@ -438,8 +495,11 @@ class ProductRegWindow(QWidget):
             for row, (group, values) in enumerate(zip(groups, group_values)):
                 self.attribute_table.setItem(row, 0, QTableWidgetItem(aliases[group["group_name"]]))
                 combo = QComboBox(); combo.addItem("선택 안 함", None)
-                for value in values: combo.addItem(value["code_name"], value["code_value_id"])
-                self.attribute_table.setCellWidget(row, 1, combo)
+                values.sort(key=lambda value: self._natural_key(value.get("code_name")))
+                for value in values:
+                    combo.addItem(value["code_name"], value["code_value_id"])
+                    combo.setItemData(combo.count() - 1, value.get("code") or "", Qt.UserRole + 1)
+                self.attribute_table.setCellWidget(row, 1, self._attribute_selector(combo))
                 self.attribute_combos[group["group_code"]] = combo
                 self.attribute_group_names[group["group_code"]] = group["group_name"]
                 combo.currentIndexChanged.connect(self.update_combination_name_live)
