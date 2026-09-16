@@ -1,6 +1,7 @@
 import httpx
+from concurrent.futures import ThreadPoolExecutor
 
-from PySide6.QtCore import Qt, QEvent
+from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDoubleSpinBox, QGridLayout, QGroupBox,
     QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
@@ -30,7 +31,8 @@ class ProductRegWindow(QWidget):
         self.resize(1400, 820)
         self._build_ui()
         self._apply_style()
-        self.refresh_all()
+        # MDI 창을 먼저 표시한 뒤 초기 자료를 조회해 클릭 반응을 즉시 보여준다.
+        QTimer.singleShot(50, self.refresh_all)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -399,12 +401,21 @@ class ProductRegWindow(QWidget):
             groups.sort(key=lambda g: order[g["group_name"]])
             self.attribute_table.setRowCount(len(groups)); self.attribute_combos = {}
             self.attribute_group_names = {}
-            for row, group in enumerate(groups):
+            def fetch_values(group):
+                values = httpx.get(
+                    f"{API_BASE_URL}/code-groups/{group['group_code']}/values",
+                    timeout=10,
+                )
+                values.raise_for_status()
+                return values.json()
+
+            with ThreadPoolExecutor(max_workers=max(1, min(5, len(groups)))) as executor:
+                group_values = list(executor.map(fetch_values, groups))
+
+            for row, (group, values) in enumerate(zip(groups, group_values)):
                 self.attribute_table.setItem(row, 0, QTableWidgetItem(aliases[group["group_name"]]))
                 combo = QComboBox(); combo.addItem("선택 안 함", None)
-                values = httpx.get(f"{API_BASE_URL}/code-groups/{group['group_code']}/values", timeout=10)
-                values.raise_for_status()
-                for value in values.json(): combo.addItem(value["code_name"], value["code_value_id"])
+                for value in values: combo.addItem(value["code_name"], value["code_value_id"])
                 self.attribute_table.setCellWidget(row, 1, combo)
                 self.attribute_combos[group["group_code"]] = combo
                 self.attribute_group_names[group["group_code"]] = group["group_name"]
