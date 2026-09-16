@@ -631,7 +631,9 @@ def _category_level(parent_id: Optional[int], db: Session):
 
 
 def _product_result(obj, db: Session):
-    assignments = db.query(models.ProductCodeAssignment, models.CodeGroup, models.CodeValue).join(
+    assignments = db.query(
+        models.ProductCodeAssignment, models.CodeGroup, models.CodeValue
+    ).select_from(models.ProductCodeAssignment).join(
         models.CodeGroup,
         models.ProductCodeAssignment.code_group_id == models.CodeGroup.code_group_id,
     ).join(
