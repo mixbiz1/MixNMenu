@@ -25,6 +25,7 @@ class ProductRegWindow(QWidget):
         self.categories = []
         self.attribute_combos = {}
         self.attribute_group_names = {}
+        self.loading_product = False
         self.setWindowTitle("상품입력")
         self.resize(1400, 820)
         self._build_ui()
@@ -35,7 +36,7 @@ class ProductRegWindow(QWidget):
         root = QVBoxLayout(self)
         toolbar = QHBoxLayout()
         self.search = QLineEdit()
-        self.search.setPlaceholderText("상품명 / 규격")
+        self.search.setPlaceholderText("상품명")
         self.include_inactive = ReadableCheckBox("사용중지 포함")
         self.btn_search = QPushButton("조회")
         self.btn_refresh = QPushButton("새로고침")
@@ -126,13 +127,12 @@ class ProductRegWindow(QWidget):
         form.addWidget(self.selected_part_label, 0, 0, 1, 4)
         form.addWidget(QLabel("상품명 *"), 1, 0); form.addWidget(self.product_name, 1, 1, 1, 3)
         form.addWidget(QLabel("상품분류"), 2, 0); form.addWidget(self.product_category, 2, 1, 1, 3)
-        form.addWidget(QLabel("규격"), 3, 0); form.addWidget(self.specification, 3, 1, 1, 3)
-        form.addWidget(QLabel("과세구분"), 4, 0); form.addWidget(self.tax_type, 4, 1)
-        form.addWidget(QLabel("기본단가"), 4, 2); form.addWidget(self.unit_price, 4, 3)
-        form.addWidget(QLabel("이력부위코드"), 5, 0); form.addWidget(self.meat_regn_code, 5, 1)
-        form.addWidget(QLabel("이력부위명"), 5, 2); form.addWidget(self.meat_regn_name, 5, 3)
-        form.addWidget(self.product_use, 6, 1)
-        form.addWidget(QLabel("메모"), 7, 0); form.addWidget(self.memo, 7, 1, 1, 3)
+        form.addWidget(QLabel("과세구분"), 3, 0); form.addWidget(self.tax_type, 3, 1)
+        form.addWidget(QLabel("기본단가"), 3, 2); form.addWidget(self.unit_price, 3, 3)
+        form.addWidget(QLabel("이력부위코드"), 4, 0); form.addWidget(self.meat_regn_code, 4, 1)
+        form.addWidget(QLabel("이력부위명"), 4, 2); form.addWidget(self.meat_regn_name, 4, 3)
+        form.addWidget(self.product_use, 5, 1)
+        form.addWidget(QLabel("메모"), 6, 0); form.addWidget(self.memo, 6, 1, 1, 3)
         detail_layout.addLayout(form)
 
         attributes_box = QGroupBox("상품공통코드 조합 (선택하지 않아도 단독 상품 등록 가능)")
@@ -149,9 +149,6 @@ class ProductRegWindow(QWidget):
         self.other_name.setPlaceholderText("조합 상품명 뒤에 붙일 내용을 직접 입력")
         other_layout.addWidget(self.other_name, 1)
         attributes_layout.addLayout(other_layout)
-        self.btn_apply_combination = QPushButton("선택 코드로 상품명 조합")
-        self.btn_apply_combination.setToolTip("조합 후에도 상품명은 자유롭게 수정할 수 있습니다.")
-        attributes_layout.addWidget(self.btn_apply_combination)
         detail_layout.addWidget(attributes_box, 1)
         splitter.addWidget(detail_box)
         splitter.setSizes([330, 460, 610])
@@ -172,7 +169,8 @@ class ProductRegWindow(QWidget):
         self.btn_add_child.clicked.connect(self.add_child_category)
         self.btn_category_save.clicked.connect(self.save_category)
         self.btn_category_delete.clicked.connect(self.delete_category)
-        self.btn_apply_combination.clicked.connect(self.apply_combination_name)
+        self.product_category.currentIndexChanged.connect(self.update_combination_name_live)
+        self.other_name.textChanged.connect(self.update_combination_name_live)
         self._setup_enter_navigation()
 
     def _apply_style(self):
@@ -212,7 +210,7 @@ class ProductRegWindow(QWidget):
         widgets = [
             self.search, self.category_name, self.parent_category,
             self.category_description, self.product_name, self.product_category,
-            self.specification, self.tax_type, self.unit_price,
+            self.tax_type, self.unit_price,
             self.meat_regn_code, self.meat_regn_name, self.other_name,
         ]
         for widget in widgets:
@@ -298,6 +296,9 @@ class ProductRegWindow(QWidget):
             else:
                 self.selected_leaf_category_id = self.current_category_id
                 self.selected_part_label.setText(f"선택 부위: {category['category_name']}")
+                if self.current_product_id is None:
+                    self._set_combo(self.product_category, self.selected_leaf_category_id)
+                    self.update_combination_name_live()
             self.category_code.setText(category["category_code"])
             self.category_name.setText(category["category_name"])
             self.category_description.setText(category.get("description") or "")
@@ -407,6 +408,7 @@ class ProductRegWindow(QWidget):
                 self.attribute_table.setCellWidget(row, 1, combo)
                 self.attribute_combos[group["group_code"]] = combo
                 self.attribute_group_names[group["group_code"]] = group["group_name"]
+                combo.currentIndexChanged.connect(self.update_combination_name_live)
         except Exception as exc: QMessageBox.critical(self, "상품공통코드 조회 오류", str(exc))
 
     def load_products(self):
@@ -423,18 +425,23 @@ class ProductRegWindow(QWidget):
         except Exception as exc: QMessageBox.critical(self, "상품 조회 오류", str(exc))
 
     def new_product(self):
-        self.current_product_id = None
-        for widget in (self.product_code, self.product_name, self.specification, self.meat_regn_code, self.meat_regn_name): widget.clear()
-        self.memo.clear(); self.product_category.setCurrentIndex(0); self.tax_type.setCurrentIndex(0)
-        self.other_name.clear()
-        if self.selected_leaf_category_id is not None:
-            self._set_combo(self.product_category, self.selected_leaf_category_id)
-        self.unit_price.setValue(0); self.product_use.setChecked(True)
-        for combo in self.attribute_combos.values(): combo.setCurrentIndex(0)
+        self.loading_product = True
+        try:
+            self.current_product_id = None
+            for widget in (self.product_code, self.product_name, self.specification, self.meat_regn_code, self.meat_regn_name): widget.clear()
+            self.memo.clear(); self.product_category.setCurrentIndex(0); self.tax_type.setCurrentIndex(0)
+            self.other_name.clear()
+            if self.selected_leaf_category_id is not None:
+                self._set_combo(self.product_category, self.selected_leaf_category_id)
+            self.unit_price.setValue(0); self.product_use.setChecked(True)
+            for combo in self.attribute_combos.values(): combo.setCurrentIndex(0)
+        finally:
+            self.loading_product = False
         try:
             response = httpx.get(f"{API_BASE_URL}/products/next-code", timeout=10); response.raise_for_status()
             self.product_code.setText(response.json()["product_code"])
         except Exception as exc: QMessageBox.critical(self, "자동발번 오류", str(exc))
+        self.update_combination_name_live()
         self.product_name.setFocus()
 
     def edit_product(self):
@@ -453,19 +460,26 @@ class ProductRegWindow(QWidget):
     def on_product_selected(self):
         row = self.product_table.currentRow()
         if row < 0 or self.product_table.item(row, 0) is None: return
-        item = self.product_table.item(row, 0).data(Qt.UserRole); self.current_product_id = item["product_id"]
-        self.product_code.setText(item["product_code"]); self.product_name.setText(item["product_name"])
-        self.specification.setText(item.get("specification") or ""); self._set_combo(self.product_category, item.get("category_id"))
-        self._set_combo(self.tax_type, item.get("tax_type", "2")); self.unit_price.setValue(float(item.get("unit_price") or 0))
-        self.meat_regn_code.setText(item.get("meat_regn_code") or ""); self.meat_regn_name.setText(item.get("meat_regn_name") or "")
-        self.memo.setPlainText(item.get("memo") or ""); self.product_use.setChecked(bool(item.get("use_yn")))
-        selected = set(item.get("code_value_ids") or [])
-        for combo in self.attribute_combos.values():
-            combo.setCurrentIndex(0)
-            for index in range(combo.count()):
-                if combo.itemData(index) in selected: combo.setCurrentIndex(index); break
+        self.loading_product = True
+        try:
+            item = self.product_table.item(row, 0).data(Qt.UserRole); self.current_product_id = item["product_id"]
+            self.product_code.setText(item["product_code"]); self.product_name.setText(item["product_name"])
+            self.specification.setText(item.get("specification") or ""); self._set_combo(self.product_category, item.get("category_id"))
+            self._set_combo(self.tax_type, item.get("tax_type", "2")); self.unit_price.setValue(float(item.get("unit_price") or 0))
+            self.meat_regn_code.setText(item.get("meat_regn_code") or ""); self.meat_regn_name.setText(item.get("meat_regn_name") or "")
+            self.memo.setPlainText(item.get("memo") or ""); self.product_use.setChecked(bool(item.get("use_yn")))
+            self.other_name.clear()
+            selected = set(item.get("code_value_ids") or [])
+            for combo in self.attribute_combos.values():
+                combo.setCurrentIndex(0)
+                for index in range(combo.count()):
+                    if combo.itemData(index) in selected: combo.setCurrentIndex(index); break
+        finally:
+            self.loading_product = False
 
-    def apply_combination_name(self):
+    def update_combination_name_live(self, *args):
+        if self.loading_product:
+            return
         selected_by_name = {
             self.attribute_group_names.get(code): combo.currentText()
             for code, combo in self.attribute_combos.items()
@@ -487,6 +501,11 @@ class ProductRegWindow(QWidget):
         if names: self.product_name.setText(" ".join(names))
 
     def save_product(self):
+        if self.current_product_id is None and self.selected_leaf_category_id is not None:
+            self._set_combo(self.product_category, self.selected_leaf_category_id)
+        if self.current_product_id is None and self.current_category_id is not None and self.selected_leaf_category_id is None:
+            QMessageBox.warning(self, "입력 확인", "상품을 등록할 최종 세부부위를 선택하세요.")
+            return
         name = self.product_name.text().strip()
         if not name: QMessageBox.warning(self, "입력 확인", "상품명은 필수입니다."); return
         payload = {"product_code": self.product_code.text().strip(), "product_name": name,
