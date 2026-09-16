@@ -41,6 +41,12 @@ try:
 except ImportError:
     from common_code_reg import CommonCodeWindow
 
+# 상품공통코드관리 화면
+try:
+    from views.goods_common_code_reg import GoodsCommonCodeWindow
+except ImportError:
+    from goods_common_code_reg import GoodsCommonCodeWindow
+
 
 # ============================================================
 # 1. 프로젝트 루트 및 views 폴더 경로 설정
@@ -690,8 +696,19 @@ class MixNMainWindow(QMainWindow):
             common_code_action
         )
 
+        goods_common_code_action = QAction(
+            "3.상품공통코드",
+            self,
+        )
+        goods_common_code_action.triggered.connect(
+            self.open_goods_common_code
+        )
+        self.menu2.addAction(
+            goods_common_code_action
+        )
+
         account_action = QAction(
-            "3.거래처입력",
+            "4.거래처입력",
             self,
         )
         account_action.triggered.connect(
@@ -703,7 +720,7 @@ class MixNMainWindow(QMainWindow):
 
         self.menu2.addAction(
             QAction(
-                "4.거래처 기초잔액 입력",
+                "5.거래처 기초잔액 입력",
                 self,
             )
         )
@@ -1165,6 +1182,49 @@ class MixNMainWindow(QMainWindow):
 
 
     # ========================================================
+    # Goods Common Code
+    # ========================================================
+
+    def open_goods_common_code(self):
+        """상품공통코드관리 화면을 MDI에 1개만 연다."""
+        try:
+            for sub in self.mdi_area.subWindowList():
+                widget = sub.widget()
+                if widget is not None and isinstance(widget, GoodsCommonCodeWindow):
+                    self.mdi_area.setActiveSubWindow(sub)
+                    sub.showNormal()
+                    sub.showMaximized()
+                    self.set_work_status("상품공통코드관리 창이 활성화되었습니다.")
+                    return
+
+            code_widget = GoodsCommonCodeWindow()
+            sub_window = self.mdi_area.addSubWindow(code_widget)
+            sub_window.setAttribute(Qt.WA_DeleteOnClose, True)
+            sub_window.setWindowTitle("상품공통코드관리")
+
+            self._goods_common_code_subwindow = sub_window
+            self._goods_common_code_widget = code_widget
+
+            def clear_goods_common_code_refs(*args):
+                self._goods_common_code_subwindow = None
+                self._goods_common_code_widget = None
+
+            sub_window.destroyed.connect(clear_goods_common_code_refs)
+            code_widget.show()
+            sub_window.show()
+            self.mdi_area.setActiveSubWindow(sub_window)
+            sub_window.showMaximized()
+            self.set_work_status("상품공통코드관리 창이 열렸습니다.")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "상품공통코드관리 실행 오류",
+                f"상품공통코드관리 화면을 열 수 없습니다.\n\n{e}",
+            )
+
+
+    # ========================================================
     # Account Registration
     # ========================================================
 
@@ -1177,7 +1237,7 @@ class MixNMainWindow(QMainWindow):
                     self.mdi_area.setActiveSubWindow(sub)
                     sub.showNormal()
                     sub.showMaximized()
-                    self.set_work_status("3.거래처입력 창이 활성화되었습니다.")
+                    self.set_work_status("4.거래처입력 창이 활성화되었습니다.")
                     return
 
             # AccountRegWindow 실제 생성자는 parent=None만 받는다.
@@ -1204,7 +1264,7 @@ class MixNMainWindow(QMainWindow):
             self.mdi_area.setActiveSubWindow(sub_window)
             sub_window.showMaximized()
 
-            self.set_work_status("3.거래처입력 창이 열렸습니다.")
+            self.set_work_status("4.거래처입력 창이 열렸습니다.")
 
         except Exception as e:
             QMessageBox.critical(
@@ -1212,4 +1272,3 @@ class MixNMainWindow(QMainWindow):
                 "거래처입력 실행 오류",
                 f"거래처입력 화면을 열 수 없습니다.\n\n{e}",
             )
-
