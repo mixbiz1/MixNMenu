@@ -1,6 +1,7 @@
 import webbrowser
 import httpx
-from PySide6.QtCore import Qt, QEvent
+from concurrent.futures import ThreadPoolExecutor
+from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtWidgets import (
     QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QGroupBox,QLabel,QLineEdit,QTextEdit,
     QPushButton,QComboBox,QTableWidget,QTableWidgetItem,QHeaderView,QMessageBox,
@@ -57,7 +58,8 @@ class AccountRegWindow(QWidget):
         self._build_ui()
         self._apply_style()
         self._setup_enter_navigation()
-        self.load_accounts()
+        # MDI 창을 먼저 표시한 뒤 초기 자료를 조회해 클릭 반응을 즉시 보여준다.
+        QTimer.singleShot(50, self.load_accounts)
 
     def _field(self): return QLineEdit()
 
@@ -415,18 +417,33 @@ class AccountRegWindow(QWidget):
     def load_accounts(self):
         try:
             # 거래처 등록 화면은 공통 Master 전체를 보되, 회사관계가 있고 중단된 거래처는 기본 제외
-            r=httpx.get(f"{API_BASE_URL}/accounts",timeout=10); r.raise_for_status()
+            include_stopped=self.include_stopped.isChecked()
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                master_future=executor.submit(httpx.get,f"{API_BASE_URL}/accounts",timeout=10)
+                active_future=None
+                linked_future=None
+                if not include_stopped:
+                    active_future=executor.submit(
+                        httpx.get,
+                        f"{API_BASE_URL}/companies/{app_context.company_code}/accounts",
+                        params={"include_stopped":"false"},timeout=10,
+                    )
+                    linked_future=executor.submit(
+                        httpx.get,
+                        f"{API_BASE_URL}/companies/{app_context.company_code}/accounts",
+                        params={"include_stopped":"true","include_inactive":"true"},timeout=10,
+                    )
+                r=master_future.result()
+                cr=active_future.result() if active_future else None
+                allcr=linked_future.result() if linked_future else None
+            r.raise_for_status()
             rows=r.json()
-            if not self.include_stopped.isChecked():
+            if not include_stopped:
                 try:
-                    cr=httpx.get(f"{API_BASE_URL}/companies/{app_context.company_code}/accounts",
-                                 params={"include_stopped":"false"},timeout=10)
-                    if cr.status_code==200:
+                    if cr is not None and cr.status_code==200:
                         allowed={x["account_id"] for x in cr.json()}
                         # 아직 회사관계가 없는 공통 Master도 등록/연결을 위해 표시
-                        allcr=httpx.get(f"{API_BASE_URL}/companies/{app_context.company_code}/accounts",
-                                      params={"include_stopped":"true","include_inactive":"true"},timeout=10)
-                        linked={x["account_id"] for x in allcr.json()} if allcr.status_code==200 else set()
+                        linked={x["account_id"] for x in allcr.json()} if allcr is not None and allcr.status_code==200 else set()
                         rows=[x for x in rows if x["account_id"] in allowed or x["account_id"] not in linked]
                 except Exception:
                     pass
