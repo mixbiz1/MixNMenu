@@ -87,6 +87,30 @@ with engine.begin() as conn:
             ("category_id", "category_id INT NULL"),
             ("specification", "specification NVARCHAR(200) NULL"),
             ("memo", "memo NVARCHAR(1000) NULL"),
+            ("category", "category NVARCHAR(50) NULL"),
+            ("origin", "origin NVARCHAR(50) NULL"),
+            ("meat_regn_code", "meat_regn_code VARCHAR(10) NULL"),
+            ("meat_regn_name", "meat_regn_name NVARCHAR(50) NULL"),
+            (
+                "tax_type",
+                "tax_type VARCHAR(1) NOT NULL "
+                "CONSTRAINT DF_tb_product_tax DEFAULT '2' WITH VALUES",
+            ),
+            (
+                "unit_price",
+                "unit_price NUMERIC(12,2) NOT NULL "
+                "CONSTRAINT DF_tb_product_price DEFAULT 0 WITH VALUES",
+            ),
+            (
+                "use_yn",
+                "use_yn BIT NOT NULL "
+                "CONSTRAINT DF_tb_product_use DEFAULT 1 WITH VALUES",
+            ),
+            (
+                "created_at",
+                "created_at DATETIMEOFFSET NOT NULL "
+                "CONSTRAINT DF_tb_product_created DEFAULT SYSDATETIMEOFFSET() WITH VALUES",
+            ),
         ):
             if not column_exists(conn, "tb_product", column_name):
                 conn.execute(text(f"ALTER TABLE tb_product ADD {ddl}"))
