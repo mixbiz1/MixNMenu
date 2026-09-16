@@ -239,7 +239,8 @@ class CommonCodeWindow(QWidget):
                            border-radius:3px; min-height:28px; padding:3px 12px; }}
             QPushButton:hover {{ border-color:#0067c0; }}
             QTableWidget {{ background:{field}; color:{text_color}; gridline-color:{border};
-                            border:1px solid {border}; selection-background-color:{selected}; }}
+                            border:1px solid {border}; selection-background-color:{selected};
+                            selection-color:{text_color}; }}
             QHeaderView::section {{ background:{panel}; color:{text_color}; border:0;
                                     border-right:1px solid {border}; border-bottom:1px solid {border};
                                     padding:5px; font-weight:bold; }}
