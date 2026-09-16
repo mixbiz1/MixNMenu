@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDoubleSpinBox, QGridLayout, QGroupBox,
     QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
     QInputDialog, QSplitter, QTableWidget, QTableWidgetItem, QTextEdit, QTreeWidget,
-    QTreeWidgetItem, QVBoxLayout, QWidget, QMdiSubWindow,
+    QTreeWidgetItem, QVBoxLayout, QWidget, QMdiSubWindow, QApplication,
 )
 
 try:
@@ -27,6 +27,7 @@ class ProductRegWindow(QWidget):
         self.attribute_combos = {}
         self.attribute_group_names = {}
         self.loading_product = False
+        self._loading_lookup = False
         self.setWindowTitle("상품입력")
         self.resize(1400, 820)
         self._build_ui()
@@ -155,8 +156,8 @@ class ProductRegWindow(QWidget):
         splitter.addWidget(detail_box)
         splitter.setSizes([330, 460, 610])
 
-        self.btn_search.clicked.connect(self.load_products)
-        self.search.returnPressed.connect(self.load_products)
+        self.btn_search.clicked.connect(self.query_products)
+        self.search.returnPressed.connect(self.query_products)
         self.btn_refresh.clicked.connect(self.refresh_all)
         self.include_inactive.stateChanged.connect(self.load_products)
         self.btn_new.clicked.connect(self.new_product)
@@ -223,19 +224,41 @@ class ProductRegWindow(QWidget):
     def eventFilter(self, obj, event):
         if event.type() == QEvent.KeyPress and event.key() in (Qt.Key_Return, Qt.Key_Enter):
             if obj is self.search:
-                self.load_products()
+                self.query_products()
             else:
                 self.focusNextChild()
             return True
         return super().eventFilter(obj, event)
 
     def refresh_all(self):
-        self.search.clear()
-        self.current_category_id = None
-        self.load_categories()
-        self.load_attributes()
-        self.load_products()
-        self.new_product()
+        if self._loading_lookup:
+            return
+        self._set_lookup_busy(True)
+        try:
+            self.search.clear()
+            self.current_category_id = None
+            self.load_categories()
+            self.load_attributes()
+            self.load_products()
+            self.new_product()
+        finally:
+            self._set_lookup_busy(False)
+
+    def query_products(self):
+        if self._loading_lookup:
+            return
+        self._set_lookup_busy(True)
+        try:
+            self.load_products()
+        finally:
+            self._set_lookup_busy(False)
+
+    def _set_lookup_busy(self, busy):
+        self._loading_lookup = busy
+        self.btn_search.setEnabled(not busy)
+        self.btn_search.setText("조회 중..." if busy else "조회 [F7]")
+        self.search.setEnabled(not busy)
+        QApplication.processEvents()
 
     def load_categories(self):
         try:
