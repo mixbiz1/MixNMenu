@@ -771,7 +771,18 @@ def get_products(search: str = "", category_id: Optional[int] = None,
     if not include_inactive:
         query = query.filter(models.Product.use_yn == True)
     if category_id is not None:
-        query = query.filter(models.Product.category_id == category_id)
+        # 상위분류를 선택하면 모든 하위부위 상품을 함께 조회한다.
+        category_ids = [category_id]
+        pending = [category_id]
+        while pending:
+            current = pending.pop()
+            children = db.query(models.ProductCategory.category_id).filter(
+                models.ProductCategory.parent_category_id == current
+            ).all()
+            child_ids = [row[0] for row in children if row[0] not in category_ids]
+            category_ids.extend(child_ids)
+            pending.extend(child_ids)
+        query = query.filter(models.Product.category_id.in_(category_ids))
     if search.strip():
         keyword = f"%{search.strip()}%"
         query = query.filter(

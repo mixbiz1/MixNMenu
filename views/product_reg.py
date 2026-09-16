@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt, QEvent
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDoubleSpinBox, QGridLayout, QGroupBox,
     QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
-    QSplitter, QTableWidget, QTableWidgetItem, QTextEdit, QTreeWidget,
+    QInputDialog, QSplitter, QTableWidget, QTableWidgetItem, QTextEdit, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget, QMdiSubWindow,
 )
 
@@ -20,6 +20,7 @@ class ProductRegWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_category_id = None
+        self.selected_leaf_category_id = None
         self.current_product_id = None
         self.categories = []
         self.attribute_combos = {}
@@ -86,9 +87,11 @@ class ProductRegWindow(QWidget):
         category_layout.addLayout(category_form)
         category_buttons = QHBoxLayout()
         self.btn_category_new = QPushButton("분류 신규")
+        self.btn_add_child = QPushButton("하위부위 추가")
         self.btn_category_save = QPushButton("분류 저장")
         self.btn_category_delete = QPushButton("분류 삭제")
-        for button in (self.btn_category_new, self.btn_category_save, self.btn_category_delete):
+        for button in (self.btn_category_new, self.btn_add_child,
+                       self.btn_category_save, self.btn_category_delete):
             category_buttons.addWidget(button)
         category_layout.addLayout(category_buttons)
         splitter.addWidget(category_box)
@@ -166,6 +169,7 @@ class ProductRegWindow(QWidget):
         self.category_tree.itemClicked.connect(self.on_category_selected)
         self.product_table.itemSelectionChanged.connect(self.on_product_selected)
         self.btn_category_new.clicked.connect(self.new_category)
+        self.btn_add_child.clicked.connect(self.add_child_category)
         self.btn_category_save.clicked.connect(self.save_category)
         self.btn_category_delete.clicked.connect(self.delete_category)
         self.btn_apply_combination.clicked.connect(self.apply_combination_name)
@@ -183,6 +187,7 @@ class ProductRegWindow(QWidget):
             QGroupBox::title {{ subcontrol-origin:margin; left:8px; padding:0 4px; }}
             QLineEdit, QTextEdit, QComboBox, QDoubleSpinBox {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:2px; min-height:25px; padding:2px 5px; }}
             QPushButton {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:3px; min-height:28px; padding:3px 10px; }}
+            QPushButton:pressed, QPushButton[mxmnCommandActive="true"] {{ background:#0067c0; color:#ffffff; border:2px solid #003f78; }}
             QTableWidget, QTreeWidget {{ background:{field}; color:{text_color}; gridline-color:{border}; border:1px solid {border}; selection-background-color:{selected}; }}
             QHeaderView::section {{ background:{panel}; color:{text_color}; border:0; border-right:1px solid {border}; border-bottom:1px solid {border}; padding:5px; font-weight:bold; }}
             QCheckBox[mxmnReadable="true"] {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:3px; min-height:28px; padding:3px 10px; font-weight:bold; }}
@@ -256,11 +261,17 @@ class ProductRegWindow(QWidget):
     def _fill_category_combos(self):
         self.parent_category.clear(); self.parent_category.addItem("상위분류 없음 (대분류)", None)
         self.product_category.clear(); self.product_category.addItem("분류 없음 (단독 상품)", None)
+        parent_ids = {
+            category.get("parent_category_id")
+            for category in self.categories
+            if category.get("parent_category_id") is not None and category.get("use_yn")
+        }
         for category in self.categories:
             if not category.get("use_yn"): continue
             indent = "　" * max(0, category.get("category_level", 1) - 1)
             label = f"{indent}{category['category_name']}"
-            self.product_category.addItem(label, category["category_id"])
+            if category["category_id"] not in parent_ids:
+                self.product_category.addItem(label, category["category_id"])
             if category.get("category_level", 1) < 3:
                 self.parent_category.addItem(label, category["category_id"])
 
@@ -269,17 +280,72 @@ class ProductRegWindow(QWidget):
         self.search.clear()
         if category is None:
             self.current_category_id = None
+            self.selected_leaf_category_id = None
             self.selected_part_label.setText("선택 부위: 없음 (단독 상품)")
             self.new_category(clear_selection=False)
         else:
             self.current_category_id = category["category_id"]
-            self.selected_part_label.setText(f"선택 부위: {category['category_name']}")
+            has_children = any(
+                item.get("parent_category_id") == self.current_category_id
+                and item.get("use_yn")
+                for item in self.categories
+            )
+            if has_children:
+                self.selected_leaf_category_id = None
+                self.selected_part_label.setText(
+                    f"선택 분류: {category['category_name']} / 최종 세부부위를 선택하세요"
+                )
+            else:
+                self.selected_leaf_category_id = self.current_category_id
+                self.selected_part_label.setText(f"선택 부위: {category['category_name']}")
             self.category_code.setText(category["category_code"])
             self.category_name.setText(category["category_name"])
             self.category_description.setText(category.get("description") or "")
             self.category_use.setChecked(bool(category.get("use_yn")))
             self._set_combo(self.parent_category, category.get("parent_category_id"))
         self.load_products()
+
+    def add_child_category(self):
+        if not self.current_category_id:
+            QMessageBox.warning(self, "하위부위 추가", "상위 상품분류를 먼저 선택하세요.")
+            return
+        parent = next(
+            (item for item in self.categories if item["category_id"] == self.current_category_id),
+            None,
+        )
+        if not parent or parent.get("category_level", 1) >= 3:
+            QMessageBox.warning(self, "하위부위 추가", "상품분류는 최대 3단계까지만 만들 수 있습니다.")
+            return
+        name, accepted = QInputDialog.getText(
+            self,
+            "하위부위 추가",
+            f"[{parent['category_name']}] 아래에 추가할 세부부위명:",
+        )
+        name = name.strip()
+        if not accepted or not name:
+            return
+        try:
+            code_response = httpx.get(
+                f"{API_BASE_URL}/product-categories/next-code", timeout=10
+            )
+            code_response.raise_for_status()
+            response = httpx.post(
+                f"{API_BASE_URL}/product-categories",
+                json={
+                    "category_code": code_response.json()["category_code"],
+                    "category_name": name,
+                    "parent_category_id": self.current_category_id,
+                    "description": None,
+                    "sort_order": 0,
+                    "use_yn": True,
+                },
+                timeout=10,
+            )
+            if response.status_code >= 400:
+                raise RuntimeError(self._detail(response, response.text))
+            self.load_categories()
+        except Exception as exc:
+            QMessageBox.critical(self, "하위부위 저장 오류", str(exc))
 
     def new_category(self, clear_selection=True):
         self.current_category_id = None
@@ -361,8 +427,8 @@ class ProductRegWindow(QWidget):
         for widget in (self.product_code, self.product_name, self.specification, self.meat_regn_code, self.meat_regn_name): widget.clear()
         self.memo.clear(); self.product_category.setCurrentIndex(0); self.tax_type.setCurrentIndex(0)
         self.other_name.clear()
-        if self.current_category_id is not None:
-            self._set_combo(self.product_category, self.current_category_id)
+        if self.selected_leaf_category_id is not None:
+            self._set_combo(self.product_category, self.selected_leaf_category_id)
         self.unit_price.setValue(0); self.product_use.setChecked(True)
         for combo in self.attribute_combos.values(): combo.setCurrentIndex(0)
         try:

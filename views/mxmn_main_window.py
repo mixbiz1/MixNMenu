@@ -2,6 +2,7 @@ import sys
 import os
 import traceback
 import httpx
+import time
 
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -23,7 +24,7 @@ from PySide6.QtWidgets import (
     QComboBox,
 )
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QObject, QEvent, QTimer
 from PySide6.QtGui import QAction, QPalette, QColor
 
 # MXMN 공통 실행 Context
@@ -195,6 +196,61 @@ except Exception:
 # 4. 업무회사 선택/변경 Dialog
 # ============================================================
 
+class CommandEventFilter(QObject):
+    """전체 버튼의 명령 접수 표시와 빠른 중복 클릭을 공통 차단한다."""
+
+    def __init__(self, parent=None, interval_ms=700):
+        super().__init__(parent)
+        self.interval_seconds = interval_ms / 1000
+        self.last_command_at = {}
+
+    @staticmethod
+    def _show_command_feedback(button):
+        button.setDown(True)
+        button.setProperty("mxmnCommandActive", True)
+        button.style().unpolish(button)
+        button.style().polish(button)
+        button.update()
+
+        def clear_feedback():
+            try:
+                button.setDown(False)
+                button.setProperty("mxmnCommandActive", False)
+                button.style().unpolish(button)
+                button.style().polish(button)
+                button.update()
+            except RuntimeError:
+                pass
+
+        QTimer.singleShot(250, clear_feedback)
+
+    def eventFilter(self, obj, event):
+        if not isinstance(obj, QAbstractButton):
+            return super().eventFilter(obj, event)
+
+        if event.type() == QEvent.MouseButtonDblClick:
+            event.accept()
+            return True
+
+        is_mouse_command = event.type() == QEvent.MouseButtonPress
+        is_key_command = (
+            event.type() == QEvent.KeyPress
+            and event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space)
+        )
+        if not (is_mouse_command or is_key_command):
+            return super().eventFilter(obj, event)
+        if is_key_command and event.isAutoRepeat():
+            return True
+
+        now = time.monotonic()
+        key = id(obj)
+        if now - self.last_command_at.get(key, 0) < self.interval_seconds:
+            event.accept()
+            return True
+        self.last_command_at[key] = now
+        self._show_command_feedback(obj)
+        return super().eventFilter(obj, event)
+
 class CompanySwitchDialog(QDialog):
     """FastAPI의 회사 목록을 조회하여 현재 업무회사를 선택한다."""
 
@@ -276,6 +332,11 @@ class MixNMainWindow(QMainWindow):
     def __init__(self, user_name=""):
 
         super().__init__()
+
+        self._command_event_filter = CommandEventFilter(self)
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self._command_event_filter)
 
         self.setObjectName(
             "MixNMainWindow"
