@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtWidgets import (
     QWidget,QVBoxLayout,QHBoxLayout,QGridLayout,QGroupBox,QLabel,QLineEdit,QTextEdit,
     QPushButton,QComboBox,QTableWidget,QTableWidgetItem,QHeaderView,QMessageBox,
-    QSplitter,QAbstractItemView,QMdiSubWindow,QCheckBox,QDialog,QDialogButtonBox
+    QSplitter,QAbstractItemView,QMdiSubWindow,QCheckBox,QDialog,QDialogButtonBox,QApplication
 )
 from app_context import app_context
 
@@ -53,6 +53,7 @@ class AccountRegWindow(QWidget):
     def __init__(self,parent=None):
         super().__init__(parent)
         self.current_account_id=None
+        self._loading_accounts=False
         self.setWindowTitle("거래처입력")
         self.resize(1280,760)
         self._build_ui()
@@ -415,6 +416,12 @@ class AccountRegWindow(QWidget):
             self.address.setFocus()
 
     def load_accounts(self):
+        if self._loading_accounts:
+            return
+        self._loading_accounts=True
+        self.btn_search.setEnabled(False)
+        self.btn_search.setText("조회 중...")
+        QApplication.processEvents()
         try:
             # 거래처 등록 화면은 공통 Master 전체를 보되, 회사관계가 있고 중단된 거래처는 기본 제외
             include_stopped=self.include_stopped.isChecked()
@@ -459,6 +466,10 @@ class AccountRegWindow(QWidget):
                 self.table.item(row,0).setData(Qt.UserRole,x.get("account_id"))
         except Exception as e:
             QMessageBox.critical(self,"조회 오류",str(e))
+        finally:
+            self._loading_accounts=False
+            self.btn_search.setEnabled(True)
+            self.btn_search.setText("조회")
 
     def reset_view(self):
         self.search.clear()
