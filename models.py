@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Numeric, Boolean, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, Numeric, Boolean, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -48,6 +48,53 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)        # 암호화된 비밀번호 (또는 평문 비밀번호)
     use_yn = Column(Boolean, default=True, nullable=False)     # 계정 활성화 여부
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class CodeGroup(Base):
+    """MXMN 전 모듈에서 공유하는 공통코드 그룹."""
+    __tablename__ = "tb_code_group"
+
+    code_group_id = Column(Integer, primary_key=True, autoincrement=True)
+    group_code = Column(String(30), unique=True, nullable=False, index=True)
+    group_name = Column(String(100), nullable=False)
+    description = Column(String(300), nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    system_yn = Column(Boolean, default=False, nullable=False)
+    use_yn = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    values = relationship(
+        "CodeValue",
+        back_populates="group",
+        cascade="all, delete-orphan",
+        order_by="CodeValue.sort_order, CodeValue.code",
+    )
+
+
+class CodeValue(Base):
+    """공통코드 그룹에 속하는 실제 코드값."""
+    __tablename__ = "tb_code_value"
+    __table_args__ = (
+        UniqueConstraint("code_group_id", "code", name="UQ_tb_code_value_group_code"),
+    )
+
+    code_value_id = Column(Integer, primary_key=True, autoincrement=True)
+    code_group_id = Column(
+        Integer,
+        ForeignKey("tb_code_group.code_group_id"),
+        nullable=False,
+        index=True,
+    )
+    code = Column(String(30), nullable=False)
+    code_name = Column(String(100), nullable=False)
+    description = Column(String(300), nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    extra_value1 = Column(String(200), nullable=True)
+    extra_value2 = Column(String(200), nullable=True)
+    use_yn = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    group = relationship("CodeGroup", back_populates="values")
 
 
 class Account(Base):

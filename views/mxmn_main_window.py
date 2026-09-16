@@ -35,6 +35,12 @@ try:
 except ImportError:
     from account_reg import AccountRegWindow
 
+# 공통코드관리 화면
+try:
+    from views.common_code_reg import CommonCodeWindow
+except ImportError:
+    from common_code_reg import CommonCodeWindow
+
 
 # ============================================================
 # 1. 프로젝트 루트 및 views 폴더 경로 설정
@@ -673,11 +679,15 @@ class MixNMainWindow(QMainWindow):
             self.menu1_2
         )
 
+        common_code_action = QAction(
+            "2.코드관리",
+            self,
+        )
+        common_code_action.triggered.connect(
+            self.open_common_code
+        )
         self.menu2.addAction(
-            QAction(
-                "2.코드관리",
-                self,
-            )
+            common_code_action
         )
 
         account_action = QAction(
@@ -1110,6 +1120,49 @@ class MixNMainWindow(QMainWindow):
                 connected += 1
 
         return connected
+
+    # ========================================================
+    # Common Code
+    # ========================================================
+
+    def open_common_code(self):
+        """공통코드관리 화면을 MDI에 1개만 연다."""
+        try:
+            for sub in self.mdi_area.subWindowList():
+                widget = sub.widget()
+                if widget is not None and isinstance(widget, CommonCodeWindow):
+                    self.mdi_area.setActiveSubWindow(sub)
+                    sub.showNormal()
+                    sub.showMaximized()
+                    self.set_work_status("2.코드관리 창이 활성화되었습니다.")
+                    return
+
+            code_widget = CommonCodeWindow()
+            sub_window = self.mdi_area.addSubWindow(code_widget)
+            sub_window.setAttribute(Qt.WA_DeleteOnClose, True)
+            sub_window.setWindowTitle("공통코드관리")
+
+            self._common_code_subwindow = sub_window
+            self._common_code_widget = code_widget
+
+            def clear_common_code_refs(*args):
+                self._common_code_subwindow = None
+                self._common_code_widget = None
+
+            sub_window.destroyed.connect(clear_common_code_refs)
+            code_widget.show()
+            sub_window.show()
+            self.mdi_area.setActiveSubWindow(sub_window)
+            sub_window.showMaximized()
+            self.set_work_status("2.코드관리 창이 열렸습니다.")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "공통코드관리 실행 오류",
+                f"공통코드관리 화면을 열 수 없습니다.\n\n{e}",
+            )
+
 
     # ========================================================
     # Account Registration

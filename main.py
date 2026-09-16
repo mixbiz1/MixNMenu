@@ -309,6 +309,185 @@ def get_legacy_company(
 
 
 # =============================================================================
+# Common Code API
+# =============================================================================
+
+class CodeGroupSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    group_code: str
+    group_name: str
+    description: Optional[str] = None
+    sort_order: int = 0
+    system_yn: bool = False
+    use_yn: bool = True
+
+
+class CodeGroupResponse(CodeGroupSchema):
+    code_group_id: int
+
+
+class CodeValueSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    code: str
+    code_name: str
+    description: Optional[str] = None
+    sort_order: int = 0
+    extra_value1: Optional[str] = None
+    extra_value2: Optional[str] = None
+    use_yn: bool = True
+
+
+class CodeValueResponse(CodeValueSchema):
+    code_value_id: int
+    code_group_id: int
+
+
+def _get_code_group_or_404(group_code: str, db: Session):
+    group = (
+        db.query(models.CodeGroup)
+        .filter(models.CodeGroup.group_code == group_code)
+        .first()
+    )
+    if not group:
+        raise HTTPException(status_code=404, detail="등록되지 않은 코드그룹입니다.")
+    return group
+
+
+@app.get("/api/v1/code-groups", response_model=list[CodeGroupResponse])
+def get_code_groups(include_inactive: bool = False, db: Session = Depends(get_db)):
+    query = db.query(models.CodeGroup)
+    if not include_inactive:
+        query = query.filter(models.CodeGroup.use_yn == True)
+    return query.order_by(models.CodeGroup.sort_order, models.CodeGroup.group_code).all()
+
+
+@app.post(
+    "/api/v1/code-groups",
+    response_model=CodeGroupResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_code_group(data: CodeGroupSchema, db: Session = Depends(get_db)):
+    group_code = data.group_code.strip().upper()
+    if db.query(models.CodeGroup).filter(models.CodeGroup.group_code == group_code).first():
+        raise HTTPException(status_code=409, detail="이미 등록된 코드그룹입니다.")
+    obj = models.CodeGroup(**data.model_dump(exclude={"group_code"}), group_code=group_code)
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+@app.put("/api/v1/code-groups/{group_code}", response_model=CodeGroupResponse)
+def update_code_group(
+    group_code: str,
+    data: CodeGroupSchema,
+    db: Session = Depends(get_db),
+):
+    obj = _get_code_group_or_404(group_code, db)
+    if data.group_code.strip().upper() != obj.group_code:
+        raise HTTPException(status_code=400, detail="저장된 코드그룹 코드는 변경할 수 없습니다.")
+    for key, value in data.model_dump(exclude={"group_code"}).items():
+        setattr(obj, key, value)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+@app.get(
+    "/api/v1/code-groups/{group_code}/values",
+    response_model=list[CodeValueResponse],
+)
+def get_code_values(
+    group_code: str,
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
+):
+    group = _get_code_group_or_404(group_code, db)
+    query = db.query(models.CodeValue).filter(
+        models.CodeValue.code_group_id == group.code_group_id
+    )
+    if not include_inactive:
+        query = query.filter(models.CodeValue.use_yn == True)
+    return query.order_by(models.CodeValue.sort_order, models.CodeValue.code).all()
+
+
+@app.post(
+    "/api/v1/code-groups/{group_code}/values",
+    response_model=CodeValueResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_code_value(
+    group_code: str,
+    data: CodeValueSchema,
+    db: Session = Depends(get_db),
+):
+    group = _get_code_group_or_404(group_code, db)
+    code = data.code.strip().upper()
+    duplicate = (
+        db.query(models.CodeValue)
+        .filter(
+            models.CodeValue.code_group_id == group.code_group_id,
+            models.CodeValue.code == code,
+        )
+        .first()
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="이 그룹에 동일한 코드가 이미 있습니다.")
+    obj = models.CodeValue(
+        **data.model_dump(exclude={"code"}),
+        code_group_id=group.code_group_id,
+        code=code,
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+@app.put(
+    "/api/v1/code-groups/{group_code}/values/{code_value_id}",
+    response_model=CodeValueResponse,
+)
+def update_code_value(
+    group_code: str,
+    code_value_id: int,
+    data: CodeValueSchema,
+    db: Session = Depends(get_db),
+):
+    group = _get_code_group_or_404(group_code, db)
+    obj = (
+        db.query(models.CodeValue)
+        .filter(
+            models.CodeValue.code_value_id == code_value_id,
+            models.CodeValue.code_group_id == group.code_group_id,
+        )
+        .first()
+    )
+    if not obj:
+        raise HTTPException(status_code=404, detail="등록되지 않은 공통코드입니다.")
+
+    code = data.code.strip().upper()
+    duplicate = (
+        db.query(models.CodeValue)
+        .filter(
+            models.CodeValue.code_group_id == group.code_group_id,
+            models.CodeValue.code == code,
+            models.CodeValue.code_value_id != code_value_id,
+        )
+        .first()
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="이 그룹에 동일한 코드가 이미 있습니다.")
+
+    for key, value in data.model_dump(exclude={"code"}).items():
+        setattr(obj, key, value)
+    obj.code = code
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+# =============================================================================
 # Account API
 #
 # 설계 원칙
