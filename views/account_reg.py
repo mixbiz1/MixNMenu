@@ -10,6 +10,19 @@ from app_context import app_context
 
 API_BASE_URL="http://127.0.0.1:8000/api/v1"
 
+class ReadableCheckBox(QCheckBox):
+    """Light/Dark Mode에서 상태가 즉시 구분되는 MXMN 공통 체크박스."""
+    def __init__(self,label,parent=None):
+        super().__init__(parent)
+        self._label=label
+        self.setProperty("mxmnReadable",True)
+        self.setAccessibleName(label)
+        self.toggled.connect(self._update_state_text)
+        self._update_state_text(self.isChecked())
+
+    def _update_state_text(self,checked):
+        self.setText(f"{'☑' if checked else '□'} {self._label}")
+
 class AddressDialog(QDialog):
     """
     주소검색 보조창.
@@ -52,7 +65,7 @@ class AccountRegWindow(QWidget):
         root=QVBoxLayout(self)
         top=QHBoxLayout()
         self.search=QLineEdit(); self.search.setPlaceholderText("거래처명 / 코드 / 사업자번호")
-        self.include_stopped=QCheckBox("거래중단 포함")
+        self.include_stopped=ReadableCheckBox("거래중단 포함")
         self.btn_search=QPushButton("조회"); self.btn_new=QPushButton("신규")
         self.btn_save=QPushButton("저장"); self.btn_close=QPushButton("닫기")
         top.addWidget(QLabel("검색")); top.addWidget(self.search,1); top.addWidget(self.include_stopped)
@@ -110,10 +123,10 @@ class AccountRegWindow(QWidget):
         for label,data in [("일반","GENERAL"),("계약","CONTRACT"),("유통","DISTRIBUTION"),
                            ("BL양수도","BL_TRANSFER"),("보증금","DEPOSIT"),("기타","OTHER")]:
             self.trade_type.addItem(label,data)
-        self.purchase_yn=QCheckBox("매입거래")
-        self.sales_yn=QCheckBox("매출거래")
-        self.invoice_issue_yn=QCheckBox("(세금)계산서 발행대상")
-        self.trade_stop_yn=QCheckBox("거래중단")
+        self.purchase_yn=ReadableCheckBox("매입거래")
+        self.sales_yn=ReadableCheckBox("매출거래")
+        self.invoice_issue_yn=ReadableCheckBox("(세금)계산서 발행대상")
+        self.trade_stop_yn=ReadableCheckBox("거래중단")
         self.trade_stop_yn.setToolTip("체크하면 일반 매입/매출 거래처 조회에서 제외됩니다.")
 
         cg.addWidget(QLabel("업무회사"),0,0); cg.addWidget(self.company_label,0,1)
@@ -179,7 +192,7 @@ class AccountRegWindow(QWidget):
         MXMN 공통 방향:
         - Light/Dark Mode 모두 동일한 레이아웃/기능 유지
         - 입력칸, 표, 버튼, 체크박스의 대비를 명확하게 유지
-        - 체크박스는 OS 기본 indicator를 사용해 ✓ 표시가 테마에 맞게 보이도록 한다.
+        - 체크박스는 상태기호와 배경 대비를 함께 사용해 OS 테마와 무관하게 구분한다.
         """
         dark = self._is_dark_mode()
 
@@ -340,14 +353,38 @@ class AccountRegWindow(QWidget):
                 color: {colors["focus"]};
             }}
 
-            /*
-             * indicator 자체에 배경색/이미지를 강제하지 않는다.
-             * Qt/Windows가 현재 Light/Dark 테마에 맞는 실제 체크 표시를
-             * 그리도록 두어 체크/미체크 상태를 가장 안정적으로 구분한다.
-             */
-            QCheckBox::indicator {{
-                width: 18px;
-                height: 18px;
+            QCheckBox[mxmnReadable="true"] {{
+                background-color: {colors["input"]};
+                border: 1px solid {colors["border"]};
+                border-radius: 4px;
+                min-height: 24px;
+                padding: 2px 8px;
+                font-weight: 600;
+            }}
+
+            QCheckBox[mxmnReadable="true"]:checked {{
+                background-color: {colors["selected"]};
+                color: {colors["selected_text"]};
+                border: 2px solid {colors["focus"]};
+                padding: 1px 7px;
+            }}
+
+            QCheckBox[mxmnReadable="true"]:hover {{
+                background-color: {colors["hover"]};
+                border-color: {colors["focus"]};
+            }}
+
+            QCheckBox[mxmnReadable="true"]:checked:hover {{
+                background-color: {colors["selected"]};
+            }}
+
+            QCheckBox[mxmnReadable="true"]:focus {{
+                border-color: {colors["focus"]};
+            }}
+
+            QCheckBox[mxmnReadable="true"]::indicator {{
+                width: 0px;
+                height: 0px;
             }}
 
             QSplitter::handle {{
