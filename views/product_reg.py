@@ -499,6 +499,12 @@ class ProductRegWindow(QWidget):
             item = self.product_table.item(row, 0).data(Qt.UserRole); self.current_product_id = item["product_id"]
             self.product_code.setText(item["product_code"]); self.product_name.setText(item["product_name"])
             self.specification.setText(item.get("specification") or ""); self._set_combo(self.product_category, item.get("category_id"))
+            category_name = next(
+                (category["category_name"] for category in self.categories
+                 if category["category_id"] == item.get("category_id")),
+                "없음 (단독 상품)",
+            )
+            self.selected_part_label.setText(f"선택 부위: {category_name}")
             self._set_combo(self.tax_type, item.get("tax_type", "2")); self.unit_price.setValue(float(item.get("unit_price") or 0))
             self.meat_regn_code.setText(item.get("meat_regn_code") or ""); self.meat_regn_name.setText(item.get("meat_regn_name") or "")
             self.memo.setPlainText(item.get("memo") or ""); self.product_use.setChecked(bool(item.get("use_yn")))
