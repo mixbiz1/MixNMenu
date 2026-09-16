@@ -186,7 +186,7 @@ class ProductRegWindow(QWidget):
             QLineEdit, QTextEdit, QComboBox, QDoubleSpinBox {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:2px; min-height:25px; padding:2px 5px; }}
             QPushButton {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:3px; min-height:28px; padding:3px 10px; }}
             QPushButton:pressed, QPushButton[mxmnCommandActive="true"] {{ background:#0067c0; color:#ffffff; border:2px solid #003f78; }}
-            QTableWidget, QTreeWidget {{ background:{field}; color:{text_color}; gridline-color:{border}; border:1px solid {border}; selection-background-color:{selected}; }}
+            QTableWidget, QTreeWidget {{ background:{field}; color:{text_color}; gridline-color:{border}; border:1px solid {border}; selection-background-color:{selected}; selection-color:{text_color}; }}
             QHeaderView::section {{ background:{panel}; color:{text_color}; border:0; border-right:1px solid {border}; border-bottom:1px solid {border}; padding:5px; font-weight:bold; }}
             QCheckBox[mxmnReadable="true"] {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:3px; min-height:28px; padding:3px 10px; font-weight:bold; }}
             QCheckBox[mxmnReadable="true"]:checked {{ background:{selected}; border:2px solid #0067c0; }}
