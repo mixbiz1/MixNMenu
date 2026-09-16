@@ -630,16 +630,17 @@ def _category_level(parent_id: Optional[int], db: Session):
     return parent.category_level + 1
 
 
-def _product_result(obj, db: Session):
-    assignments = db.query(
-        models.ProductCodeAssignment, models.CodeGroup, models.CodeValue
-    ).select_from(models.ProductCodeAssignment).join(
-        models.CodeGroup,
-        models.ProductCodeAssignment.code_group_id == models.CodeGroup.code_group_id,
-    ).join(
-        models.CodeValue,
-        models.ProductCodeAssignment.code_value_id == models.CodeValue.code_value_id,
-    ).filter(models.ProductCodeAssignment.product_id == obj.product_id).all()
+def _product_result(obj, db: Session, assignments=None):
+    if assignments is None:
+        assignments = db.query(
+            models.ProductCodeAssignment, models.CodeGroup, models.CodeValue
+        ).select_from(models.ProductCodeAssignment).join(
+            models.CodeGroup,
+            models.ProductCodeAssignment.code_group_id == models.CodeGroup.code_group_id,
+        ).join(
+            models.CodeValue,
+            models.ProductCodeAssignment.code_value_id == models.CodeValue.code_value_id,
+        ).filter(models.ProductCodeAssignment.product_id == obj.product_id).all()
     return {
         "product_id": obj.product_id,
         "product_code": obj.product_code,
@@ -664,6 +665,31 @@ def _product_result(obj, db: Session):
             for _, group, value in assignments
         ],
     }
+
+
+def _product_results(objects, db: Session):
+    """상품목록의 공통코드 조합을 한 번에 조회하여 N+1 쿼리를 방지한다."""
+    if not objects:
+        return []
+    product_ids = [obj.product_id for obj in objects]
+    rows = db.query(
+        models.ProductCodeAssignment, models.CodeGroup, models.CodeValue
+    ).select_from(models.ProductCodeAssignment).join(
+        models.CodeGroup,
+        models.ProductCodeAssignment.code_group_id == models.CodeGroup.code_group_id,
+    ).join(
+        models.CodeValue,
+        models.ProductCodeAssignment.code_value_id == models.CodeValue.code_value_id,
+    ).filter(models.ProductCodeAssignment.product_id.in_(product_ids)).all()
+    assignments_by_product = {product_id: [] for product_id in product_ids}
+    for assignment, group, value in rows:
+        assignments_by_product.setdefault(assignment.product_id, []).append(
+            (assignment, group, value)
+        )
+    return [
+        _product_result(obj, db, assignments_by_product.get(obj.product_id, []))
+        for obj in objects
+    ]
 
 
 def _save_product_assignments(product_id: int, code_value_ids: list[int], db: Session):
@@ -790,7 +816,8 @@ def get_products(search: str = "", category_id: Optional[int] = None,
             (models.Product.product_name.like(keyword)) |
             (models.Product.specification.like(keyword))
         )
-    return [_product_result(obj, db) for obj in query.order_by(models.Product.product_code).all()]
+    objects = query.order_by(models.Product.product_code).all()
+    return _product_results(objects, db)
 
 
 @app.get("/api/v1/products/{product_id}")
