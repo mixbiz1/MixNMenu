@@ -965,6 +965,18 @@ class MixNMainWindow(QMainWindow):
     # Dashboard
     # ========================================================
 
+    def _bring_subwindow_to_front(self, sub_window):
+        """가장 최근 요청한 MDI 창을 다른 작업창보다 앞으로 올린다."""
+        sub_window.show()
+        self.mdi_area.setActiveSubWindow(sub_window)
+        sub_window.raise_()
+        sub_window.activateWindow()
+        widget = sub_window.widget()
+        if widget is not None:
+            widget.raise_()
+            widget.setFocus(Qt.OtherFocusReason)
+        QApplication.processEvents()
+
     def open_dashboard(self):
         """단축메뉴(대시보드) 오픈"""
 
@@ -990,6 +1002,7 @@ class MixNMainWindow(QMainWindow):
                 self.mdi_area.setActiveSubWindow(
                     sub
                 )
+                self._bring_subwindow_to_front(sub)
 
                 self.set_work_status(
                     "단축메뉴가 활성화되었습니다."
@@ -1017,6 +1030,7 @@ class MixNMainWindow(QMainWindow):
             )
 
             sub_window.show()
+            self._bring_subwindow_to_front(sub_window)
 
             self.set_work_status(
                 "단축메뉴가 열렸습니다."
@@ -1072,6 +1086,7 @@ class MixNMainWindow(QMainWindow):
                 self.mdi_area.setActiveSubWindow(
                     sub
                 )
+                self._bring_subwindow_to_front(sub)
 
                 self.set_work_status(
                     "1.업체등록 창이 활성화되었습니다."
@@ -1098,6 +1113,7 @@ class MixNMainWindow(QMainWindow):
             company_widget.show()
 
             sub_window.show()
+            self._bring_subwindow_to_front(sub_window)
 
             # 회사/사용자 정보는 그대로 유지하고
             # 작업 메시지만 변경한다.
@@ -1151,6 +1167,7 @@ class MixNMainWindow(QMainWindow):
                     self.mdi_area.setActiveSubWindow(sub)
                     sub.showNormal()
                     sub.showMaximized()
+                    self._bring_subwindow_to_front(sub)
                     self.set_work_status("2.코드관리 창이 활성화되었습니다.")
                     return
 
@@ -1171,6 +1188,7 @@ class MixNMainWindow(QMainWindow):
             sub_window.show()
             self.mdi_area.setActiveSubWindow(sub_window)
             sub_window.showMaximized()
+            self._bring_subwindow_to_front(sub_window)
             self.set_work_status("2.코드관리 창이 열렸습니다.")
 
         except Exception as e:
@@ -1194,6 +1212,7 @@ class MixNMainWindow(QMainWindow):
                     self.mdi_area.setActiveSubWindow(sub)
                     sub.showNormal()
                     sub.showMaximized()
+                    self._bring_subwindow_to_front(sub)
                     self.set_work_status("상품공통코드관리 창이 활성화되었습니다.")
                     return
 
@@ -1214,6 +1233,7 @@ class MixNMainWindow(QMainWindow):
             sub_window.show()
             self.mdi_area.setActiveSubWindow(sub_window)
             sub_window.showMaximized()
+            self._bring_subwindow_to_front(sub_window)
             self.set_work_status("상품공통코드관리 창이 열렸습니다.")
 
         except Exception as e:
@@ -1237,6 +1257,7 @@ class MixNMainWindow(QMainWindow):
                     self.mdi_area.setActiveSubWindow(sub)
                     sub.showNormal()
                     sub.showMaximized()
+                    self._bring_subwindow_to_front(sub)
                     self.set_work_status("4.거래처입력 창이 활성화되었습니다.")
                     return
 
@@ -1263,6 +1284,7 @@ class MixNMainWindow(QMainWindow):
             sub_window.show()
             self.mdi_area.setActiveSubWindow(sub_window)
             sub_window.showMaximized()
+            self._bring_subwindow_to_front(sub_window)
 
             self.set_work_status("4.거래처입력 창이 열렸습니다.")
 

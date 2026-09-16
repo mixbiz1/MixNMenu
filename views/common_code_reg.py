@@ -62,12 +62,15 @@ class CommonCodeWindow(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("그룹코드 / 그룹명 / 상세코드 / 코드명")
         self.search_input.setMinimumWidth(380)
+        self.search_result_label = QLabel("전체 조회")
+        self.search_result_label.setObjectName("searchResult")
         self.btn_refresh = QPushButton("조회")
         self.btn_reset = QPushButton("새로고침")
         self.btn_close = QPushButton("닫기")
         toolbar.addWidget(QLabel("공통코드 그룹 및 상세코드"))
         toolbar.addWidget(QLabel("검색"))
         toolbar.addWidget(self.search_input)
+        toolbar.addWidget(self.search_result_label)
         toolbar.addStretch()
         toolbar.addWidget(self.include_inactive)
         toolbar.addWidget(self.btn_refresh)
@@ -204,6 +207,7 @@ class CommonCodeWindow(QWidget):
         self.btn_close.clicked.connect(self.close_window)
         self.include_inactive.stateChanged.connect(self.load_groups)
         self.group_table.itemSelectionChanged.connect(self.on_group_selected)
+        self.group_table.cellClicked.connect(self.on_group_clicked)
         self.value_table.itemSelectionChanged.connect(self.on_value_selected)
         self.btn_group_new.clicked.connect(self.new_group)
         self.btn_group_save.clicked.connect(self.save_group)
@@ -247,6 +251,8 @@ class CommonCodeWindow(QWidget):
             QCheckBox[mxmnReadable="true"]::indicator {{ width:0px; height:0px; }}
             QLabel#legacyHint {{ background:{panel}; border:1px solid {border};
                          border-radius:3px; padding:6px; font-weight:normal; }}
+            QLabel#searchResult {{ background:{panel}; border:1px solid {border};
+                         border-radius:3px; padding:5px 8px; font-weight:bold; }}
             """
         )
 
@@ -282,14 +288,16 @@ class CommonCodeWindow(QWidget):
             QMessageBox.critical(self, "조회 오류", str(exc))
 
     def refresh_data(self):
-        """조회 버튼과 Enter 키에서 그룹·상세 목록을 새로 읽고 검색한다."""
-        self.load_groups()
+        """선택 그룹이 있으면 상세코드, 없으면 그룹목록을 검색한다."""
         if self.current_group_code:
             self.load_values()
+        else:
+            self.load_groups()
         self._apply_search_filter()
 
     def reset_view(self):
         self.search_input.clear()
+        self.search_result_label.setText("전체 조회")
         self.current_group_code = None
         self.current_value_id = None
         self.group_table.clearSelection()
@@ -298,14 +306,25 @@ class CommonCodeWindow(QWidget):
 
     def _apply_search_filter(self):
         keyword = self.search_input.text().strip().lower()
-        for table in (self.group_table, self.value_table):
+        tables = (self.value_table,) if self.current_group_code else (self.group_table,)
+        visible_count = 0
+        for table in tables:
             for row in range(table.rowCount()):
                 row_text = " ".join(
                     table.item(row, col).text()
                     for col in range(table.columnCount())
                     if table.item(row, col) is not None
                 ).lower()
-                table.setRowHidden(row, bool(keyword) and keyword not in row_text)
+                hidden = bool(keyword) and keyword not in row_text
+                table.setRowHidden(row, hidden)
+                if not hidden:
+                    visible_count += 1
+        if keyword:
+            self.search_result_label.setText(
+                f"‘{self.search_input.text().strip()}’ 검색 결과 {visible_count}건"
+            )
+        else:
+            self.search_result_label.setText(f"전체 {visible_count}건")
 
     def apply_value_sort(self):
         """정렬방식 선택 즉시 현재 상세코드 목록에 반영한다."""
@@ -335,6 +354,13 @@ class CommonCodeWindow(QWidget):
         )
         self.new_value()
         self.load_values()
+
+    def on_group_clicked(self, row, column):
+        """사용자가 그룹을 직접 누르면 이전 검색조건을 해제한다."""
+        if self.search_input.text():
+            self.search_input.clear()
+            self.search_result_label.setText("전체 조회")
+            self.load_values()
 
     def new_group(self):
         self.current_group_code = None

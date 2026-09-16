@@ -181,6 +181,7 @@ class GoodsCommonCodeWindow(QWidget):
         splitter.setSizes([360, 920])
 
         self.category_table.itemSelectionChanged.connect(self.on_category_selected)
+        self.category_table.cellClicked.connect(self.on_category_clicked)
         self.value_table.itemSelectionChanged.connect(self.on_value_selected)
         self.btn_refresh.clicked.connect(self.refresh_data)
         self.btn_reset.clicked.connect(self.reset_view)
@@ -310,6 +311,13 @@ class GoodsCommonCodeWindow(QWidget):
         )
         self.new_value()
         self.load_values()
+
+    def on_category_clicked(self, row, column):
+        """사용자가 다른 분류를 직접 누르면 이전 검색조건을 해제한다."""
+        if self.search_input.text():
+            self.search_input.clear()
+            self.search_result_label.setText("전체 조회")
+            self.load_values()
 
     def new_category(self):
         self.current_group_code = None
