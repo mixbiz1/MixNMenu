@@ -64,6 +64,8 @@ class GoodsCommonCodeWindow(QWidget):
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("코드 / 코드명 / 설명")
         self.search_input.setMinimumWidth(360)
+        self.search_result_label = QLabel("전체 조회")
+        self.search_result_label.setObjectName("searchResult")
         self.include_inactive = ReadableCheckBox("사용중지 포함")
         self.btn_refresh = QPushButton("조회")
         self.btn_reset = QPushButton("새로고침")
@@ -71,6 +73,7 @@ class GoodsCommonCodeWindow(QWidget):
         toolbar.addWidget(QLabel("상품 관련 공통코드"))
         toolbar.addWidget(QLabel("검색"))
         toolbar.addWidget(self.search_input)
+        toolbar.addWidget(self.search_result_label)
         toolbar.addStretch()
         toolbar.addWidget(self.include_inactive)
         toolbar.addWidget(self.btn_refresh)
@@ -224,6 +227,8 @@ class GoodsCommonCodeWindow(QWidget):
             QLabel#hint {{ background:{panel}; border:1px solid {border}; border-radius:3px;
                            padding:7px; font-weight:normal; }}
             QLabel#selectedGroup {{ font-weight:bold; padding:5px; }}
+            QLabel#searchResult {{ background:{panel}; border:1px solid {border};
+                                  border-radius:3px; padding:5px 8px; font-weight:bold; }}
             """
         )
 
@@ -397,6 +402,7 @@ class GoodsCommonCodeWindow(QWidget):
 
     def reset_view(self):
         self.search_input.clear()
+        self.search_result_label.setText("전체 조회")
         self.current_value_id = None
         self.load_categories()
 
@@ -434,7 +440,10 @@ class GoodsCommonCodeWindow(QWidget):
         self.current_group_exists = True
 
     def refresh_data(self):
-        self.load_categories()
+        if self.current_group_code:
+            self.load_values()
+        else:
+            self.load_categories()
 
     def load_values(self):
         if not self.current_group_code:
@@ -443,6 +452,7 @@ class GoodsCommonCodeWindow(QWidget):
             self._check_group_exists()
             if not self.current_group_exists:
                 self.value_table.setRowCount(0)
+                self.search_result_label.setText("검색 결과 없음")
                 self.new_value()
                 return
             response = httpx.get(
@@ -471,6 +481,14 @@ class GoodsCommonCodeWindow(QWidget):
                 for col, value in enumerate(values):
                     self.value_table.setItem(row, col, QTableWidgetItem(str(value)))
                 self.value_table.item(row, 0).setData(Qt.UserRole, item)
+            if keyword:
+                self.search_result_label.setText(
+                    f"‘{self.search_input.text().strip()}’ 검색 결과 {len(rows)}건"
+                )
+            else:
+                self.search_result_label.setText(f"전체 {len(rows)}건")
+            if rows:
+                self.value_table.setFocus()
         except Exception as exc:
             QMessageBox.critical(self, "조회 오류", str(exc))
 
