@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDoubleSpinBox, QGridLayout, QGroupBox,
-    QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton,
+    QHeaderView, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QSpinBox,
     QInputDialog, QSplitter, QTableWidget, QTableWidgetItem, QTextEdit, QTreeWidget,
     QTreeWidgetItem, QVBoxLayout, QWidget, QMdiSubWindow, QApplication,
     QToolButton, QMenu,
@@ -126,6 +126,12 @@ class ProductRegWindow(QWidget):
         self.specification = QLineEdit()
         self.tax_type = QComboBox(); self.tax_type.addItem("면세", "2"); self.tax_type.addItem("과세", "1")
         self.unit_price = QDoubleSpinBox(); self.unit_price.setRange(0, 9999999999); self.unit_price.setDecimals(2)
+        self.expiry_rule = QComboBox()
+        self.expiry_rule.addItem("자동판단 (냉동은 2년-1일)", "AUTO")
+        self.expiry_rule.addItem("냉동 2년-1일", "FROZEN_2Y")
+        self.expiry_rule.addItem("상품별 지정일수-1일", "DAYS")
+        self.expiry_rule.addItem("자동계산 안 함", "NONE")
+        self.shelf_life_days = QSpinBox(); self.shelf_life_days.setRange(1, 5000); self.shelf_life_days.setValue(730)
         self.meat_regn_code = QLineEdit(); self.meat_regn_name = QLineEdit()
         self.product_use = ReadableCheckBox("사용"); self.product_use.setChecked(True)
         self.memo = QTextEdit(); self.memo.setMaximumHeight(70)
@@ -134,10 +140,12 @@ class ProductRegWindow(QWidget):
         form.addWidget(QLabel("상품분류"), 2, 0); form.addWidget(self.product_category, 2, 1, 1, 3)
         form.addWidget(QLabel("과세구분"), 3, 0); form.addWidget(self.tax_type, 3, 1)
         form.addWidget(QLabel("기본단가"), 3, 2); form.addWidget(self.unit_price, 3, 3)
-        form.addWidget(QLabel("이력부위코드"), 4, 0); form.addWidget(self.meat_regn_code, 4, 1)
-        form.addWidget(QLabel("이력부위명"), 4, 2); form.addWidget(self.meat_regn_name, 4, 3)
-        form.addWidget(self.product_use, 5, 1)
-        form.addWidget(QLabel("메모"), 6, 0); form.addWidget(self.memo, 6, 1, 1, 3)
+        form.addWidget(QLabel("소비기한 규칙"), 4, 0); form.addWidget(self.expiry_rule, 4, 1)
+        form.addWidget(QLabel("지정일수"), 4, 2); form.addWidget(self.shelf_life_days, 4, 3)
+        form.addWidget(QLabel("이력부위코드"), 5, 0); form.addWidget(self.meat_regn_code, 5, 1)
+        form.addWidget(QLabel("이력부위명"), 5, 2); form.addWidget(self.meat_regn_name, 5, 3)
+        form.addWidget(self.product_use, 6, 1)
+        form.addWidget(QLabel("메모"), 7, 0); form.addWidget(self.memo, 7, 1, 1, 3)
         detail_layout.addLayout(form)
 
         attributes_box = QGroupBox("상품공통코드 조합 (선택하지 않아도 단독 상품 등록 가능)")
@@ -175,6 +183,7 @@ class ProductRegWindow(QWidget):
         self.btn_category_save.clicked.connect(self.save_category)
         self.btn_category_delete.clicked.connect(self.delete_category)
         self.product_category.currentIndexChanged.connect(self.update_combination_name_live)
+        self.expiry_rule.currentIndexChanged.connect(self._update_expiry_rule_state)
         self.other_name.textChanged.connect(self.update_combination_name_live)
         self._setup_enter_navigation()
 
@@ -188,7 +197,7 @@ class ProductRegWindow(QWidget):
             QWidget {{ background:{window}; color:{text_color}; font-family:'맑은 고딕'; font-size:9pt; }}
             QGroupBox {{ background:{panel}; border:1px solid {border}; border-radius:4px; margin-top:10px; padding-top:8px; font-weight:bold; }}
             QGroupBox::title {{ subcontrol-origin:margin; left:8px; padding:0 4px; }}
-            QLineEdit, QTextEdit, QComboBox, QDoubleSpinBox {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:2px; min-height:25px; padding:2px 5px; }}
+            QLineEdit, QTextEdit, QComboBox, QDoubleSpinBox, QSpinBox {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:2px; min-height:25px; padding:2px 5px; }}
             QPushButton {{ background:{field}; color:{text_color}; border:1px solid {border}; border-radius:3px; min-height:28px; padding:3px 10px; }}
             QPushButton:pressed, QPushButton[mxmnCommandActive="true"] {{ background:#0067c0; color:#ffffff; border:2px solid #003f78; }}
             QTableWidget, QTreeWidget {{ background:{field}; color:{text_color}; gridline-color:{border}; border:1px solid {border}; selection-background-color:{selected}; selection-color:{text_color}; }}
@@ -271,6 +280,7 @@ class ProductRegWindow(QWidget):
             self.search, self.category_name, self.parent_category,
             self.category_description, self.product_name, self.product_category,
             self.tax_type, self.unit_price,
+            self.expiry_rule, self.shelf_life_days,
             self.meat_regn_code, self.meat_regn_name, self.other_name,
         ]
         for widget in widgets:
@@ -286,6 +296,9 @@ class ProductRegWindow(QWidget):
                 self.focusNextChild()
             return True
         return super().eventFilter(obj, event)
+
+    def _update_expiry_rule_state(self):
+        self.shelf_life_days.setEnabled(self.expiry_rule.currentData() == "DAYS")
 
     def refresh_all(self):
         if self._loading_lookup:
@@ -528,6 +541,7 @@ class ProductRegWindow(QWidget):
             if self.selected_leaf_category_id is not None:
                 self._set_combo(self.product_category, self.selected_leaf_category_id)
             self.unit_price.setValue(0); self.product_use.setChecked(True)
+            self._set_combo(self.expiry_rule, "AUTO"); self.shelf_life_days.setValue(730)
             for combo in self.attribute_combos.values(): combo.setCurrentIndex(0)
         finally:
             self.loading_product = False
@@ -566,6 +580,8 @@ class ProductRegWindow(QWidget):
             )
             self.selected_part_label.setText(f"선택 부위: {category_name}")
             self._set_combo(self.tax_type, item.get("tax_type", "2")); self.unit_price.setValue(float(item.get("unit_price") or 0))
+            self._set_combo(self.expiry_rule, item.get("expiry_rule", "AUTO"))
+            self.shelf_life_days.setValue(int(item.get("shelf_life_days") or 730)); self._update_expiry_rule_state()
             self.meat_regn_code.setText(item.get("meat_regn_code") or ""); self.meat_regn_name.setText(item.get("meat_regn_name") or "")
             self.memo.setPlainText(item.get("memo") or ""); self.product_use.setChecked(bool(item.get("use_yn")))
             self.other_name.clear()
@@ -612,6 +628,8 @@ class ProductRegWindow(QWidget):
                    "category_id": self.product_category.currentData(), "specification": self.specification.text().strip() or None,
                    "meat_regn_code": self.meat_regn_code.text().strip() or None, "meat_regn_name": self.meat_regn_name.text().strip() or None,
                    "tax_type": self.tax_type.currentData(), "unit_price": self.unit_price.value(),
+                   "expiry_rule": self.expiry_rule.currentData(),
+                   "shelf_life_days": self.shelf_life_days.value() if self.expiry_rule.currentData() == "DAYS" else None,
                    "memo": self.memo.toPlainText().strip() or None, "use_yn": self.product_use.isChecked(),
                    "code_value_ids": [combo.currentData() for combo in self.attribute_combos.values() if combo.currentData() is not None]}
         try:

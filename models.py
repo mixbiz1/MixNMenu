@@ -163,6 +163,8 @@ class Product(Base):
     meat_regn_name = Column(String(50), nullable=True)                        # 축산물이력제 부위명 (예: '양지')
     tax_type = Column(String(1), default='2', nullable=False)                 # 1: 과세, 2: 면세(미가공 정육)
     unit_price = Column(Numeric(12, 2), default=0)                            # 기본 단가
+    expiry_rule = Column(String(20), default="AUTO", nullable=False)          # AUTO/FROZEN_2Y/DAYS/NONE
+    shelf_life_days = Column(Integer, nullable=True)                           # DAYS 규칙의 유통기한 일수
     use_yn = Column(Boolean, default=True, nullable=False)                    # 사용여부
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # 등록일시
 

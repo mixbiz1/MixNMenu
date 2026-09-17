@@ -58,6 +58,9 @@ Warehouse 순으로 진행한다.
 `tb_inbound`, `tb_inbound_item`, `tb_account_transaction`,
 `tb_account_transaction_allocation`을 기존 테이블·데이터 삭제 없이 추가한다.
 Migration 실행 후 최초재고와 거래처 최초잔액 API/화면을 사용한다.
+같은 Migration을 재실행하면 `tb_product.expiry_rule`과
+`tb_product.shelf_life_days`를 존재 여부 확인 후 추가하며 기존 상품과
+초기자료는 변경하거나 삭제하지 않는다.
 
 ## 금지사항
 

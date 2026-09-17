@@ -95,6 +95,13 @@ def migrate():
     with engine.begin() as conn:
         for statement in statements:
             conn.execute(text(statement))
+        conn.execute(text("""
+            IF COL_LENGTH('tb_product', 'expiry_rule') IS NULL
+                ALTER TABLE tb_product ADD expiry_rule VARCHAR(20) NOT NULL
+                    CONSTRAINT DF_product_expiry_rule DEFAULT 'AUTO' WITH VALUES;
+            IF COL_LENGTH('tb_product', 'shelf_life_days') IS NULL
+                ALTER TABLE tb_product ADD shelf_life_days INT NULL;
+        """))
     print("[OK] 초기자료등록 원장 Migration 완료")
 
 

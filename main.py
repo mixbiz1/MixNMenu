@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_CEILING
 from typing import Optional
 
@@ -599,6 +599,8 @@ class ProductSchema(BaseModel):
     meat_regn_name: Optional[str] = None
     tax_type: str = "2"
     unit_price: float = 0
+    expiry_rule: str = "AUTO"
+    shelf_life_days: Optional[int] = Field(default=None, ge=1)
     memo: Optional[str] = None
     use_yn: bool = True
     code_value_ids: list[int] = Field(default_factory=list)
@@ -654,6 +656,8 @@ def _product_result(obj, db: Session, assignments=None):
         "meat_regn_name": obj.meat_regn_name,
         "tax_type": obj.tax_type,
         "unit_price": float(obj.unit_price or 0),
+        "expiry_rule": obj.expiry_rule or "AUTO",
+        "shelf_life_days": obj.shelf_life_days,
         "memo": obj.memo,
         "use_yn": obj.use_yn,
         "code_value_ids": [value.code_value_id for _, _, value in assignments],
@@ -833,6 +837,10 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
 
 @app.post("/api/v1/products", status_code=status.HTTP_201_CREATED)
 def create_product(data: ProductSchema, db: Session = Depends(get_db)):
+    if data.expiry_rule not in {"AUTO", "FROZEN_2Y", "DAYS", "NONE"}:
+        raise HTTPException(status_code=400, detail="소비기한 계산규칙이 올바르지 않습니다.")
+    if data.expiry_rule == "DAYS" and not data.shelf_life_days:
+        raise HTTPException(status_code=400, detail="지정일수 계산은 소비기한 일수가 필요합니다.")
     code = data.product_code.strip().upper() or _next_product_code(db)
     if db.query(models.Product).filter(models.Product.product_code == code).first():
         raise HTTPException(status_code=409, detail="이미 등록된 상품코드입니다.")
@@ -851,6 +859,10 @@ def update_product(product_id: int, data: ProductSchema, db: Session = Depends(g
         raise HTTPException(status_code=404, detail="상품이 없습니다.")
     if data.product_code.strip().upper() != obj.product_code:
         raise HTTPException(status_code=400, detail="저장된 상품코드는 변경할 수 없습니다.")
+    if data.expiry_rule not in {"AUTO", "FROZEN_2Y", "DAYS", "NONE"}:
+        raise HTTPException(status_code=400, detail="소비기한 계산규칙이 올바르지 않습니다.")
+    if data.expiry_rule == "DAYS" and not data.shelf_life_days:
+        raise HTTPException(status_code=400, detail="지정일수 계산은 소비기한 일수가 필요합니다.")
     for key, value in data.model_dump(exclude={"product_code", "code_value_ids"}).items():
         setattr(obj, key, value)
     _save_product_assignments(obj.product_id, data.code_value_ids, db)
@@ -1325,16 +1337,15 @@ def deactivate_lot(comp_code: str, lot_id: int, permanent: bool = False,
 # =============================================================================
 
 class OpeningInventoryItemSchema(BaseModel):
+    inbound_item_id: Optional[int] = None
+    lot_id: Optional[int] = None
     product_id: int
     business_lot_no: Optional[str] = None
     source_type: str = "IMPORT"
     bl_no: Optional[str] = None
     container_no: Optional[str] = None
     history_no: Optional[str] = None
-    origin: Optional[str] = None
-    est_no: Optional[str] = None
     production_date: Optional[date] = None
-    expiry_date: Optional[date] = None
     box_qty: int = Field(ge=0)
     weight: Decimal = Field(gt=0)
     individual_cost: Decimal = Field(ge=0)
@@ -1374,6 +1385,45 @@ def _quantize_weight(value) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"))
 
 
+def _product_attribute(product, group_code: str, db: Session) -> Optional[str]:
+    row = db.query(models.CodeValue.code_name).join(
+        models.ProductCodeAssignment,
+        models.ProductCodeAssignment.code_value_id == models.CodeValue.code_value_id,
+    ).join(
+        models.CodeGroup,
+        models.ProductCodeAssignment.code_group_id == models.CodeGroup.code_group_id,
+    ).filter(
+        models.ProductCodeAssignment.product_id == product.product_id,
+        models.CodeGroup.group_code == group_code,
+    ).first()
+    return row[0] if row else None
+
+
+def _add_years(value: date, years: int) -> date:
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:
+        return value.replace(year=value.year + years, month=2, day=28)
+
+
+def _calculate_expiry_date(product, production_date: Optional[date], db: Session):
+    if production_date is None:
+        return None
+    rule = (product.expiry_rule or "AUTO").upper()
+    if rule == "NONE":
+        return None
+    if rule == "DAYS":
+        if not product.shelf_life_days:
+            raise HTTPException(status_code=400, detail=f"{product.product_name}의 소비기한 일수를 설정해 주세요.")
+        return production_date + timedelta(days=product.shelf_life_days - 1)
+    if rule == "FROZEN_2Y":
+        return _add_years(production_date, 2) - timedelta(days=1)
+    storage_name = _product_attribute(product, "PC004", db) or ""
+    if "냉동" in storage_name:
+        return _add_years(production_date, 2) - timedelta(days=1)
+    return None
+
+
 def _opening_inventory_result(header):
     return {
         "inbound_id": header.inbound_id,
@@ -1390,6 +1440,16 @@ def _opening_inventory_result(header):
             "product_name": item.product.product_name,
             "lot_id": item.lot_id,
             "lot_code": item.lot.lot_code,
+            "business_lot_no": item.lot.business_lot_no,
+            "source_type": item.lot.source_type,
+            "bl_no": item.lot.bl_no,
+            "container_no": item.lot.container_no,
+            "history_no": item.lot.history_no,
+            "origin": item.lot.origin,
+            "est_no": item.lot.est_no,
+            "production_date": item.lot.production_date,
+            "expiry_date": item.lot.expiry_date,
+            "memo": item.lot.memo,
             "box_qty": item.box_qty,
             "weight": item.weight,
             "individual_cost": int(_ceil_won(item.individual_cost)),
@@ -1423,18 +1483,16 @@ def create_opening_inventory(comp_code: str, data: OpeningInventorySchema,
         raise HTTPException(status_code=400, detail="현재 회사에서 사용하는 창고를 선택해 주세요.")
 
     product_ids = {item.product_id for item in data.items}
-    active_products = {
-        row.product_id for row in db.query(models.Product).filter(
+    products = {
+        row.product_id: row for row in db.query(models.Product).filter(
             models.Product.product_id.in_(product_ids), models.Product.use_yn == True
         ).all()
     }
-    if active_products != product_ids:
+    if set(products) != product_ids:
         raise HTTPException(status_code=400, detail="사용할 수 없는 상품이 포함되어 있습니다.")
     for item in data.items:
         if item.source_type not in {"IMPORT", "DOMESTIC"}:
             raise HTTPException(status_code=400, detail="LOT 구분 값이 올바르지 않습니다.")
-        if item.expiry_date and item.production_date and item.expiry_date < item.production_date:
-            raise HTTPException(status_code=400, detail="소비기한은 생산일보다 빠를 수 없습니다.")
 
     try:
         inbound = models.Inbound(
@@ -1450,6 +1508,10 @@ def create_opening_inventory(comp_code: str, data: OpeningInventorySchema,
         db.add(inbound)
         db.flush()
         for line_no, item in enumerate(data.items, 1):
+            product = products[item.product_id]
+            origin = _product_attribute(product, "PC003", db)
+            est_no = _product_attribute(product, "PC008", db)
+            expiry_date = _calculate_expiry_date(product, item.production_date, db)
             lot = models.Lot(
                 comp_code=comp_code,
                 lot_code=_next_daily_number(
@@ -1462,10 +1524,10 @@ def create_opening_inventory(comp_code: str, data: OpeningInventorySchema,
                 bl_no=item.bl_no.strip() if item.bl_no else None,
                 container_no=item.container_no.strip() if item.container_no else None,
                 history_no=item.history_no.strip() if item.history_no else None,
-                origin=item.origin.strip() if item.origin else None,
-                est_no=item.est_no.strip() if item.est_no else None,
+                origin=origin,
+                est_no=est_no,
                 production_date=item.production_date,
-                expiry_date=item.expiry_date,
+                expiry_date=expiry_date,
                 individual_cost=_ceil_won(item.individual_cost),
                 status="OPEN",
                 memo=item.memo.strip() if item.memo else None,
@@ -1497,6 +1559,121 @@ def create_opening_inventory(comp_code: str, data: OpeningInventorySchema,
     except Exception:
         db.rollback()
         raise
+
+
+@app.put("/api/v1/companies/{comp_code}/opening-inventories/{inbound_id}")
+def update_opening_inventory(comp_code: str, inbound_id: int,
+                             data: OpeningInventorySchema,
+                             db: Session = Depends(get_db)):
+    header = db.query(models.Inbound).filter(
+        models.Inbound.inbound_id == inbound_id,
+        models.Inbound.comp_code == comp_code,
+        models.Inbound.transaction_type == "OPENING_INVENTORY",
+    ).first()
+    if not header:
+        raise HTTPException(status_code=404, detail="최초재고 전표가 없습니다.")
+    warehouse = db.query(models.Warehouse).join(models.CompanyWarehouse).filter(
+        models.Warehouse.warehouse_id == data.warehouse_id,
+        models.CompanyWarehouse.comp_code == comp_code,
+        models.CompanyWarehouse.use_yn == True,
+    ).first()
+    if not warehouse:
+        raise HTTPException(status_code=400, detail="현재 회사에서 사용하는 창고를 선택해 주세요.")
+    product_ids = {item.product_id for item in data.items}
+    products = {row.product_id: row for row in db.query(models.Product).filter(
+        models.Product.product_id.in_(product_ids), models.Product.use_yn == True
+    ).all()}
+    if set(products) != product_ids:
+        raise HTTPException(status_code=400, detail="사용할 수 없는 상품이 포함되어 있습니다.")
+    existing = {item.inbound_item_id: item for item in header.items}
+    requested_ids = {item.inbound_item_id for item in data.items if item.inbound_item_id}
+    if not requested_ids.issubset(existing):
+        raise HTTPException(status_code=400, detail="현재 전표에 속하지 않은 상세행입니다.")
+    try:
+        header.inbound_date = data.base_date
+        header.warehouse_id = data.warehouse_id
+        header.memo = data.memo.strip() if data.memo else None
+        # 기존 행의 순서를 바꾸어도 (inbound_id, line_no) UNIQUE가 충돌하지 않게
+        # 임시 순번으로 먼저 이동한 뒤 최종 순번을 적용한다.
+        for old_item in existing.values(): old_item.line_no += 100000
+        db.flush()
+        for removed_id in set(existing) - requested_ids:
+            old_item = existing[removed_id]
+            old_lot = old_item.lot
+            db.delete(old_item); db.flush(); db.delete(old_lot)
+        for line_no, item in enumerate(data.items, 1):
+            if item.source_type not in {"IMPORT", "DOMESTIC"}:
+                raise HTTPException(status_code=400, detail="LOT 구분 값이 올바르지 않습니다.")
+            product = products[item.product_id]
+            origin = _product_attribute(product, "PC003", db)
+            est_no = _product_attribute(product, "PC008", db)
+            expiry_date = _calculate_expiry_date(product, item.production_date, db)
+            if item.inbound_item_id:
+                detail = existing[item.inbound_item_id]
+                lot = detail.lot
+            else:
+                lot = models.Lot(
+                    comp_code=comp_code,
+                    lot_code=_next_daily_number(
+                        models.Lot, models.Lot.lot_code, comp_code, "L", data.base_date, db
+                    ),
+                    product_id=item.product_id,
+                    warehouse_id=data.warehouse_id,
+                )
+                db.add(lot); db.flush()
+                detail = models.InboundItem(inbound_id=header.inbound_id, lot_id=lot.lot_id)
+                db.add(detail)
+            lot.business_lot_no = item.business_lot_no.strip() if item.business_lot_no else None
+            lot.source_type = item.source_type
+            lot.product_id = item.product_id
+            lot.warehouse_id = data.warehouse_id
+            lot.bl_no = item.bl_no.strip() if item.bl_no else None
+            lot.container_no = item.container_no.strip() if item.container_no else None
+            lot.history_no = item.history_no.strip() if item.history_no else None
+            lot.origin = origin; lot.est_no = est_no
+            lot.production_date = item.production_date; lot.expiry_date = expiry_date
+            lot.individual_cost = _ceil_won(item.individual_cost)
+            lot.status = "OPEN"; lot.memo = item.memo.strip() if item.memo else None; lot.use_yn = True
+            weight = _quantize_weight(item.weight); cost = _ceil_won(item.individual_cost)
+            detail.line_no = line_no; detail.product_id = item.product_id
+            detail.box_qty = item.box_qty; detail.weight = weight
+            detail.individual_cost = cost; detail.amount = _ceil_won(weight * cost)
+        db.commit(); db.refresh(header)
+        return _opening_inventory_result(header)
+    except HTTPException:
+        db.rollback(); raise
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="후속 입출고에 연결된 LOT가 포함되어 수정할 수 없습니다.",
+        ) from exc
+    except Exception:
+        db.rollback(); raise
+
+
+@app.delete("/api/v1/companies/{comp_code}/opening-inventories/{inbound_id}")
+def delete_opening_inventory(comp_code: str, inbound_id: int,
+                             db: Session = Depends(get_db)):
+    header = db.query(models.Inbound).filter(
+        models.Inbound.inbound_id == inbound_id,
+        models.Inbound.comp_code == comp_code,
+        models.Inbound.transaction_type == "OPENING_INVENTORY",
+    ).first()
+    if not header:
+        raise HTTPException(status_code=404, detail="최초재고 전표가 없습니다.")
+    try:
+        lots = [item.lot for item in header.items]
+        db.delete(header); db.flush()
+        for lot in lots: db.delete(lot)
+        db.commit()
+        return {"message": "최초재고 전표와 연결 LOT가 삭제되었습니다."}
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="후속 입출고에 연결된 LOT가 포함되어 삭제할 수 없습니다.",
+        ) from exc
 
 
 def _opening_balance_result(obj, allocated=Decimal("0")):
@@ -1577,6 +1754,61 @@ def create_opening_balance(comp_code: str, data: OpeningBalanceSchema,
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="최초잔액 저장 중 중복 또는 연결 오류가 발생했습니다.") from exc
+
+
+@app.put("/api/v1/companies/{comp_code}/opening-balances/{transaction_id}")
+def update_opening_balance(comp_code: str, transaction_id: int,
+                           data: OpeningBalanceSchema, db: Session = Depends(get_db)):
+    obj = db.query(models.AccountTransaction).filter(
+        models.AccountTransaction.account_transaction_id == transaction_id,
+        models.AccountTransaction.comp_code == comp_code,
+        models.AccountTransaction.transaction_type.in_(("OPENING_RECEIVABLE", "OPENING_PAYABLE")),
+    ).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="거래처 최초잔액 원거래가 없습니다.")
+    allocated = db.query(models.AccountTransactionAllocation).filter(
+        models.AccountTransactionAllocation.source_transaction_id == transaction_id
+    ).first()
+    if allocated:
+        raise HTTPException(status_code=409, detail="수금·지급이 배분된 원거래는 수정할 수 없습니다.")
+    balance_type = data.balance_type.strip().upper()
+    if balance_type not in {"RECEIVABLE", "PAYABLE"}:
+        raise HTTPException(status_code=400, detail="잔액구분은 미수금 또는 미지급금이어야 합니다.")
+    relation = db.query(models.CompanyAccount).filter(
+        models.CompanyAccount.comp_code == comp_code,
+        models.CompanyAccount.account_id == data.account_id,
+        models.CompanyAccount.use_yn == True,
+        models.CompanyAccount.trade_stop_yn == False,
+    ).first()
+    if not relation:
+        raise HTTPException(status_code=400, detail="현재 회사에서 거래 가능한 거래처를 선택해 주세요.")
+    if balance_type == "RECEIVABLE" and not relation.sales_yn:
+        raise HTTPException(status_code=400, detail="미수금은 매출거래 거래처에만 등록할 수 있습니다.")
+    if balance_type == "PAYABLE" and not relation.purchase_yn:
+        raise HTTPException(status_code=400, detail="미지급금은 매입거래 거래처에만 등록할 수 있습니다.")
+    obj.transaction_date = data.base_date; obj.account_id = data.account_id
+    obj.transaction_type = f"OPENING_{balance_type}"; obj.original_amount = _ceil_won(data.amount)
+    obj.memo = data.memo.strip() if data.memo else None
+    db.commit(); db.refresh(obj)
+    return _opening_balance_result(obj)
+
+
+@app.delete("/api/v1/companies/{comp_code}/opening-balances/{transaction_id}")
+def delete_opening_balance(comp_code: str, transaction_id: int,
+                           db: Session = Depends(get_db)):
+    obj = db.query(models.AccountTransaction).filter(
+        models.AccountTransaction.account_transaction_id == transaction_id,
+        models.AccountTransaction.comp_code == comp_code,
+        models.AccountTransaction.transaction_type.in_(("OPENING_RECEIVABLE", "OPENING_PAYABLE")),
+    ).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="거래처 최초잔액 원거래가 없습니다.")
+    if db.query(models.AccountTransactionAllocation).filter(
+        models.AccountTransactionAllocation.source_transaction_id == transaction_id
+    ).first():
+        raise HTTPException(status_code=409, detail="수금·지급이 배분된 원거래는 삭제할 수 없습니다.")
+    db.delete(obj); db.commit()
+    return {"message": "거래처 최초잔액 원거래가 삭제되었습니다."}
 
 
 # =============================================================================
