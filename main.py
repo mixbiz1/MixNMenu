@@ -1117,6 +1117,189 @@ def deactivate_warehouse(comp_code: str, warehouse_id: int, db: Session = Depend
 
 
 # =============================================================================
+# LOT Master API
+#
+# LOT는 상품의 식별·추적·개별원가를 보존한다. 박스/중량 재고는 LOT에
+# 누적 저장하지 않고 후속 입고·출고 Transaction 합계로 계산한다.
+# =============================================================================
+
+class LotSchema(BaseModel):
+    lot_code: str = ""
+    business_lot_no: Optional[str] = None
+    source_type: str = "IMPORT"
+    product_id: int
+    warehouse_id: int
+    bl_no: Optional[str] = None
+    container_no: Optional[str] = None
+    history_no: Optional[str] = None
+    origin: Optional[str] = None
+    est_no: Optional[str] = None
+    production_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    individual_cost: float = Field(default=0, ge=0)
+    status: str = "OPEN"
+    memo: Optional[str] = None
+    use_yn: bool = True
+
+
+def _next_lot_code(comp_code: str, db: Session):
+    prefix = f"L{date.today():%Y%m%d}-"
+    numbers = []
+    rows = db.query(models.Lot.lot_code).filter(
+        models.Lot.comp_code == comp_code,
+        models.Lot.lot_code.like(f"{prefix}%"),
+    ).all()
+    for (code,) in rows:
+        suffix = (code or "")[len(prefix):]
+        if suffix.isdigit():
+            numbers.append(int(suffix))
+    return f"{prefix}{max(numbers, default=0) + 1:03d}"
+
+
+def _validate_lot_data(comp_code: str, data: LotSchema, db: Session, require_active: bool = True):
+    if data.source_type not in {"IMPORT", "DOMESTIC"}:
+        raise HTTPException(status_code=400, detail="LOT 구분 값이 올바르지 않습니다.")
+    if data.status not in {"OPEN", "HOLD", "CLOSED"}:
+        raise HTTPException(status_code=400, detail="LOT 상태 값이 올바르지 않습니다.")
+    if data.expiry_date and data.production_date and data.expiry_date < data.production_date:
+        raise HTTPException(status_code=400, detail="소비기한은 생산일보다 빠를 수 없습니다.")
+    product_query = db.query(models.Product).filter(models.Product.product_id == data.product_id)
+    if require_active:
+        product_query = product_query.filter(models.Product.use_yn == True)
+    product = product_query.first()
+    if not product:
+        raise HTTPException(status_code=400, detail="사용 가능한 상품을 선택해 주세요.")
+    warehouse_query = db.query(models.Warehouse).join(
+        models.CompanyWarehouse,
+        models.CompanyWarehouse.warehouse_id == models.Warehouse.warehouse_id,
+    ).filter(
+        models.Warehouse.warehouse_id == data.warehouse_id,
+        models.CompanyWarehouse.comp_code == comp_code,
+    )
+    if require_active:
+        warehouse_query = warehouse_query.filter(
+            models.Warehouse.use_yn == True,
+            models.CompanyWarehouse.use_yn == True,
+        )
+    warehouse = warehouse_query.first()
+    if not warehouse:
+        raise HTTPException(status_code=400, detail="현재 회사에서 사용하는 창고를 선택해 주세요.")
+
+
+def _lot_result(obj):
+    return {
+        "lot_id": obj.lot_id,
+        "comp_code": obj.comp_code,
+        "lot_code": obj.lot_code,
+        "business_lot_no": obj.business_lot_no,
+        "source_type": obj.source_type,
+        "product_id": obj.product_id,
+        "product_code": obj.product.product_code,
+        "product_name": obj.product.product_name,
+        "warehouse_id": obj.warehouse_id,
+        "warehouse_code": obj.warehouse.warehouse_code,
+        "warehouse_name": obj.warehouse.warehouse_name,
+        "bl_no": obj.bl_no,
+        "container_no": obj.container_no,
+        "history_no": obj.history_no,
+        "origin": obj.origin,
+        "est_no": obj.est_no,
+        "production_date": obj.production_date,
+        "expiry_date": obj.expiry_date,
+        "individual_cost": float(obj.individual_cost or 0),
+        "status": obj.status,
+        "memo": obj.memo,
+        "use_yn": bool(obj.use_yn),
+    }
+
+
+@app.get("/api/v1/companies/{comp_code}/lots/next-code")
+def get_next_lot_code(comp_code: str, db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    return {"lot_code": _next_lot_code(comp_code, db)}
+
+
+@app.get("/api/v1/companies/{comp_code}/lots")
+def get_lots(comp_code: str, search: str = "", include_inactive: bool = False,
+             db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    query = db.query(models.Lot).filter(models.Lot.comp_code == comp_code)
+    if not include_inactive:
+        query = query.filter(models.Lot.use_yn == True)
+    if search.strip():
+        keyword = f"%{search.strip()}%"
+        query = query.join(models.Product, models.Product.product_id == models.Lot.product_id).filter(
+            (models.Lot.lot_code.like(keyword)) |
+            (models.Lot.business_lot_no.like(keyword)) |
+            (models.Lot.bl_no.like(keyword)) |
+            (models.Lot.container_no.like(keyword)) |
+            (models.Lot.history_no.like(keyword)) |
+            (models.Product.product_name.like(keyword))
+        )
+    objects = query.order_by(models.Lot.created_at.desc(), models.Lot.lot_id.desc()).all()
+    return [_lot_result(obj) for obj in objects]
+
+
+@app.get("/api/v1/companies/{comp_code}/lots/{lot_id}")
+def get_lot(comp_code: str, lot_id: int, db: Session = Depends(get_db)):
+    obj = db.query(models.Lot).filter(
+        models.Lot.comp_code == comp_code, models.Lot.lot_id == lot_id
+    ).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="LOT가 없습니다.")
+    return _lot_result(obj)
+
+
+@app.post("/api/v1/companies/{comp_code}/lots", status_code=status.HTTP_201_CREATED)
+def create_lot(comp_code: str, data: LotSchema, db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    _validate_lot_data(comp_code, data, db)
+    code = data.lot_code.strip().upper() or _next_lot_code(comp_code, db)
+    if db.query(models.Lot).filter(
+        models.Lot.comp_code == comp_code, models.Lot.lot_code == code
+    ).first():
+        raise HTTPException(status_code=409, detail="현재 회사에 이미 등록된 LOT번호입니다.")
+    values = data.model_dump(exclude={"lot_code"})
+    for key in ("business_lot_no", "bl_no", "container_no", "history_no", "origin", "est_no", "memo"):
+        values[key] = values[key].strip() if values[key] else None
+    obj = models.Lot(comp_code=comp_code, lot_code=code, **values)
+    db.add(obj); db.commit(); db.refresh(obj)
+    return _lot_result(obj)
+
+
+@app.put("/api/v1/companies/{comp_code}/lots/{lot_id}")
+def update_lot(comp_code: str, lot_id: int, data: LotSchema,
+               db: Session = Depends(get_db)):
+    obj = db.query(models.Lot).filter(
+        models.Lot.comp_code == comp_code, models.Lot.lot_id == lot_id
+    ).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="LOT가 없습니다.")
+    if data.lot_code.strip().upper() != obj.lot_code:
+        raise HTTPException(status_code=400, detail="저장된 LOT번호는 변경할 수 없습니다.")
+    _validate_lot_data(comp_code, data, db, require_active=False)
+    values = data.model_dump(exclude={"lot_code"})
+    for key in ("business_lot_no", "bl_no", "container_no", "history_no", "origin", "est_no", "memo"):
+        values[key] = values[key].strip() if values[key] else None
+    for key, value in values.items():
+        setattr(obj, key, value)
+    db.commit(); db.refresh(obj)
+    return _lot_result(obj)
+
+
+@app.delete("/api/v1/companies/{comp_code}/lots/{lot_id}")
+def deactivate_lot(comp_code: str, lot_id: int, db: Session = Depends(get_db)):
+    obj = db.query(models.Lot).filter(
+        models.Lot.comp_code == comp_code, models.Lot.lot_id == lot_id
+    ).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="LOT가 없습니다.")
+    obj.use_yn = False
+    db.commit()
+    return {"message": "LOT가 사용중지되었습니다."}
+
+
+# =============================================================================
 # Account API
 #
 # 설계 원칙

@@ -73,6 +73,29 @@ KG당, BOX당, KG·일당, 건당 정액을 지원한다. 창고마다 필요한
 
 LOT에는 개별원가를 유지한다. 평균원가를 사용하지 않는다.
 
+### LOT Master 1차 상세 (2026-09-17)
+
+`tb_lot`은 수량 장부가 아니라 상품의 실제 입고분을 식별하고 추적하는
+Master이다.
+
+-   내부 PK: `lot_id`
+-   업무 표시번호: 회사별 `lot_code` (`LYYYYMMDD-001` 형식 자동발번)
+-   발생구분: 수입(`IMPORT`) / 국내매입(`DOMESTIC`)
+-   연결: `comp_code + product_id + warehouse_id`(최초 입고 예정창고)
+-   추적: 공급자 LOT번호, BL번호, 컨테이너번호, 축산물이력번호
+-   속성 Snapshot: 원산지, EST NO, 생산일, 소비기한
+-   평가: `individual_cost` 원/KG, LOT별 개별원가
+-   상태: 사용중(`OPEN`) / 보류(`HOLD`) / 마감(`CLOSED`)
+-   사용중지는 물리삭제하지 않고 `use_yn = 0`으로 처리
+
+입고 BOX·KG를 `tb_lot`에 원본 수량으로 중복 저장하지 않는다. 다음
+Vertical Slice에서 `tb_inbound_item`이 LOT별 입고수량을 발생시키고,
+`tb_outbound_item`이 LOT별 출고수량을 차감한다. 현재고는 두 Transaction의
+합계로 산출한다. 같은 BL에 여러 컨테이너가 있거나 같은 컨테이너에 여러
+상품·이력번호가 있으면 LOT를 각각 분리한다.
+`tb_lot.warehouse_id`는 최초 입고 예정창고이며, 창고이동 후 실제 현재고
+위치는 입출고 Transaction으로 산출한다.
+
 ## 5. MONEY
 
 -   `tb_purchase`

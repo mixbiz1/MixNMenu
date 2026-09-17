@@ -226,6 +226,7 @@ class CompanyWarehouse(Base):
 
     company_warehouse_id = Column(Integer, primary_key=True, autoincrement=True)
     comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False, index=True)
+    # 최초 입고 예정창고. 실제 현재고 위치는 입출고 Transaction으로 산출한다.
     warehouse_id = Column(Integer, ForeignKey("tb_warehouse.warehouse_id"), nullable=False, index=True)
     use_yn = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -277,6 +278,37 @@ class WarehouseCharge(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     rate = relationship("WarehouseRate", back_populates="charges")
+
+
+class Lot(Base):
+    """상품의 실제 입고·재고 추적 단위와 LOT별 개별원가."""
+    __tablename__ = "tb_lot"
+    __table_args__ = (
+        UniqueConstraint("comp_code", "lot_code", name="UQ_lot_company_code"),
+    )
+
+    lot_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False, index=True)
+    lot_code = Column(String(30), nullable=False, index=True)
+    business_lot_no = Column(String(50), nullable=True)
+    source_type = Column(String(20), default="IMPORT", nullable=False)  # IMPORT / DOMESTIC
+    product_id = Column(Integer, ForeignKey("tb_product.product_id"), nullable=False, index=True)
+    warehouse_id = Column(Integer, ForeignKey("tb_warehouse.warehouse_id"), nullable=False, index=True)
+    bl_no = Column(String(80), nullable=True, index=True)
+    container_no = Column(String(30), nullable=True, index=True)
+    history_no = Column(String(30), nullable=True, index=True)
+    origin = Column(String(50), nullable=True)
+    est_no = Column(String(50), nullable=True)
+    production_date = Column(Date, nullable=True)
+    expiry_date = Column(Date, nullable=True)
+    individual_cost = Column(Numeric(18, 4), default=0, nullable=False)  # 원/KG
+    status = Column(String(20), default="OPEN", nullable=False)  # OPEN / HOLD / CLOSED
+    memo = Column(String(1000), nullable=True)
+    use_yn = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    product = relationship("Product")
+    warehouse = relationship("Warehouse")
 
 
 # ==========================================
