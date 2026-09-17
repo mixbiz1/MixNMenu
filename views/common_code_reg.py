@@ -89,11 +89,11 @@ class CommonCodeWindow(QWidget):
         left_layout = QVBoxLayout(left)
         group_box = QGroupBox("코드그룹")
         group_layout = QVBoxLayout(group_box)
-        self.group_table = QTableWidget(0, 4)
-        self.group_table.setHorizontalHeaderLabels(["그룹코드", "그룹명", "정렬방식", "사용"])
+        self.group_table = QTableWidget(0, 3)
+        self.group_table.setHorizontalHeaderLabels(["그룹코드", "그룹명", "사용"])
         self.group_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.group_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        configure_list_table(self.group_table, (100, 220, 90, 70))
+        configure_list_table(self.group_table, (100, 240, 70))
         group_layout.addWidget(self.group_table)
 
         form = QGridLayout()
@@ -101,10 +101,6 @@ class CommonCodeWindow(QWidget):
         self.group_code.setReadOnly(True)
         self.group_code.setPlaceholderText("자동발번")
         self.group_name = QLineEdit()
-        self.group_sort_direction = QComboBox()
-        self.group_sort_direction.addItem("코드 오름차순 (001 → 999)", "ASC")
-        self.group_sort_direction.addItem("코드 내림차순 (999 → 001)", "DESC")
-        self.group_sort_direction.setToolTip("선택한 코드그룹의 상세코드 표시 순서입니다.")
         self.group_use = ReadableCheckBox("사용")
         self.group_use.setChecked(True)
         self.group_description = QTextEdit()
@@ -113,11 +109,9 @@ class CommonCodeWindow(QWidget):
         form.addWidget(self.group_code, 0, 1)
         form.addWidget(QLabel("그룹명 *"), 1, 0)
         form.addWidget(self.group_name, 1, 1)
-        form.addWidget(QLabel("상세코드 정렬"), 2, 0)
-        form.addWidget(self.group_sort_direction, 2, 1)
-        form.addWidget(QLabel("설명"), 3, 0)
-        form.addWidget(self.group_description, 3, 1)
-        form.addWidget(self.group_use, 4, 1)
+        form.addWidget(QLabel("설명"), 2, 0)
+        form.addWidget(self.group_description, 2, 1)
+        form.addWidget(self.group_use, 3, 1)
         group_layout.addLayout(form)
 
         group_buttons = QHBoxLayout()
@@ -211,9 +205,6 @@ class CommonCodeWindow(QWidget):
         self.btn_value_new.clicked.connect(self.new_value)
         self.btn_value_save.clicked.connect(self.save_value)
         self.btn_value_delete.clicked.connect(self.delete_value)
-        self.group_sort_direction.currentIndexChanged.connect(
-            self.apply_value_sort
-        )
 
     def _apply_style(self):
         dark = self.palette().window().color().lightness() < 128
@@ -274,13 +265,12 @@ class CommonCodeWindow(QWidget):
                 values = [
                     item.get("group_code", ""),
                     item.get("group_name", ""),
-                    "오름차순" if item.get("sort_direction", "ASC") == "ASC" else "내림차순",
                     "사용" if item.get("use_yn") else "중지",
                 ]
                 for col, value in enumerate(values):
                     self.group_table.setItem(row, col, ListTableItem(str(value)))
                 self.group_table.item(row, 0).setData(Qt.UserRole, item)
-            end_list_update(self.group_table, (85, 130, 80, 60), (150, 320, 120, 90))
+            end_list_update(self.group_table, (85, 150, 60), (150, 360, 90))
             self._apply_search_filter()
         except Exception as exc:
             QMessageBox.critical(self, "조회 오류", str(exc))
@@ -341,17 +331,6 @@ class CommonCodeWindow(QWidget):
         else:
             self.search_result_label.setText(f"전체 {visible_count}건")
 
-    def apply_value_sort(self):
-        """정렬방식 선택 즉시 현재 상세코드 목록에 반영한다."""
-        if self.value_table.rowCount() == 0:
-            return
-        order = (
-            Qt.DescendingOrder
-            if self.group_sort_direction.currentData() == "DESC"
-            else Qt.AscendingOrder
-        )
-        self.value_table.sortItems(0, order)
-
     def on_group_selected(self):
         row = self.group_table.currentRow()
         if row < 0 or self.group_table.item(row, 0) is None:
@@ -361,8 +340,6 @@ class CommonCodeWindow(QWidget):
         self.group_code.setText(item["group_code"])
         self.group_name.setText(item["group_name"])
         self.group_description.setPlainText(item.get("description") or "")
-        index = self.group_sort_direction.findData(item.get("sort_direction", "ASC"))
-        self.group_sort_direction.setCurrentIndex(max(index, 0))
         self.group_use.setChecked(bool(item.get("use_yn")))
         self.selected_group_label.setText(
             f"{item['group_code']}  {item['group_name']}"
@@ -382,7 +359,6 @@ class CommonCodeWindow(QWidget):
         self.group_code.clear()
         self.group_name.clear()
         self.group_description.clear()
-        self.group_sort_direction.setCurrentIndex(0)
         self.group_use.setChecked(True)
         self.value_table.setRowCount(0)
         self.selected_group_label.setText("신규 코드그룹")
@@ -406,7 +382,7 @@ class CommonCodeWindow(QWidget):
             "group_name": name,
             "description": self.group_description.toPlainText().strip() or None,
             "sort_order": 0,
-            "sort_direction": self.group_sort_direction.currentData(),
+            "sort_direction": "ASC",
             "system_yn": False,
             "use_yn": self.group_use.isChecked(),
         }
@@ -451,7 +427,6 @@ class CommonCodeWindow(QWidget):
                 for col, value in enumerate(values):
                     self.value_table.setItem(row, col, ListTableItem(str(value)))
                 self.value_table.item(row, 0).setData(Qt.UserRole, item)
-            self.apply_value_sort()
             end_list_update(self.value_table, (85, 130, 60, 130), (160, 320, 90, 380))
             self._apply_search_filter()
         except Exception as exc:

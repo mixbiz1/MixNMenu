@@ -474,12 +474,7 @@ def get_code_values(
     )
     if not include_inactive:
         query = query.filter(models.CodeValue.use_yn == True)
-    code_order = (
-        models.CodeValue.code.desc()
-        if group.sort_direction == "DESC"
-        else models.CodeValue.code.asc()
-    )
-    return query.order_by(code_order).all()
+    return query.order_by(models.CodeValue.code.asc()).all()
 
 
 @app.post(

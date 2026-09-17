@@ -102,6 +102,40 @@ def migrate():
             IF COL_LENGTH('tb_product', 'shelf_life_days') IS NULL
                 ALTER TABLE tb_product ADD shelf_life_days INT NULL;
         """))
+        conn.execute(text("""
+            UPDATE lot
+               SET expiry_date =
+                   CASE
+                       WHEN UPPER(ISNULL(product.expiry_rule, 'AUTO')) = 'DAYS'
+                           THEN DATEADD(DAY, product.shelf_life_days - 1, lot.production_date)
+                       ELSE DATEADD(DAY, -1, DATEADD(YEAR, 2, lot.production_date))
+                   END
+              FROM tb_lot AS lot
+              JOIN tb_product AS product ON product.product_id = lot.product_id
+             WHERE lot.production_date IS NOT NULL
+               AND lot.expiry_date IS NULL
+               AND (
+                   UPPER(ISNULL(product.expiry_rule, 'AUTO')) = 'FROZEN_2Y'
+                   OR (
+                       UPPER(ISNULL(product.expiry_rule, 'AUTO')) = 'DAYS'
+                       AND product.shelf_life_days IS NOT NULL
+                   )
+                   OR (
+                       UPPER(ISNULL(product.expiry_rule, 'AUTO')) = 'AUTO'
+                       AND NOT EXISTS (
+                           SELECT 1
+                             FROM tb_product_code_assignment AS assignment
+                             JOIN tb_code_group AS code_group
+                               ON code_group.code_group_id = assignment.code_group_id
+                             JOIN tb_code_value AS code_value
+                               ON code_value.code_value_id = assignment.code_value_id
+                            WHERE assignment.product_id = product.product_id
+                              AND code_group.group_code = 'PC004'
+                              AND code_value.code_name LIKE N'%냉장%'
+                       )
+                   )
+               );
+        """))
     print("[OK] 초기자료등록 원장 Migration 완료")
 
 
