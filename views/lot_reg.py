@@ -24,7 +24,7 @@ class ReadableCheckBox(QCheckBox):
 
 
 class LotRegWindow(QWidget):
-    """LOT 식별·추적·개별원가 Master. 수량은 입출고 Transaction에서 관리한다."""
+    """Transaction이 생성한 LOT의 조회·추적정보 보정 화면."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -32,11 +32,12 @@ class LotRegWindow(QWidget):
         self.rows = []
         self._loading = False
         self.nav = []
-        self.setWindowTitle("LOT입력")
+        self.setWindowTitle("LOT조회/보정")
         self.resize(1320, 790)
         self._build_ui()
         self._connect_events()
         self._setup_enter_navigation()
+        self.clear_form()
         QTimer.singleShot(50, self.initial_load)
 
     def _build_ui(self):
@@ -47,12 +48,12 @@ class LotRegWindow(QWidget):
         self.include_inactive = ReadableCheckBox("사용중지 포함")
         self.btn_search = QPushButton("조회 [F7]")
         self.btn_refresh = QPushButton("새로고침")
-        self.btn_new = QPushButton("신규 [F2]")
         self.btn_save = QPushButton("저장 [F4]")
+        self.btn_delete = QPushButton("삭제 [F5]")
         self.btn_stop = QPushButton("사용중지 [F6]")
         self.btn_close = QPushButton("닫기")
         top.addWidget(QLabel("검색")); top.addWidget(self.search, 1); top.addWidget(self.include_inactive)
-        for button in (self.btn_search, self.btn_refresh, self.btn_new, self.btn_save, self.btn_stop, self.btn_close):
+        for button in (self.btn_search, self.btn_refresh, self.btn_save, self.btn_delete, self.btn_stop, self.btn_close):
             top.addWidget(button)
         root.addLayout(top)
 
@@ -125,10 +126,11 @@ class LotRegWindow(QWidget):
     def _connect_events(self):
         self.btn_search.clicked.connect(self.load_lots); self.search.returnPressed.connect(self.load_lots)
         self.btn_refresh.clicked.connect(self.refresh_view); self.include_inactive.toggled.connect(self.load_lots)
-        self.btn_new.clicked.connect(self.new_lot); self.btn_save.clicked.connect(self.save_lot)
+        self.btn_save.clicked.connect(self.save_lot); self.btn_delete.clicked.connect(self.delete_lot)
         self.btn_stop.clicked.connect(self.deactivate_lot); self.btn_close.clicked.connect(self.close_window)
         self.table.itemSelectionChanged.connect(self.on_selected); self.product.currentIndexChanged.connect(self._product_changed)
-        self.btn_new.setShortcut("F2"); self.btn_save.setShortcut("F4"); self.btn_stop.setShortcut("F6"); self.btn_search.setShortcut("F7")
+        self.btn_save.setShortcut("F4"); self.btn_delete.setShortcut("F5")
+        self.btn_stop.setShortcut("F6"); self.btn_search.setShortcut("F7")
 
     def _setup_enter_navigation(self):
         self.nav = [self.source_type, self.business_lot_no, self.product, self.warehouse, self.status,
@@ -158,7 +160,7 @@ class LotRegWindow(QWidget):
                 self.product.addItem(f"{item['product_name']} [{item['product_code']}]", item)
             self.warehouse.clear()
             for item in warehouses.json(): self.warehouse.addItem(f"{item['warehouse_name']} [{item['warehouse_code']}]", item["warehouse_id"])
-            self.new_lot(); self.load_lots()
+            self.clear_form(); self.load_lots()
         except Exception as exc:
             QMessageBox.critical(self, "초기자료 조회 오류", self._error_text(exc))
 
@@ -182,15 +184,14 @@ class LotRegWindow(QWidget):
         finally:
             self._loading = False; self.btn_search.setText("조회 [F7]"); self.btn_search.setEnabled(True)
 
-    def new_lot(self):
+    def clear_form(self):
         self.current_id = None; self.lot_code.clear(); self.business_lot_no.clear()
         self.source_type.setCurrentIndex(0); self.status.setCurrentIndex(0)
         for field in (self.bl_no, self.container_no, self.history_no, self.origin, self.est_no): field.clear()
         self.production_date.setDate(self.production_date.minimumDate()); self.expiry_date.setDate(self.expiry_date.minimumDate())
         self.individual_cost.setValue(0); self.memo.clear(); self.table.clearSelection()
-        if self.product.count(): self.product.setCurrentIndex(0)
-        if self.warehouse.count(): self.warehouse.setCurrentIndex(0)
-        self.source_type.setFocus()
+        self.product.setCurrentIndex(-1); self.warehouse.setCurrentIndex(-1)
+        self.btn_save.setEnabled(False); self.btn_delete.setEnabled(False); self.btn_stop.setEnabled(False)
 
     def _product_changed(self):
         item = self.product.currentData()
@@ -208,15 +209,18 @@ class LotRegWindow(QWidget):
             widget.setText(item.get(key) or "")
         self._set_date(self.production_date, item.get("production_date")); self._set_date(self.expiry_date, item.get("expiry_date"))
         self.individual_cost.setValue(float(item.get("individual_cost") or 0)); self.memo.setPlainText(item.get("memo") or "")
+        self.btn_save.setEnabled(True); self.btn_delete.setEnabled(True); self.btn_stop.setEnabled(True)
 
     def save_lot(self):
+        if not self.current_id:
+            QMessageBox.warning(self, "선택 확인", "보정할 LOT를 목록에서 선택해 주세요."); return
         if self.product.currentIndex() < 0: QMessageBox.warning(self, "입력 확인", "상품을 선택해 주세요."); return
         if self.warehouse.currentIndex() < 0: QMessageBox.warning(self, "입력 확인", "창고를 선택해 주세요."); return
         if self.expiry_date.date() != self.expiry_date.minimumDate() and self.production_date.date() != self.production_date.minimumDate() and self.expiry_date.date() < self.production_date.date():
             QMessageBox.warning(self, "입력 확인", "소비기한은 생산일보다 빠를 수 없습니다."); return
         try:
             data = self._payload()
-            response = httpx.put(self._url(f"/{self.current_id}"), json=data, timeout=10) if self.current_id else httpx.post(self._url(), json=data, timeout=10)
+            response = httpx.put(self._url(f"/{self.current_id}"), json=data, timeout=10)
             response.raise_for_status(); saved = response.json(); self.current_id = saved["lot_id"]; self.lot_code.setText(saved["lot_code"])
             self.load_lots(); self._select_id(self.current_id); QMessageBox.information(self, "저장 완료", "LOT 정보가 저장되었습니다.")
         except Exception as exc: QMessageBox.critical(self, "저장 오류", self._error_text(exc))
@@ -226,8 +230,27 @@ class LotRegWindow(QWidget):
         if QMessageBox.question(self, "사용중지", "이 LOT를 사용중지하시겠습니까?") != QMessageBox.Yes: return
         try:
             response = httpx.delete(self._url(f"/{self.current_id}"), timeout=10); response.raise_for_status()
-            self.new_lot(); self.load_lots()
+            self.clear_form(); self.load_lots()
         except Exception as exc: QMessageBox.critical(self, "처리 오류", self._error_text(exc))
+
+    def delete_lot(self):
+        if not self.current_id:
+            QMessageBox.warning(self, "선택 확인", "삭제할 LOT를 선택해 주세요."); return
+        if QMessageBox.question(
+            self, "LOT 삭제 확인",
+            "입고·출고·재고 등 연결자료가 없는 LOT만 삭제할 수 있습니다.\n\n선택한 LOT를 삭제하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel,
+        ) != QMessageBox.Yes: return
+        if QMessageBox.question(
+            self, "LOT 삭제 최종 확인",
+            f"LOT번호: {self.lot_code.text()}\n\n삭제 후 복구할 수 없습니다. 계속하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel,
+        ) != QMessageBox.Yes: return
+        try:
+            response = httpx.delete(self._url(f"/{self.current_id}"), params={"permanent": True}, timeout=10)
+            response.raise_for_status(); self.clear_form(); self.load_lots()
+            QMessageBox.information(self, "삭제 완료", "연결자료가 없는 LOT가 삭제되었습니다.")
+        except Exception as exc: QMessageBox.critical(self, "삭제 오류", self._error_text(exc))
 
     def close_window(self):
         parent = self.parentWidget()

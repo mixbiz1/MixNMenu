@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db, engine, Base
@@ -1288,12 +1289,24 @@ def update_lot(comp_code: str, lot_id: int, data: LotSchema,
 
 
 @app.delete("/api/v1/companies/{comp_code}/lots/{lot_id}")
-def deactivate_lot(comp_code: str, lot_id: int, db: Session = Depends(get_db)):
+def deactivate_lot(comp_code: str, lot_id: int, permanent: bool = False,
+                   db: Session = Depends(get_db)):
     obj = db.query(models.Lot).filter(
         models.Lot.comp_code == comp_code, models.Lot.lot_id == lot_id
     ).first()
     if not obj:
         raise HTTPException(status_code=404, detail="LOT가 없습니다.")
+    if permanent:
+        db.delete(obj)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="입고·출고·재고 등 연결자료가 있는 LOT는 삭제할 수 없습니다. 사용중지 또는 마감 처리해 주세요.",
+            )
+        return {"message": "연결자료가 없는 LOT가 삭제되었습니다."}
     obj.use_yn = False
     db.commit()
     return {"message": "LOT가 사용중지되었습니다."}

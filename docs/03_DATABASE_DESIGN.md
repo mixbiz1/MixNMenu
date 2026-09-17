@@ -96,6 +96,32 @@ Vertical Slice에서 `tb_inbound_item`이 LOT별 입고수량을 발생시키고
 `tb_lot.warehouse_id`는 최초 입고 예정창고이며, 창고이동 후 실제 현재고
 위치는 입출고 Transaction으로 산출한다.
 
+LOT는 독립 기초코드로 수동 생성하지 않는다. 정상 운영에서는 다음 원인
+Transaction의 Detail을 저장할 때 필요한 LOT를 같은 DB Transaction 안에서
+생성한다.
+
+-   시스템 도입 시 `OPENING_INVENTORY` 최초재고 등록
+-   `PURCHASE_INBOUND` 매입입고
+-   `IMPORT_INBOUND` 수입입고
+-   기존 LOT의 창고이동은 새 LOT 생성이 아니라 이동 Transaction으로 처리
+
+LOT 조회·보정 화면은 이미 생성된 LOT의 추적정보 확인과 제한적 보정에만
+사용한다. 연결자료가 전혀 없는 오입력 LOT만 물리삭제할 수 있고, 외래키로
+연결된 LOT는 삭제하지 못하도록 DB와 API에서 차단한다.
+
+### 시스템 도입 초기자료
+
+다른 시스템에서 MXMN으로 전환할 때의 기준시점 자료는 일반 거래와 구분된
+Opening Transaction으로 등록한다.
+
+-   최초재고: 회사·기준일·창고 Header + 상품·LOT 추적정보·BOX·KG·개별원가 Detail
+-   거래처잔액: 거래처별 미수금·미지급금과 기준일
+-   금융잔액: 통장/현금 계정별 잔액과 기준일
+
+최초재고 저장 시 `LOT + 입고 Transaction`을 원자적으로 함께 생성한다.
+초기자료도 등록 이후에는 일반 입고·출고·이동·수금·지급과 동일한 원장에
+포함되며, 잔액이나 현재고를 사용자가 직접 덮어쓰지 않는다.
+
 ## 5. MONEY
 
 -   `tb_purchase`

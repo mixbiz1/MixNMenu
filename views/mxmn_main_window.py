@@ -820,7 +820,7 @@ class MixNMainWindow(QMainWindow):
         )
 
         lot_action = QAction(
-            "7.LOT입력",
+            "7.LOT조회/보정",
             self,
         )
         lot_action.triggered.connect(
@@ -1423,19 +1423,19 @@ class MixNMainWindow(QMainWindow):
                     self.mdi_area.setActiveSubWindow(sub)
                     widget.show(); sub.showNormal(); sub.showMaximized()
                     self._bring_subwindow_to_front(sub)
-                    self.set_work_status("7.LOT입력 창이 활성화되었습니다.")
+                    self.set_work_status("7.LOT조회/보정 창이 활성화되었습니다.")
                     return
             widget = LotRegWindow()
             sub_window = self.mdi_area.addSubWindow(widget)
             sub_window.setAttribute(Qt.WA_DeleteOnClose, True)
             sub_window.setWindowTitle(
-                f"LOT입력 - {app_context.company_name or app_context.company_code}"
+                f"LOT조회/보정 - {app_context.company_name or app_context.company_code}"
             )
             widget.show(); sub_window.show(); sub_window.showMaximized()
             self._bring_subwindow_to_front(sub_window)
-            self.set_work_status("7.LOT입력 창이 열렸습니다.")
+            self.set_work_status("7.LOT조회/보정 창이 열렸습니다.")
         except Exception as e:
-            QMessageBox.critical(self, "LOT입력 실행 오류", f"LOT입력 화면을 열 수 없습니다.\n\n{e}")
+            QMessageBox.critical(self, "LOT조회/보정 실행 오류", f"LOT조회/보정 화면을 열 수 없습니다.\n\n{e}")
 
 
     # ========================================================
