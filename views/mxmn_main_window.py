@@ -1375,6 +1375,7 @@ class MixNMainWindow(QMainWindow):
                 widget = sub.widget()
                 if widget is not None and isinstance(widget, WarehouseRegWindow):
                     self.mdi_area.setActiveSubWindow(sub)
+                    widget.show()
                     sub.showNormal(); sub.showMaximized()
                     self._bring_subwindow_to_front(sub)
                     self.set_work_status("6.창고입력 창이 활성화되었습니다.")

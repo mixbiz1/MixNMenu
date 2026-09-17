@@ -1,9 +1,10 @@
+import webbrowser
 import httpx
 from PySide6.QtCore import QDate, QEvent, QTimer, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDateEdit, QDoubleSpinBox,
     QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
+    QMessageBox, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QMdiSubWindow,
     QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -11,7 +12,7 @@ from app_context import app_context
 
 API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 CALC_UNITS = (("KG당", "KG"), ("BOX당", "BOX"), ("KG·일당", "KG_DAY"), ("건당 정액", "FIXED"))
-DEFAULT_CHARGES = (("입고료", "KG"), ("출고료", "KG"), ("보관료", "KG_DAY"), ("계근료", "BOX"))
+DEFAULT_CHARGES = (("보관비", "KG_DAY"), ("입출고비", "KG"), ("상하차비", "KG"), ("계근비", "BOX"))
 
 
 class ReadableCheckBox(QCheckBox):
@@ -36,10 +37,11 @@ class WarehouseRegWindow(QWidget):
         root = QVBoxLayout(self)
         top = QHBoxLayout(); self.search = QLineEdit(); self.search.setPlaceholderText("창고명 / 코드 / 주소")
         self.include_inactive = ReadableCheckBox("사용중지 포함")
-        self.btn_search = QPushButton("조회"); self.btn_new = QPushButton("신규"); self.btn_save = QPushButton("저장")
-        self.btn_stop = QPushButton("사용중지"); self.btn_close = QPushButton("닫기")
+        self.btn_search = QPushButton("조회 [F7]"); self.btn_refresh = QPushButton("새로고침")
+        self.btn_new = QPushButton("신규 [F2]"); self.btn_save = QPushButton("저장 [F4]")
+        self.btn_stop = QPushButton("사용중지 [F6]"); self.btn_close = QPushButton("닫기")
         top.addWidget(QLabel("검색")); top.addWidget(self.search, 1); top.addWidget(self.include_inactive)
-        for button in (self.btn_search, self.btn_new, self.btn_save, self.btn_stop, self.btn_close): top.addWidget(button)
+        for button in (self.btn_search, self.btn_refresh, self.btn_new, self.btn_save, self.btn_stop, self.btn_close): top.addWidget(button)
         root.addLayout(top)
 
         splitter = QSplitter(Qt.Horizontal); root.addWidget(splitter, 1)
@@ -55,18 +57,19 @@ class WarehouseRegWindow(QWidget):
         self.code = QLineEdit(); self.code.setReadOnly(True); self.code.setPlaceholderText("자동발번"); self.name = QLineEdit()
         self.warehouse_type = QComboBox(); self.warehouse_type.addItem("보세창고", "BONDED"); self.warehouse_type.addItem("일반창고", "GENERAL")
         self.storage_type = QComboBox()
-        for label, value in (("냉동", "FROZEN"), ("냉장", "CHILLED"), ("상온", "AMBIENT"), ("혼합", "MIXED")): self.storage_type.addItem(label, value)
+        for label, value in (("혼합", "MIXED"), ("냉동", "FROZEN"), ("냉장", "CHILLED"), ("상온", "AMBIENT")): self.storage_type.addItem(label, value)
         self.biz_no = QLineEdit(); self.zip_code = QLineEdit(); self.address = QLineEdit(); self.phone = QLineEdit(); self.fax = QLineEdit()
         self.contact = QLineEdit(); self.meatwatch = QLineEdit(); self.web_url = QLineEdit(); self.web_url.setPlaceholderText("https://...")
         self.web_user_id = QLineEdit(); self.web_user_id.setPlaceholderText("입출고지시 사이트 사용자 ID")
+        self.btn_open_web = QPushButton("웹주소 이동"); self.btn_open_web.setMaximumWidth(105)
         g.addWidget(QLabel("창고코드"), 0, 0); g.addWidget(self.code, 0, 1); g.addWidget(QLabel("창고명 *"), 0, 2); g.addWidget(self.name, 0, 3)
         g.addWidget(QLabel("창고구분"), 1, 0); g.addWidget(self.warehouse_type, 1, 1); g.addWidget(QLabel("보관유형"), 1, 2); g.addWidget(self.storage_type, 1, 3)
         g.addWidget(QLabel("사업자번호"), 2, 0); g.addWidget(self.biz_no, 2, 1); g.addWidget(QLabel("우편번호"), 2, 2); g.addWidget(self.zip_code, 2, 3)
         g.addWidget(QLabel("주소"), 3, 0); g.addWidget(self.address, 3, 1, 1, 3)
         g.addWidget(QLabel("전화"), 4, 0); g.addWidget(self.phone, 4, 1); g.addWidget(QLabel("팩스"), 4, 2); g.addWidget(self.fax, 4, 3)
         g.addWidget(QLabel("담당자"), 5, 0); g.addWidget(self.contact, 5, 1); g.addWidget(QLabel("축산물이력제 사업장번호"), 5, 2); g.addWidget(self.meatwatch, 5, 3)
-        g.addWidget(QLabel("입출고 웹주소"), 6, 0); g.addWidget(self.web_url, 6, 1, 1, 3)
-        g.addWidget(QLabel("웹 사용자 ID"), 7, 0); g.addWidget(self.web_user_id, 7, 1, 1, 3); rl.addWidget(master)
+        g.addWidget(QLabel("입출고 웹주소"), 6, 0); g.addWidget(self.web_url, 6, 1)
+        g.addWidget(self.btn_open_web, 6, 2); g.addWidget(self.web_user_id, 6, 3); rl.addWidget(master)
 
         company = QGroupBox("현재 업무회사별 사용 및 비용 적용기간"); cg = QGridLayout(company)
         self.company_label = QLabel(f"{app_context.company_code} {app_context.company_name}")
@@ -90,10 +93,12 @@ class WarehouseRegWindow(QWidget):
         rl.addWidget(memo_box); splitter.addWidget(right); splitter.setSizes([430, 850])
 
     def _connect_events(self):
-        self.btn_search.clicked.connect(self.load_warehouses); self.search.returnPressed.connect(self.load_warehouses)
+        self.btn_search.clicked.connect(self.load_warehouses); self.btn_refresh.clicked.connect(self.refresh_view); self.search.returnPressed.connect(self.load_warehouses)
         self.include_inactive.toggled.connect(self.load_warehouses); self.btn_new.clicked.connect(self.new_warehouse)
-        self.btn_save.clicked.connect(self.save_warehouse); self.btn_stop.clicked.connect(self.deactivate_warehouse); self.btn_close.clicked.connect(self.close)
+        self.btn_save.clicked.connect(self.save_warehouse); self.btn_stop.clicked.connect(self.deactivate_warehouse); self.btn_close.clicked.connect(self.close_window)
         self.table.itemSelectionChanged.connect(self.on_selected); self.btn_add_charge.clicked.connect(lambda: self.add_charge_row()); self.btn_remove_charge.clicked.connect(self.remove_charge_row)
+        self.btn_open_web.clicked.connect(self.open_web_url)
+        self.btn_new.setShortcut("F2"); self.btn_save.setShortcut("F4"); self.btn_stop.setShortcut("F6"); self.btn_search.setShortcut("F7")
 
     def _setup_enter_navigation(self):
         self.nav = [self.name, self.warehouse_type, self.storage_type, self.biz_no, self.zip_code, self.address, self.phone, self.fax,
@@ -106,6 +111,24 @@ class WarehouseRegWindow(QWidget):
         return super().eventFilter(obj, event)
 
     def _url(self, suffix=""): return f"{API_BASE_URL}/companies/{app_context.company_code}/warehouses{suffix}"
+
+    def refresh_view(self):
+        self.search.clear()
+        if self.include_inactive.isChecked():
+            self.include_inactive.setChecked(False)  # toggled 신호가 1회 조회
+        else:
+            self.load_warehouses()
+
+    def open_web_url(self):
+        url = self.web_url.text().strip()
+        if not url: QMessageBox.information(self, "웹주소 확인", "입출고 웹주소를 입력해 주세요."); self.web_url.setFocus(); return
+        if not url.lower().startswith(("http://", "https://")): url = "https://" + url
+        webbrowser.open(url)
+
+    def close_window(self):
+        parent = self.parentWidget()
+        if isinstance(parent, QMdiSubWindow): parent.close()
+        else: self.close()
 
     def load_warehouses(self):
         if self._loading: return

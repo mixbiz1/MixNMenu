@@ -29,7 +29,7 @@ with engine.begin() as conn:
                 warehouse_code VARCHAR(20) NOT NULL,
                 warehouse_name NVARCHAR(100) NOT NULL,
                 warehouse_type VARCHAR(20) NOT NULL CONSTRAINT DF_warehouse_type DEFAULT 'BONDED',
-                storage_type VARCHAR(20) NOT NULL CONSTRAINT DF_warehouse_storage DEFAULT 'FROZEN',
+                storage_type VARCHAR(20) NOT NULL CONSTRAINT DF_warehouse_storage DEFAULT 'MIXED',
                 biz_no VARCHAR(20) NULL,
                 zip_code VARCHAR(10) NULL,
                 address NVARCHAR(300) NULL,

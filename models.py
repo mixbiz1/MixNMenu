@@ -199,7 +199,7 @@ class Warehouse(Base):
     warehouse_code = Column(String(20), unique=True, nullable=False, index=True)
     warehouse_name = Column(String(100), nullable=False)
     warehouse_type = Column(String(20), default="BONDED", nullable=False)
-    storage_type = Column(String(20), default="FROZEN", nullable=False)
+    storage_type = Column(String(20), default="MIXED", nullable=False)
     biz_no = Column(String(20), nullable=True)
     zip_code = Column(String(10), nullable=True)
     address = Column(String(300), nullable=True)

@@ -886,7 +886,7 @@ class WarehouseSchema(BaseModel):
     warehouse_code: str = ""
     warehouse_name: str
     warehouse_type: str = "BONDED"
-    storage_type: str = "FROZEN"
+    storage_type: str = "MIXED"
     biz_no: Optional[str] = None
     zip_code: Optional[str] = None
     address: Optional[str] = None
