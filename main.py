@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal, ROUND_CEILING
 from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -1137,7 +1138,7 @@ class LotSchema(BaseModel):
     est_no: Optional[str] = None
     production_date: Optional[date] = None
     expiry_date: Optional[date] = None
-    individual_cost: float = Field(default=0, ge=0)
+    individual_cost: Decimal = Field(default=Decimal("0"), ge=0)
     status: str = "OPEN"
     memo: Optional[str] = None
     use_yn: bool = True
@@ -1155,6 +1156,11 @@ def _next_lot_code(comp_code: str, db: Session):
         if suffix.isdigit():
             numbers.append(int(suffix))
     return f"{prefix}{max(numbers, default=0) + 1:03d}"
+
+
+def _ceil_won(value) -> Decimal:
+    """가격·개별원가는 원 단위 정수로 올림한다."""
+    return Decimal(str(value or 0)).quantize(Decimal("1"), rounding=ROUND_CEILING)
 
 
 def _validate_lot_data(comp_code: str, data: LotSchema, db: Session, require_active: bool = True):
@@ -1207,7 +1213,7 @@ def _lot_result(obj):
         "est_no": obj.est_no,
         "production_date": obj.production_date,
         "expiry_date": obj.expiry_date,
-        "individual_cost": float(obj.individual_cost or 0),
+        "individual_cost": int(_ceil_won(obj.individual_cost)),
         "status": obj.status,
         "memo": obj.memo,
         "use_yn": bool(obj.use_yn),
@@ -1261,6 +1267,7 @@ def create_lot(comp_code: str, data: LotSchema, db: Session = Depends(get_db)):
     ).first():
         raise HTTPException(status_code=409, detail="현재 회사에 이미 등록된 LOT번호입니다.")
     values = data.model_dump(exclude={"lot_code"})
+    values["individual_cost"] = _ceil_won(values["individual_cost"])
     for key in ("business_lot_no", "bl_no", "container_no", "history_no", "origin", "est_no", "memo"):
         values[key] = values[key].strip() if values[key] else None
     obj = models.Lot(comp_code=comp_code, lot_code=code, **values)
@@ -1280,6 +1287,7 @@ def update_lot(comp_code: str, lot_id: int, data: LotSchema,
         raise HTTPException(status_code=400, detail="저장된 LOT번호는 변경할 수 없습니다.")
     _validate_lot_data(comp_code, data, db, require_active=False)
     values = data.model_dump(exclude={"lot_code"})
+    values["individual_cost"] = _ceil_won(values["individual_cost"])
     for key in ("business_lot_no", "bl_no", "container_no", "history_no", "origin", "est_no", "memo"):
         values[key] = values[key].strip() if values[key] else None
     for key, value in values.items():

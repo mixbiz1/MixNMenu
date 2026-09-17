@@ -4,6 +4,17 @@
 > 실제 `mxmn_dev`에 일괄 적용하지 않는다. 기존 DB와 Migration Plan을
 > 확인한 후 단계적으로 적용한다.
 
+## 공통 수치 Type 기준
+
+-   가격·단가·개별원가: 원 단위 정수 표현, 계산 소수점은 올림
+-   중량: `NUMERIC(..., 2)` KG
+-   BOX: `INT`
+-   환율: `NUMERIC(..., 2)`
+-   금액 및 환율 계산: Python `Decimal`과 SQL `NUMERIC` 사용
+
+기존 호환 컬럼의 Scale이 더 크더라도 API 저장과 화면 표시에서 이 업무
+정밀도 원칙을 적용하며, 기존 테이블을 불필요하게 변경하지 않는다.
+
 ## 1. SYSTEM
 
 -   `tb_company`: `company_id` PK, `company_code` UNIQUE
@@ -84,7 +95,7 @@ Master이다.
 -   연결: `comp_code + product_id + warehouse_id`(최초 입고 예정창고)
 -   추적: 공급자 LOT번호, BL번호, 컨테이너번호, 축산물이력번호
 -   속성 Snapshot: 원산지, EST NO, 생산일, 소비기한
--   평가: `individual_cost` 원/KG, LOT별 개별원가
+-   평가: `individual_cost` 원/KG, LOT별 개별원가(정수 원, 소수점 올림)
 -   상태: 사용중(`OPEN`) / 보류(`HOLD`) / 마감(`CLOSED`)
 -   사용중지는 물리삭제하지 않고 `use_yn = 0`으로 처리
 

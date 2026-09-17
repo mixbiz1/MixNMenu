@@ -104,8 +104,10 @@ class LotRegWindow(QWidget):
 
         cost_box = QGroupBox("LOT별 개별원가")
         cg = QGridLayout(cost_box)
-        self.individual_cost = QDoubleSpinBox(); self.individual_cost.setDecimals(4)
+        self.individual_cost = QDoubleSpinBox(); self.individual_cost.setDecimals(0)
+        self.individual_cost.setSingleStep(1)
         self.individual_cost.setMaximum(999999999); self.individual_cost.setGroupSeparatorShown(True)
+        self.individual_cost.setToolTip("가격과 개별원가는 소수점 없이 원 단위로 관리하며 소수점 이하는 올림합니다.")
         cg.addWidget(QLabel("개별원가(원/KG)"), 0, 0); cg.addWidget(self.individual_cost, 0, 1)
         cg.addWidget(QLabel("※ 입고 BOX·KG와 현재고는 다음 입출고 Transaction에서 관리합니다."), 1, 0, 1, 4)
         rl.addWidget(cost_box)
