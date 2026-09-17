@@ -257,7 +257,7 @@ class OpeningInventoryRegWindow(QWidget):
             elif rule == "DAYS" and product.get("shelf_life_days"): expiry = production.addDays(int(product["shelf_life_days"]) - 1)
             elif rule == "AUTO":
                 storage = next((x.get("code_name", "") for x in product.get("attributes", []) if x.get("group_code") == "PC004"), "")
-                if "냉동" in storage: expiry = production.addYears(2).addDays(-1)
+                if "냉장" not in storage: expiry = production.addYears(2).addDays(-1)
         self.table.item(row, 8).setText(expiry.toString("yyyy-MM-dd") if expiry else "상품규칙 없음")
 
     def _update_expiry_for_widget(self, widget):

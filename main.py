@@ -1206,6 +1206,7 @@ def _validate_lot_data(comp_code: str, data: LotSchema, db: Session, require_act
     warehouse = warehouse_query.first()
     if not warehouse:
         raise HTTPException(status_code=400, detail="현재 회사에서 사용하는 창고를 선택해 주세요.")
+    return product
 
 
 def _lot_result(obj):
@@ -1275,13 +1276,15 @@ def get_lot(comp_code: str, lot_id: int, db: Session = Depends(get_db)):
 @app.post("/api/v1/companies/{comp_code}/lots", status_code=status.HTTP_201_CREATED)
 def create_lot(comp_code: str, data: LotSchema, db: Session = Depends(get_db)):
     _get_company_or_404(comp_code, db)
-    _validate_lot_data(comp_code, data, db)
+    product = _validate_lot_data(comp_code, data, db)
     code = data.lot_code.strip().upper() or _next_lot_code(comp_code, db)
     if db.query(models.Lot).filter(
         models.Lot.comp_code == comp_code, models.Lot.lot_code == code
     ).first():
         raise HTTPException(status_code=409, detail="현재 회사에 이미 등록된 LOT번호입니다.")
     values = data.model_dump(exclude={"lot_code"})
+    if values["production_date"] and values["expiry_date"] is None:
+        values["expiry_date"] = _calculate_expiry_date(product, values["production_date"], db)
     values["individual_cost"] = _ceil_won(values["individual_cost"])
     for key in ("business_lot_no", "bl_no", "container_no", "history_no", "origin", "est_no", "memo"):
         values[key] = values[key].strip() if values[key] else None
@@ -1300,8 +1303,10 @@ def update_lot(comp_code: str, lot_id: int, data: LotSchema,
         raise HTTPException(status_code=404, detail="LOT가 없습니다.")
     if data.lot_code.strip().upper() != obj.lot_code:
         raise HTTPException(status_code=400, detail="저장된 LOT번호는 변경할 수 없습니다.")
-    _validate_lot_data(comp_code, data, db, require_active=False)
+    product = _validate_lot_data(comp_code, data, db, require_active=False)
     values = data.model_dump(exclude={"lot_code"})
+    if values["production_date"] and values["expiry_date"] is None:
+        values["expiry_date"] = _calculate_expiry_date(product, values["production_date"], db)
     values["individual_cost"] = _ceil_won(values["individual_cost"])
     for key in ("business_lot_no", "bl_no", "container_no", "history_no", "origin", "est_no", "memo"):
         values[key] = values[key].strip() if values[key] else None
@@ -1439,9 +1444,11 @@ def _calculate_expiry_date(product, production_date: Optional[date], db: Session
     if rule == "FROZEN_2Y":
         return _add_years(production_date, 2) - timedelta(days=1)
     storage_name = _product_attribute(product, "PC004", db) or ""
-    if "냉동" in storage_name:
-        return _add_years(production_date, 2) - timedelta(days=1)
-    return None
+    if "냉장" in storage_name:
+        return None
+    # 수입육 업무에서는 별도 냉장정보가 없는 AUTO 상품을 냉동 기본값으로 본다.
+    # 냉장육·특정 브랜드는 상품 Master에서 DAYS 또는 NONE 규칙으로 명시한다.
+    return _add_years(production_date, 2) - timedelta(days=1)
 
 
 def _opening_inventory_result(header):

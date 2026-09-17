@@ -64,6 +64,7 @@ class LotRegWindow(QWidget):
         self.table.setHorizontalHeaderLabels(["LOT번호", "상품명", "창고", "BL", "컨테이너", "이력번호", "상태"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSortingEnabled(True)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         for col in (0, 2, 3, 4, 5, 6): header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
@@ -99,7 +100,7 @@ class LotRegWindow(QWidget):
         tg.addWidget(QLabel("원산지"), 1, 2); tg.addWidget(self.origin, 1, 3)
         tg.addWidget(QLabel("EST NO"), 2, 0); tg.addWidget(self.est_no, 2, 1)
         tg.addWidget(QLabel("생산일"), 2, 2); tg.addWidget(self.production_date, 2, 3)
-        tg.addWidget(QLabel("소비기한"), 3, 2); tg.addWidget(self.expiry_date, 3, 3)
+        tg.addWidget(QLabel("소비기한(자동/수정가능)"), 3, 2); tg.addWidget(self.expiry_date, 3, 3)
         rl.addWidget(trace)
 
         cost_box = QGroupBox("LOT별 개별원가")
@@ -131,6 +132,7 @@ class LotRegWindow(QWidget):
         self.btn_save.clicked.connect(self.save_lot); self.btn_delete.clicked.connect(self.delete_lot)
         self.btn_stop.clicked.connect(self.deactivate_lot); self.btn_close.clicked.connect(self.close_window)
         self.table.itemSelectionChanged.connect(self.on_selected); self.product.currentIndexChanged.connect(self._product_changed)
+        self.production_date.dateChanged.connect(self._auto_calculate_expiry)
         self.btn_save.setShortcut("F4"); self.btn_delete.setShortcut("F5")
         self.btn_stop.setShortcut("F6"); self.btn_search.setShortcut("F7")
 
@@ -176,12 +178,17 @@ class LotRegWindow(QWidget):
         self._loading = True; self.btn_search.setText("조회 중..."); self.btn_search.setEnabled(False)
         try:
             response = httpx.get(self._url(), params={"search": self.search.text(), "include_inactive": self.include_inactive.isChecked()}, timeout=10)
-            response.raise_for_status(); self.rows = response.json(); self.table.setRowCount(len(self.rows))
+            response.raise_for_status(); self.rows = response.json()
+            self.table.setSortingEnabled(False); self.table.setRowCount(len(self.rows))
             status_names = {"OPEN":"사용중", "HOLD":"보류", "CLOSED":"마감"}
             for row, item in enumerate(self.rows):
                 values = (item["lot_code"], item["product_name"], item["warehouse_name"], item.get("bl_no"),
                           item.get("container_no"), item.get("history_no"), status_names.get(item["status"], item["status"]))
-                for col, value in enumerate(values): self.table.setItem(row, col, QTableWidgetItem(str(value or "")))
+                for col, value in enumerate(values):
+                    cell = QTableWidgetItem(str(value or "")); cell.setToolTip(str(value or ""))
+                    self.table.setItem(row, col, cell)
+                self.table.item(row, 0).setData(Qt.UserRole, item)
+            self.table.setSortingEnabled(True)
         except Exception as exc: QMessageBox.critical(self, "조회 오류", self._error_text(exc))
         finally:
             self._loading = False; self.btn_search.setText("조회 [F7]"); self.btn_search.setEnabled(True)
@@ -199,17 +206,39 @@ class LotRegWindow(QWidget):
         item = self.product.currentData()
         if isinstance(item, dict) and not self.current_id and not self.origin.text().strip():
             self.origin.setText(item.get("origin") or "")
+        if isinstance(item, dict) and self.production_date.date() != self.production_date.minimumDate():
+            self._auto_calculate_expiry()
+
+    def _auto_calculate_expiry(self):
+        product = self.product.currentData()
+        production = self.production_date.date()
+        if not isinstance(product, dict) or production == self.production_date.minimumDate():
+            return
+        rule = (product.get("expiry_rule") or "AUTO").upper()
+        expiry = None
+        if rule in ("AUTO", "FROZEN_2Y"):
+            storage = next((value.get("code_name", "") for value in product.get("attributes", [])
+                            if value.get("group_code") == "PC004"), "")
+            if rule == "FROZEN_2Y" or "냉장" not in storage:
+                expiry = production.addYears(2).addDays(-1)
+        elif rule == "DAYS" and product.get("shelf_life_days"):
+            expiry = production.addDays(int(product["shelf_life_days"]) - 1)
+        self.expiry_date.setDate(expiry or self.expiry_date.minimumDate())
 
     def on_selected(self):
         row = self.table.currentRow()
-        if row < 0 or row >= len(self.rows): return
-        item = self.rows[row]; self.current_id = item["lot_id"]
+        if row < 0 or self.table.item(row, 0) is None: return
+        item = self.table.item(row, 0).data(Qt.UserRole)
+        if not isinstance(item, dict): return
+        self.current_id = item["lot_id"]
         self.lot_code.setText(item["lot_code"]); self.business_lot_no.setText(item.get("business_lot_no") or "")
         self._set_combo(self.source_type, item["source_type"]); self._set_combo(self.status, item["status"])
         self._set_combo(self.product, item["product_id"], dict_key="product_id"); self._set_combo(self.warehouse, item["warehouse_id"])
         for widget, key in ((self.bl_no,"bl_no"),(self.container_no,"container_no"),(self.history_no,"history_no"),(self.origin,"origin"),(self.est_no,"est_no")):
             widget.setText(item.get(key) or "")
         self._set_date(self.production_date, item.get("production_date")); self._set_date(self.expiry_date, item.get("expiry_date"))
+        if item.get("production_date") and not item.get("expiry_date"):
+            self._auto_calculate_expiry()
         self.individual_cost.setValue(float(item.get("individual_cost") or 0)); self.memo.setPlainText(item.get("memo") or "")
         self.btn_save.setEnabled(True); self.btn_delete.setEnabled(True); self.btn_stop.setEnabled(True)
 
@@ -273,8 +302,10 @@ class LotRegWindow(QWidget):
         }
 
     def _select_id(self, lot_id):
-        for row, item in enumerate(self.rows):
-            if item["lot_id"] == lot_id: self.table.selectRow(row); return
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0).data(Qt.UserRole)
+            if isinstance(item, dict) and item.get("lot_id") == lot_id:
+                self.table.selectRow(row); return
 
     @staticmethod
     def _set_combo(combo, value, dict_key=None):
