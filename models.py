@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Numeric, Boolean, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Date, DateTime, Numeric, Boolean, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -189,6 +189,67 @@ class ProductCodeAssignment(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     product = relationship("Product", back_populates="code_assignments")
+
+
+class Warehouse(Base):
+    """회사 간 공유하는 실제 보관 창고 Master."""
+    __tablename__ = "tb_warehouse"
+
+    warehouse_id = Column(Integer, primary_key=True, autoincrement=True)
+    warehouse_code = Column(String(20), unique=True, nullable=False, index=True)
+    warehouse_name = Column(String(100), nullable=False)
+    warehouse_type = Column(String(20), default="GENERAL", nullable=False)
+    storage_type = Column(String(20), default="FROZEN", nullable=False)
+    biz_no = Column(String(20), nullable=True)
+    zip_code = Column(String(10), nullable=True)
+    address = Column(String(300), nullable=True)
+    phone = Column(String(30), nullable=True)
+    contact_name = Column(String(50), nullable=True)
+    meatwatch_bplc_no = Column(String(30), nullable=True)
+    memo = Column(String(1000), nullable=True)
+    use_yn = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    companies = relationship("CompanyWarehouse", back_populates="warehouse")
+    rates = relationship("WarehouseRate", back_populates="warehouse")
+
+
+class CompanyWarehouse(Base):
+    """업무회사별 창고 사용관계."""
+    __tablename__ = "tb_company_warehouse"
+    __table_args__ = (
+        UniqueConstraint("comp_code", "warehouse_id", name="UQ_company_warehouse"),
+    )
+
+    company_warehouse_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False, index=True)
+    warehouse_id = Column(Integer, ForeignKey("tb_warehouse.warehouse_id"), nullable=False, index=True)
+    use_yn = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    warehouse = relationship("Warehouse", back_populates="companies")
+
+
+class WarehouseRate(Base):
+    """회사별 창고 기본요율의 적용기간 이력."""
+    __tablename__ = "tb_warehouse_rate"
+    __table_args__ = (
+        UniqueConstraint("comp_code", "warehouse_id", "valid_from", name="UQ_warehouse_rate_period"),
+    )
+
+    warehouse_rate_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False, index=True)
+    warehouse_id = Column(Integer, ForeignKey("tb_warehouse.warehouse_id"), nullable=False, index=True)
+    valid_from = Column(Date, nullable=False)
+    valid_to = Column(Date, nullable=True)
+    inbound_rate = Column(Numeric(12, 2), default=0, nullable=False)
+    outbound_rate = Column(Numeric(12, 2), default=0, nullable=False)
+    storage_rate = Column(Numeric(12, 4), default=0, nullable=False)
+    weighing_rate = Column(Numeric(12, 2), default=0, nullable=False)
+    vat_yn = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    warehouse = relationship("Warehouse", back_populates="rates")
 
 
 # ==========================================

@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -863,6 +864,206 @@ def deactivate_product(product_id: int, db: Session = Depends(get_db)):
     obj.use_yn = False
     db.commit()
     return {"message": "상품이 사용중지되었습니다."}
+
+
+# =============================================================================
+# Warehouse Master API
+#
+# tb_warehouse          = 회사 간 공유하는 실제 창고
+# tb_company_warehouse  = 업무회사별 사용관계
+# tb_warehouse_rate     = 회사별 기본요율 적용기간 이력
+# =============================================================================
+
+class WarehouseSchema(BaseModel):
+    warehouse_code: str = ""
+    warehouse_name: str
+    warehouse_type: str = "GENERAL"
+    storage_type: str = "FROZEN"
+    biz_no: Optional[str] = None
+    zip_code: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    contact_name: Optional[str] = None
+    meatwatch_bplc_no: Optional[str] = None
+    memo: Optional[str] = None
+    use_yn: bool = True
+    company_use_yn: bool = True
+    valid_from: date
+    valid_to: Optional[date] = None
+    inbound_rate: float = Field(default=0, ge=0)
+    outbound_rate: float = Field(default=0, ge=0)
+    storage_rate: float = Field(default=0, ge=0)
+    weighing_rate: float = Field(default=0, ge=0)
+    vat_yn: bool = True
+
+
+def _next_warehouse_code(db: Session):
+    numbers = []
+    for (code,) in db.query(models.Warehouse.warehouse_code).all():
+        if code and code.startswith("W") and code[1:].isdigit():
+            numbers.append(int(code[1:]))
+    return f"W{max(numbers, default=0) + 1:04d}"
+
+
+def _validate_warehouse_data(data: WarehouseSchema):
+    if not data.warehouse_name.strip():
+        raise HTTPException(status_code=400, detail="창고명은 필수입니다.")
+    if data.warehouse_type not in {"GENERAL", "BONDED"}:
+        raise HTTPException(status_code=400, detail="창고구분 값이 올바르지 않습니다.")
+    if data.storage_type not in {"FROZEN", "CHILLED", "AMBIENT", "MIXED"}:
+        raise HTTPException(status_code=400, detail="보관유형 값이 올바르지 않습니다.")
+    if data.valid_to and data.valid_to < data.valid_from:
+        raise HTTPException(status_code=400, detail="적용 종료일은 시작일보다 빠를 수 없습니다.")
+
+
+def _warehouse_result(obj, comp_code: str, db: Session):
+    relation = db.query(models.CompanyWarehouse).filter(
+        models.CompanyWarehouse.comp_code == comp_code,
+        models.CompanyWarehouse.warehouse_id == obj.warehouse_id,
+    ).first()
+    rate = db.query(models.WarehouseRate).filter(
+        models.WarehouseRate.comp_code == comp_code,
+        models.WarehouseRate.warehouse_id == obj.warehouse_id,
+    ).order_by(models.WarehouseRate.valid_from.desc()).first()
+    return {
+        "warehouse_id": obj.warehouse_id,
+        "warehouse_code": obj.warehouse_code,
+        "warehouse_name": obj.warehouse_name,
+        "warehouse_type": obj.warehouse_type,
+        "storage_type": obj.storage_type,
+        "biz_no": obj.biz_no,
+        "zip_code": obj.zip_code,
+        "address": obj.address,
+        "phone": obj.phone,
+        "contact_name": obj.contact_name,
+        "meatwatch_bplc_no": obj.meatwatch_bplc_no,
+        "memo": obj.memo,
+        "use_yn": bool(obj.use_yn),
+        "company_use_yn": bool(relation.use_yn) if relation else False,
+        "valid_from": rate.valid_from if rate else None,
+        "valid_to": rate.valid_to if rate else None,
+        "inbound_rate": float(rate.inbound_rate or 0) if rate else 0,
+        "outbound_rate": float(rate.outbound_rate or 0) if rate else 0,
+        "storage_rate": float(rate.storage_rate or 0) if rate else 0,
+        "weighing_rate": float(rate.weighing_rate or 0) if rate else 0,
+        "vat_yn": bool(rate.vat_yn) if rate else True,
+    }
+
+
+def _save_company_warehouse(obj, comp_code: str, data: WarehouseSchema, db: Session):
+    company = db.query(models.Company).filter(models.Company.comp_code == comp_code).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="업무회사가 없습니다.")
+    relation = db.query(models.CompanyWarehouse).filter(
+        models.CompanyWarehouse.comp_code == comp_code,
+        models.CompanyWarehouse.warehouse_id == obj.warehouse_id,
+    ).first()
+    if relation:
+        relation.use_yn = data.company_use_yn
+    else:
+        db.add(models.CompanyWarehouse(
+            comp_code=comp_code, warehouse_id=obj.warehouse_id, use_yn=data.company_use_yn
+        ))
+    rate = db.query(models.WarehouseRate).filter(
+        models.WarehouseRate.comp_code == comp_code,
+        models.WarehouseRate.warehouse_id == obj.warehouse_id,
+        models.WarehouseRate.valid_from == data.valid_from,
+    ).first()
+    values = {
+        "valid_to": data.valid_to,
+        "inbound_rate": data.inbound_rate,
+        "outbound_rate": data.outbound_rate,
+        "storage_rate": data.storage_rate,
+        "weighing_rate": data.weighing_rate,
+        "vat_yn": data.vat_yn,
+    }
+    if rate:
+        for key, value in values.items():
+            setattr(rate, key, value)
+    else:
+        db.add(models.WarehouseRate(
+            comp_code=comp_code, warehouse_id=obj.warehouse_id,
+            valid_from=data.valid_from, **values,
+        ))
+
+
+@app.get("/api/v1/warehouses/next-code")
+def get_next_warehouse_code(db: Session = Depends(get_db)):
+    return {"warehouse_code": _next_warehouse_code(db)}
+
+
+@app.get("/api/v1/companies/{comp_code}/warehouses")
+def get_warehouses(comp_code: str, search: str = "", include_inactive: bool = False,
+                   db: Session = Depends(get_db)):
+    query = db.query(models.Warehouse).outerjoin(
+        models.CompanyWarehouse,
+        (models.CompanyWarehouse.warehouse_id == models.Warehouse.warehouse_id) &
+        (models.CompanyWarehouse.comp_code == comp_code),
+    )
+    if not include_inactive:
+        query = query.filter(
+            models.Warehouse.use_yn == True,
+            models.CompanyWarehouse.use_yn == True,
+        )
+    if search.strip():
+        keyword = f"%{search.strip()}%"
+        query = query.filter(
+            (models.Warehouse.warehouse_name.like(keyword)) |
+            (models.Warehouse.warehouse_code.like(keyword)) |
+            (models.Warehouse.address.like(keyword))
+        )
+    objects = query.order_by(models.Warehouse.warehouse_name, models.Warehouse.warehouse_code).all()
+    return [_warehouse_result(obj, comp_code, db) for obj in objects]
+
+
+@app.post("/api/v1/companies/{comp_code}/warehouses", status_code=status.HTTP_201_CREATED)
+def create_warehouse(comp_code: str, data: WarehouseSchema, db: Session = Depends(get_db)):
+    _validate_warehouse_data(data)
+    code = data.warehouse_code.strip().upper() or _next_warehouse_code(db)
+    if db.query(models.Warehouse).filter(models.Warehouse.warehouse_code == code).first():
+        raise HTTPException(status_code=409, detail="이미 등록된 창고코드입니다.")
+    values = data.model_dump(exclude={
+        "warehouse_code", "company_use_yn", "valid_from", "valid_to",
+        "inbound_rate", "outbound_rate", "storage_rate", "weighing_rate", "vat_yn",
+    })
+    obj = models.Warehouse(**values, warehouse_code=code)
+    db.add(obj); db.flush()
+    _save_company_warehouse(obj, comp_code, data, db)
+    db.commit(); db.refresh(obj)
+    return _warehouse_result(obj, comp_code, db)
+
+
+@app.put("/api/v1/companies/{comp_code}/warehouses/{warehouse_id}")
+def update_warehouse(comp_code: str, warehouse_id: int, data: WarehouseSchema,
+                     db: Session = Depends(get_db)):
+    _validate_warehouse_data(data)
+    obj = db.query(models.Warehouse).filter(models.Warehouse.warehouse_id == warehouse_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="창고가 없습니다.")
+    if data.warehouse_code.strip().upper() != obj.warehouse_code:
+        raise HTTPException(status_code=400, detail="저장된 창고코드는 변경할 수 없습니다.")
+    values = data.model_dump(exclude={
+        "warehouse_code", "company_use_yn", "valid_from", "valid_to",
+        "inbound_rate", "outbound_rate", "storage_rate", "weighing_rate", "vat_yn",
+    })
+    for key, value in values.items():
+        setattr(obj, key, value)
+    _save_company_warehouse(obj, comp_code, data, db)
+    db.commit(); db.refresh(obj)
+    return _warehouse_result(obj, comp_code, db)
+
+
+@app.delete("/api/v1/companies/{comp_code}/warehouses/{warehouse_id}")
+def deactivate_warehouse(comp_code: str, warehouse_id: int, db: Session = Depends(get_db)):
+    relation = db.query(models.CompanyWarehouse).filter(
+        models.CompanyWarehouse.comp_code == comp_code,
+        models.CompanyWarehouse.warehouse_id == warehouse_id,
+    ).first()
+    if not relation:
+        raise HTTPException(status_code=404, detail="현재 회사에 등록된 창고가 없습니다.")
+    relation.use_yn = False
+    db.commit()
+    return {"message": "현재 업무회사에서 창고 사용이 중지되었습니다."}
 
 
 # =============================================================================

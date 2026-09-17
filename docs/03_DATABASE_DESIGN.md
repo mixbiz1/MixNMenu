@@ -22,6 +22,8 @@
 -   `tb_product`
 -   `tb_service`
 -   `tb_warehouse`
+-   `tb_company_warehouse`: 회사별 창고 사용관계
+-   `tb_warehouse_rate`: 회사별 입출고료·보관료·계근료 적용기간 이력
 -   `tb_establishment`
 -   `tb_tax_code`
 -   `tb_code_group`
@@ -60,6 +62,11 @@ Snapshot으로 저장한다.
 재고의 핵심 차원은
 `company_id + warehouse_id + product_id + lot_id`이다. 현재고는 입출고
 Transaction으로 산출하는 것을 기본으로 한다.
+
+창고는 실제 창고의 명칭·주소·보관유형을 `tb_warehouse`에 한 번 저장하고,
+업무회사별 사용 여부는 `tb_company_warehouse`로 분리한다. 창고요율은 현재
+값으로 덮어쓰지 않고 `tb_warehouse_rate`의 적용 시작일/종료일 구간으로
+보존한다.
 
 LOT에는 개별원가를 유지한다. 평균원가를 사용하지 않는다.
 

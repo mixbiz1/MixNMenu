@@ -47,6 +47,10 @@ Multi-Company Vertical Slice가 정상일 때만 Commit한다.
 User/Permission → Common Code → Partner/Customer → Product/LOT/Tax →
 Warehouse 순으로 진행한다.
 
+창고 Master 1차 Migration은 `db_warehouse_migrate.py`로 실행하며
+`tb_warehouse`, `tb_company_warehouse`, `tb_warehouse_rate`만 비파괴
+방식으로 추가한다. 기존 Table/PK/FK/데이터는 변경하거나 삭제하지 않는다.
+
 ## 금지사항
 
 -   `models.py`를 목표 ERD 전체로 한 번에 교체하지 않는다.

@@ -54,6 +54,12 @@ try:
 except ImportError:
     from product_reg import ProductRegWindow
 
+# 창고입력 화면
+try:
+    from views.warehouse_reg import WarehouseRegWindow
+except ImportError:
+    from warehouse_reg import WarehouseRegWindow
+
 
 # ============================================================
 # 1. 프로젝트 루트 및 views 폴더 경로 설정
@@ -796,16 +802,27 @@ class MixNMainWindow(QMainWindow):
             account_action
         )
 
+        warehouse_action = QAction(
+            "6.창고입력",
+            self,
+        )
+        warehouse_action.triggered.connect(
+            self.open_warehouse_reg
+        )
+        self.menu2.addAction(
+            warehouse_action
+        )
+
         self.menu2.addAction(
             QAction(
-                "6.거래처 기초잔액 입력",
+                "7.거래처 기초잔액 입력",
                 self,
             )
         )
 
         self.menu2.addAction(
             QAction(
-                "7.더존iU연동관리",
+                "8.더존iU연동관리",
                 self,
             )
         )
@@ -1345,6 +1362,34 @@ class MixNMainWindow(QMainWindow):
             self.set_work_status("상품입력 창이 열렸습니다.")
         except Exception as e:
             QMessageBox.critical(self, "상품입력 실행 오류", f"상품입력 화면을 열 수 없습니다.\n\n{e}")
+
+
+    # ========================================================
+    # Warehouse Registration
+    # ========================================================
+
+    def open_warehouse_reg(self):
+        """창고 Master 화면을 MDI에 1개만 연다."""
+        try:
+            for sub in self.mdi_area.subWindowList():
+                widget = sub.widget()
+                if widget is not None and isinstance(widget, WarehouseRegWindow):
+                    self.mdi_area.setActiveSubWindow(sub)
+                    sub.showNormal(); sub.showMaximized()
+                    self._bring_subwindow_to_front(sub)
+                    self.set_work_status("6.창고입력 창이 활성화되었습니다.")
+                    return
+            widget = WarehouseRegWindow()
+            sub_window = self.mdi_area.addSubWindow(widget)
+            sub_window.setAttribute(Qt.WA_DeleteOnClose, True)
+            sub_window.setWindowTitle(
+                f"창고입력 - {app_context.company_name or app_context.company_code}"
+            )
+            widget.show(); sub_window.show(); sub_window.showMaximized()
+            self._bring_subwindow_to_front(sub_window)
+            self.set_work_status("6.창고입력 창이 열렸습니다.")
+        except Exception as e:
+            QMessageBox.critical(self, "창고입력 실행 오류", f"창고입력 화면을 열 수 없습니다.\n\n{e}")
 
 
     # ========================================================
