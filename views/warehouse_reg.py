@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from app_context import app_context
+from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
 
 API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 CALC_UNITS = (("KG당", "KG"), ("BOX당", "BOX"), ("KG·일당", "KG_DAY"), ("건당 정액", "FIXED"))
@@ -48,8 +49,7 @@ class WarehouseRegWindow(QWidget):
         left = QWidget(); ll = QVBoxLayout(left); ll.addWidget(QLabel("창고 목록"))
         self.table = QTableWidget(0, 4); self.table.setHorizontalHeaderLabels(["창고명", "코드", "보관유형", "창고구분"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows); self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        h = self.table.horizontalHeader(); h.setSectionResizeMode(0, QHeaderView.Stretch)
-        for col in (1, 2, 3): h.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        configure_list_table(self.table, (260, 100, 100, 100))
         ll.addWidget(self.table); splitter.addWidget(left)
 
         right = QWidget(); rl = QVBoxLayout(right)
@@ -142,10 +142,12 @@ class WarehouseRegWindow(QWidget):
         self._loading = True; self.btn_search.setText("조회 중..."); self.btn_search.setEnabled(False)
         try:
             response = httpx.get(self._url(), params={"search": self.search.text(), "include_inactive": self.include_inactive.isChecked()}, timeout=10)
-            response.raise_for_status(); self.rows = response.json(); self.table.setRowCount(len(self.rows))
+            response.raise_for_status(); self.rows = response.json(); begin_list_update(self.table); self.table.setRowCount(len(self.rows))
             storage = {"FROZEN":"냉동", "CHILLED":"냉장", "AMBIENT":"상온", "MIXED":"혼합"}; kind = {"GENERAL":"일반", "BONDED":"보세"}
             for row, item in enumerate(self.rows):
-                for col, value in enumerate((item["warehouse_name"], item["warehouse_code"], storage.get(item["storage_type"], item["storage_type"]), kind.get(item["warehouse_type"], item["warehouse_type"]))): self.table.setItem(row, col, QTableWidgetItem(str(value or "")))
+                for col, value in enumerate((item["warehouse_name"], item["warehouse_code"], storage.get(item["storage_type"], item["storage_type"]), kind.get(item["warehouse_type"], item["warehouse_type"]))): self.table.setItem(row, col, ListTableItem(str(value or "")))
+                self.table.item(row, 0).setData(Qt.UserRole, item)
+            end_list_update(self.table, (160, 85, 85, 85), (360, 140, 130, 130))
         except Exception as exc: QMessageBox.critical(self, "조회 오류", self._error_text(exc))
         finally: self._loading = False; self.btn_search.setText("조회"); self.btn_search.setEnabled(True)
 
@@ -172,8 +174,10 @@ class WarehouseRegWindow(QWidget):
 
     def on_selected(self):
         row = self.table.currentRow()
-        if row < 0 or row >= len(self.rows): return
-        item = self.rows[row]; self.current_id = item["warehouse_id"]; self.code.setText(item["warehouse_code"]); self.name.setText(item["warehouse_name"])
+        if row < 0 or self.table.item(row, 0) is None: return
+        item = self.table.item(row, 0).data(Qt.UserRole)
+        if not isinstance(item, dict): return
+        self.current_id = item["warehouse_id"]; self.code.setText(item["warehouse_code"]); self.name.setText(item["warehouse_name"])
         self._set_combo(self.warehouse_type, item["warehouse_type"]); self._set_combo(self.storage_type, item["storage_type"])
         for widget, key in ((self.biz_no,"biz_no"),(self.zip_code,"zip_code"),(self.address,"address"),(self.phone,"phone"),(self.fax,"fax"),(self.contact,"contact_name"),(self.meatwatch,"meatwatch_bplc_no"),(self.web_url,"web_url"),(self.web_user_id,"web_user_id")): widget.setText(item.get(key) or "")
         self.company_use.setChecked(item.get("company_use_yn", False)); self._set_date(self.valid_from, item.get("valid_from"), QDate.currentDate()); self._set_date(self.valid_to, item.get("valid_to"), self.valid_to.minimumDate())

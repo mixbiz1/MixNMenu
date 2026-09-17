@@ -24,6 +24,7 @@ try:
     from views.common_code_reg import API_BASE_URL, ReadableCheckBox
 except ImportError:
     from common_code_reg import API_BASE_URL, ReadableCheckBox
+from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
 
 
 PRODUCT_CODE_GROUPS = (
@@ -92,8 +93,7 @@ class GoodsCommonCodeWindow(QWidget):
         self.category_table.setHorizontalHeaderLabels(["코드구분", "기능 설명"])
         self.category_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.category_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.category_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.category_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        configure_list_table(self.category_table, (150, 250))
         category_layout.addWidget(self.category_table)
         category_form = QGridLayout()
         self.category_code = QLineEdit()
@@ -138,11 +138,7 @@ class GoodsCommonCodeWindow(QWidget):
         self.value_table.setHorizontalHeaderLabels(["코드", "코드명", "사용", "설명"])
         self.value_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.value_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        header = self.value_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        configure_list_table(self.value_table, (100, 200, 70, 240))
         value_layout.addWidget(self.value_table)
 
         form = QGridLayout()
@@ -287,11 +283,12 @@ class GoodsCommonCodeWindow(QWidget):
                 and (self.include_inactive.isChecked() or item.get("use_yn"))
             ]
             rows.sort(key=lambda item: item.get("group_code", ""))
-            self.category_table.setRowCount(len(rows))
+            begin_list_update(self.category_table); self.category_table.setRowCount(len(rows))
             for row, item in enumerate(rows):
-                self.category_table.setItem(row, 0, QTableWidgetItem(item.get("group_name", "")))
-                self.category_table.setItem(row, 1, QTableWidgetItem(item.get("description") or ""))
+                self.category_table.setItem(row, 0, ListTableItem(item.get("group_name", "")))
+                self.category_table.setItem(row, 1, ListTableItem(item.get("description") or ""))
                 self.category_table.item(row, 0).setData(Qt.UserRole, item)
+            end_list_update(self.category_table, (120, 180), (240, 420))
             if rows:
                 self.category_table.selectRow(0)
         except Exception as exc:
@@ -498,7 +495,7 @@ class GoodsCommonCodeWindow(QWidget):
                 ).lower()
                 if not keyword or keyword in searchable:
                     rows.append(item)
-            self.value_table.setRowCount(len(rows))
+            begin_list_update(self.value_table); self.value_table.setRowCount(len(rows))
             for row, item in enumerate(rows):
                 values = [
                     item.get("code", ""),
@@ -507,8 +504,9 @@ class GoodsCommonCodeWindow(QWidget):
                     item.get("description") or "",
                 ]
                 for col, value in enumerate(values):
-                    self.value_table.setItem(row, col, QTableWidgetItem(str(value)))
+                    self.value_table.setItem(row, col, ListTableItem(str(value)))
                 self.value_table.item(row, 0).setData(Qt.UserRole, item)
+            end_list_update(self.value_table, (85, 130, 60, 130), (160, 320, 90, 380))
             if keyword:
                 self.search_result_label.setText(
                     f"‘{self.search_input.text().strip()}’ 검색 결과 {len(rows)}건"

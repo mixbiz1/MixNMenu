@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QSplitter,QAbstractItemView,QMdiSubWindow,QCheckBox,QDialog,QDialogButtonBox,QApplication
 )
 from app_context import app_context
+from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
 
 API_BASE_URL="http://127.0.0.1:8000/api/v1"
 
@@ -83,10 +84,7 @@ class AccountRegWindow(QWidget):
         self.table.setHorizontalHeaderLabels(["거래처명","코드","사업자번호"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        h=self.table.horizontalHeader()
-        h.setSectionResizeMode(0,QHeaderView.Stretch)
-        h.setSectionResizeMode(1,QHeaderView.ResizeToContents)
-        h.setSectionResizeMode(2,QHeaderView.ResizeToContents)
+        configure_list_table(self.table, (300, 110, 150))
         self.table.setMinimumWidth(430)
         ll.addWidget(self.table); sp.addWidget(left)
 
@@ -459,11 +457,12 @@ class AccountRegWindow(QWidget):
                 rows=[x for x in rows if q in str(x.get("account_name","")).lower()
                       or q in str(x.get("account_code","")).lower()
                       or q in str(x.get("biz_no","")).lower()]
-            self.table.setRowCount(len(rows))
+            begin_list_update(self.table); self.table.setRowCount(len(rows))
             for row,x in enumerate(rows):
                 for col,val in enumerate([x.get("account_name",""),x.get("account_code",""),x.get("biz_no","")]):
-                    self.table.setItem(row,col,QTableWidgetItem(str(val or "")))
+                    self.table.setItem(row,col,ListTableItem(str(val or "")))
                 self.table.item(row,0).setData(Qt.UserRole,x.get("account_id"))
+            end_list_update(self.table, (180, 90, 120), (380, 140, 190))
         except Exception as e:
             QMessageBox.critical(self,"조회 오류",str(e))
         finally:

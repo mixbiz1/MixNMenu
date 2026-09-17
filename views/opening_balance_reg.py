@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from app_context import app_context
+from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
 
 
 API_BASE_URL = "http://127.0.0.1:8000/api/v1"
@@ -46,8 +47,7 @@ class OpeningBalanceRegWindow(QWidget):
 
         list_box = QGroupBox("등록된 최초잔액"); ll = QVBoxLayout(list_box)
         self.table = QTableWidget(0, 8); self.table.setHorizontalHeaderLabels(["기준일","구분","거래처","원거래번호","최초금액","배분금액","미결잔액","메모"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Fixed)
-        for col, width in enumerate((95,70,280,145,115,105,115,180)): self.table.setColumnWidth(col, width)
+        configure_list_table(self.table, (100, 75, 250, 150, 120, 110, 120, 180))
         self.table.setAlternatingRowColors(True); self.table.setSelectionBehavior(QTableWidget.SelectRows); self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         ll.addWidget(self.table); body.addWidget(list_box, 1)
 
@@ -75,16 +75,18 @@ class OpeningBalanceRegWindow(QWidget):
         try:
             accounts = httpx.get(f"{API_BASE_URL}/companies/{app_context.company_code}/accounts", timeout=10); accounts.raise_for_status()
             balances = httpx.get(f"{API_BASE_URL}/companies/{app_context.company_code}/opening-balances", timeout=10); balances.raise_for_status()
-            self.accounts = accounts.json(); self._filter_accounts(); self.rows = balances.json(); self.table.setRowCount(len(self.rows))
+            self.accounts = accounts.json(); self._filter_accounts(); self.rows = balances.json(); begin_list_update(self.table); self.table.setRowCount(len(self.rows))
             labels = {"RECEIVABLE":"미수금", "PAYABLE":"미지급금"}
             for row, item in enumerate(self.rows):
                 values = (item["base_date"], labels.get(item["balance_type"], item["balance_type"]), item["account_name"], item["transaction_no"], item["amount"], item["allocated_amount"], item["remaining_amount"], item.get("memo"))
                 for col, value in enumerate(values):
                     display = f"{int(value):,}" if col in (4,5,6) else str(value or "")
-                    cell = QTableWidgetItem(display)
+                    sort_value = int(value) if col in (4,5,6) else str(value or "")
+                    cell = ListTableItem(display, sort_value)
                     if col in (4,5,6): cell.setTextAlignment(0x82)
                     self.table.setItem(row, col, cell)
                 self.table.item(row, 0).setData(Qt.UserRole, item["account_transaction_id"])
+            end_list_update(self.table, (90, 65, 160, 125, 100, 95, 100, 120), (115, 90, 340, 190, 150, 145, 150, 300))
         except Exception as exc: QMessageBox.critical(self, "조회 오류", self._error_text(exc))
         finally: self._loading = False; self.btn_search.setEnabled(True); self.btn_search.setText("조회")
 

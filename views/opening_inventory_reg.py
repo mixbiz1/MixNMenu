@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 )
 
 from app_context import app_context
+from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
 
 API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 COLUMNS = [
@@ -108,6 +109,7 @@ class OpeningInventoryRegWindow(QWidget):
         self.saved_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.saved_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         sh = self.saved_table.horizontalHeader(); sh.setSectionResizeMode(QHeaderView.Interactive)
+        self.saved_table.setSortingEnabled(True)
         self.saved_table.setMinimumHeight(165); sl.addWidget(self.saved_table); splitter.addWidget(saved_box)
         splitter.setSizes([350, 230])
 
@@ -179,7 +181,7 @@ class OpeningInventoryRegWindow(QWidget):
 
     def _fill_saved_table(self):
         rows = [(header, item) for header in self.saved_headers for item in header.get("items", [])]
-        self.saved_table.setRowCount(len(rows))
+        begin_list_update(self.saved_table); self.saved_table.setRowCount(len(rows))
         for row, (header, item) in enumerate(rows):
             values = (header["inbound_no"], header["base_date"], header["warehouse_name"],
                       item["lot_code"], item["product_name"], item["box_qty"], item["weight"],
@@ -188,7 +190,8 @@ class OpeningInventoryRegWindow(QWidget):
                 if col in (5, 7, 8): display = f"{int(value):,}"
                 elif col == 6: display = f"{float(value):,.2f}"
                 else: display = str(value or "")
-                cell = QTableWidgetItem(display); cell.setToolTip(display)
+                sort_value = float(value or 0) if col in (5, 6, 7, 8) else str(value or "")
+                cell = ListTableItem(display, sort_value)
                 self.saved_table.setItem(row, col, cell)
             self.saved_table.item(row, 0).setData(Qt.UserRole, header["inbound_id"])
         self._fit_columns(
@@ -196,6 +199,7 @@ class OpeningInventoryRegWindow(QWidget):
             (135, 90, 100, 145, 180, 60, 75, 100, 110, 100),
             (175, 110, 180, 210, 380, 75, 100, 140, 150, 125),
         )
+        self.saved_table.setSortingEnabled(True)
 
     def new_document(self):
         self.current_id = None; self.base_date.setDate(QDate.currentDate()); self.memo.clear()

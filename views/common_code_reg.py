@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QMdiSubWindow,
     QApplication,
 )
+from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
 
 
 API_BASE_URL = "http://127.0.0.1:8000/api/v1"
@@ -92,10 +93,7 @@ class CommonCodeWindow(QWidget):
         self.group_table.setHorizontalHeaderLabels(["그룹코드", "그룹명", "정렬방식", "사용"])
         self.group_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.group_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.group_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.group_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.group_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.group_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        configure_list_table(self.group_table, (100, 220, 90, 70))
         group_layout.addWidget(self.group_table)
 
         form = QGridLayout()
@@ -157,11 +155,7 @@ class CommonCodeWindow(QWidget):
         )
         self.value_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.value_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        header = self.value_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        configure_list_table(self.value_table, (100, 210, 70, 240))
         value_layout.addWidget(self.value_table)
 
         value_form = QGridLayout()
@@ -275,7 +269,7 @@ class CommonCodeWindow(QWidget):
             )
             response.raise_for_status()
             rows = response.json()
-            self.group_table.setRowCount(len(rows))
+            begin_list_update(self.group_table); self.group_table.setRowCount(len(rows))
             for row, item in enumerate(rows):
                 values = [
                     item.get("group_code", ""),
@@ -284,8 +278,9 @@ class CommonCodeWindow(QWidget):
                     "사용" if item.get("use_yn") else "중지",
                 ]
                 for col, value in enumerate(values):
-                    self.group_table.setItem(row, col, QTableWidgetItem(str(value)))
+                    self.group_table.setItem(row, col, ListTableItem(str(value)))
                 self.group_table.item(row, 0).setData(Qt.UserRole, item)
+            end_list_update(self.group_table, (85, 130, 80, 60), (150, 320, 120, 90))
             self._apply_search_filter()
         except Exception as exc:
             QMessageBox.critical(self, "조회 오류", str(exc))
@@ -445,7 +440,7 @@ class CommonCodeWindow(QWidget):
             )
             response.raise_for_status()
             rows = response.json()
-            self.value_table.setRowCount(len(rows))
+            begin_list_update(self.value_table); self.value_table.setRowCount(len(rows))
             for row, item in enumerate(rows):
                 values = [
                     item.get("code", ""),
@@ -454,9 +449,10 @@ class CommonCodeWindow(QWidget):
                     item.get("description") or "",
                 ]
                 for col, value in enumerate(values):
-                    self.value_table.setItem(row, col, QTableWidgetItem(str(value)))
+                    self.value_table.setItem(row, col, ListTableItem(str(value)))
                 self.value_table.item(row, 0).setData(Qt.UserRole, item)
             self.apply_value_sort()
+            end_list_update(self.value_table, (85, 130, 60, 130), (160, 320, 90, 380))
             self._apply_search_filter()
         except Exception as exc:
             QMessageBox.critical(self, "조회 오류", str(exc))

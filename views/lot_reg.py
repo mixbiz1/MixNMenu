@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from app_context import app_context
+from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
 
 API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 
@@ -64,10 +65,7 @@ class LotRegWindow(QWidget):
         self.table.setHorizontalHeaderLabels(["LOT번호", "상품명", "창고", "BL", "컨테이너", "이력번호", "상태"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSortingEnabled(True)
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        for col in (0, 2, 3, 4, 5, 6): header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        configure_list_table(self.table, (155, 250, 110, 160, 130, 130, 80))
         ll.addWidget(self.table); splitter.addWidget(left)
 
         right = QWidget(); rl = QVBoxLayout(right)
@@ -179,16 +177,16 @@ class LotRegWindow(QWidget):
         try:
             response = httpx.get(self._url(), params={"search": self.search.text(), "include_inactive": self.include_inactive.isChecked()}, timeout=10)
             response.raise_for_status(); self.rows = response.json()
-            self.table.setSortingEnabled(False); self.table.setRowCount(len(self.rows))
+            begin_list_update(self.table); self.table.setRowCount(len(self.rows))
             status_names = {"OPEN":"사용중", "HOLD":"보류", "CLOSED":"마감"}
             for row, item in enumerate(self.rows):
                 values = (item["lot_code"], item["product_name"], item["warehouse_name"], item.get("bl_no"),
                           item.get("container_no"), item.get("history_no"), status_names.get(item["status"], item["status"]))
                 for col, value in enumerate(values):
-                    cell = QTableWidgetItem(str(value or "")); cell.setToolTip(str(value or ""))
+                    cell = ListTableItem(str(value or ""))
                     self.table.setItem(row, col, cell)
                 self.table.item(row, 0).setData(Qt.UserRole, item)
-            self.table.setSortingEnabled(True)
+            end_list_update(self.table, (145, 180, 90, 120, 110, 110, 70), (210, 380, 180, 250, 190, 190, 100))
         except Exception as exc: QMessageBox.critical(self, "조회 오류", self._error_text(exc))
         finally:
             self._loading = False; self.btn_search.setText("조회 [F7]"); self.btn_search.setEnabled(True)

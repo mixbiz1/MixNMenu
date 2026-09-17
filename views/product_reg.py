@@ -17,6 +17,11 @@ try:
 except ImportError:
     from common_code_reg import API_BASE_URL, ReadableCheckBox
 
+try:
+    from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
+except ImportError:
+    from table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
+
 
 class ProductRegWindow(QWidget):
     """계층형 상품분류와 상품공통코드 조합을 지원하는 상품 Master 화면."""
@@ -109,9 +114,7 @@ class ProductRegWindow(QWidget):
         self.product_table.setHorizontalHeaderLabels(["상품명", "사용"])
         self.product_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.product_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        ph = self.product_table.horizontalHeader()
-        ph.setSectionResizeMode(0, QHeaderView.Stretch)
-        ph.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        configure_list_table(self.product_table, (330, 85))
         center_layout.addWidget(self.product_table)
         splitter.addWidget(center)
 
@@ -526,11 +529,12 @@ class ProductRegWindow(QWidget):
             if self.current_category_id: params["category_id"] = self.current_category_id
             response = httpx.get(f"{API_BASE_URL}/products", params=params, timeout=10); response.raise_for_status()
             rows = response.json(); category_names = {c["category_id"]: c["category_name"] for c in self.categories}
-            self.product_table.setRowCount(len(rows))
+            begin_list_update(self.product_table); self.product_table.setRowCount(len(rows))
             for row, item in enumerate(rows):
                 values = [item.get("product_name", ""), "☑ 사용" if item.get("use_yn") else "□ 중지"]
-                for col, value in enumerate(values): self.product_table.setItem(row, col, QTableWidgetItem(str(value)))
+                for col, value in enumerate(values): self.product_table.setItem(row, col, ListTableItem(str(value)))
                 self.product_table.item(row, 0).setData(Qt.UserRole, item)
+            end_list_update(self.product_table, (200, 75), (430, 100))
         except Exception as exc: QMessageBox.critical(self, "상품 조회 오류", str(exc))
 
     def new_product(self):

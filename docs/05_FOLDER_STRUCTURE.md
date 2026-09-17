@@ -56,6 +56,7 @@ MixNMenu/
 -   `db_opening_data_migrate.py`: 최초재고·거래처 최초잔액 원장 비파괴 Migration
 -   `views/opening_inventory_reg.py`: 최초재고 Header/Detail 입력
 -   `views/opening_balance_reg.py`: 거래처 미수·미지급 최초 원거래 입력
+-   `views/table_utils.py`: 조회목록 정렬·실제값 비교·가변 열 너비 공통 유틸
 -   `views/main_dashboard.py`: QUiLoader 의존 제거 후 Pure Python화
 -   `views/main_view.py`: Legacy/Archive 후보
 -   `ui-당분간 사용안함`: 신규 개발에 사용하지 않고 Archive 성격으로
