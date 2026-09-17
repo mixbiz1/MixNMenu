@@ -48,8 +48,11 @@ User/Permission → Common Code → Partner/Customer → Product/LOT/Tax →
 Warehouse 순으로 진행한다.
 
 창고 Master 1차 Migration은 `db_warehouse_migrate.py`로 실행하며
-`tb_warehouse`, `tb_company_warehouse`, `tb_warehouse_rate`만 비파괴
-방식으로 추가한다. 기존 Table/PK/FK/데이터는 변경하거나 삭제하지 않는다.
+`tb_warehouse`, `tb_company_warehouse`, `tb_warehouse_rate`,
+`tb_warehouse_charge`를 비파괴 방식으로 추가한다. 기존 Table/PK/FK/데이터는
+변경하거나 삭제하지 않는다. 이미 1차 Migration을 실행한 DB에는 팩스·웹
+접속정보 컬럼과 가변 비용항목 테이블만 추가하며 기존 고정요율 중 0이 아닌
+값은 대응하는 새 비용항목으로 자동 승계한다.
 
 ## 금지사항
 

@@ -874,15 +874,26 @@ def deactivate_product(product_id: int, db: Session = Depends(get_db)):
 # tb_warehouse_rate     = 회사별 기본요율 적용기간 이력
 # =============================================================================
 
+class WarehouseChargeSchema(BaseModel):
+    charge_name: str
+    calc_unit: str
+    unit_rate: float = Field(default=0, ge=0)
+    sort_order: int = 0
+    use_yn: bool = True
+
+
 class WarehouseSchema(BaseModel):
     warehouse_code: str = ""
     warehouse_name: str
-    warehouse_type: str = "GENERAL"
+    warehouse_type: str = "BONDED"
     storage_type: str = "FROZEN"
     biz_no: Optional[str] = None
     zip_code: Optional[str] = None
     address: Optional[str] = None
     phone: Optional[str] = None
+    fax: Optional[str] = None
+    web_url: Optional[str] = None
+    web_user_id: Optional[str] = None
     contact_name: Optional[str] = None
     meatwatch_bplc_no: Optional[str] = None
     memo: Optional[str] = None
@@ -895,6 +906,7 @@ class WarehouseSchema(BaseModel):
     storage_rate: float = Field(default=0, ge=0)
     weighing_rate: float = Field(default=0, ge=0)
     vat_yn: bool = True
+    charges: list[WarehouseChargeSchema] = Field(default_factory=list)
 
 
 def _next_warehouse_code(db: Session):
@@ -914,6 +926,16 @@ def _validate_warehouse_data(data: WarehouseSchema):
         raise HTTPException(status_code=400, detail="보관유형 값이 올바르지 않습니다.")
     if data.valid_to and data.valid_to < data.valid_from:
         raise HTTPException(status_code=400, detail="적용 종료일은 시작일보다 빠를 수 없습니다.")
+    names = []
+    for charge in data.charges:
+        name = charge.charge_name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="비용항목명을 입력해 주세요.")
+        if charge.calc_unit not in {"KG", "BOX", "KG_DAY", "FIXED"}:
+            raise HTTPException(status_code=400, detail=f"{name}: 계산기준이 올바르지 않습니다.")
+        names.append(name.casefold())
+    if len(names) != len(set(names)):
+        raise HTTPException(status_code=400, detail="같은 비용항목명을 중복 등록할 수 없습니다.")
 
 
 def _warehouse_result(obj, comp_code: str, db: Session):
@@ -935,6 +957,9 @@ def _warehouse_result(obj, comp_code: str, db: Session):
         "zip_code": obj.zip_code,
         "address": obj.address,
         "phone": obj.phone,
+        "fax": obj.fax,
+        "web_url": obj.web_url,
+        "web_user_id": obj.web_user_id,
         "contact_name": obj.contact_name,
         "meatwatch_bplc_no": obj.meatwatch_bplc_no,
         "memo": obj.memo,
@@ -947,6 +972,17 @@ def _warehouse_result(obj, comp_code: str, db: Session):
         "storage_rate": float(rate.storage_rate or 0) if rate else 0,
         "weighing_rate": float(rate.weighing_rate or 0) if rate else 0,
         "vat_yn": bool(rate.vat_yn) if rate else True,
+        "charges": [
+            {
+                "warehouse_charge_id": charge.warehouse_charge_id,
+                "charge_name": charge.charge_name,
+                "calc_unit": charge.calc_unit,
+                "unit_rate": float(charge.unit_rate or 0),
+                "sort_order": charge.sort_order,
+                "use_yn": bool(charge.use_yn),
+            }
+            for charge in sorted(rate.charges, key=lambda row: (row.sort_order, row.warehouse_charge_id))
+        ] if rate else [],
     }
 
 
@@ -981,9 +1017,23 @@ def _save_company_warehouse(obj, comp_code: str, data: WarehouseSchema, db: Sess
         for key, value in values.items():
             setattr(rate, key, value)
     else:
-        db.add(models.WarehouseRate(
+        rate = models.WarehouseRate(
             comp_code=comp_code, warehouse_id=obj.warehouse_id,
             valid_from=data.valid_from, **values,
+        )
+        db.add(rate)
+    db.flush()
+    db.query(models.WarehouseCharge).filter(
+        models.WarehouseCharge.warehouse_rate_id == rate.warehouse_rate_id
+    ).delete(synchronize_session=False)
+    for index, charge in enumerate(data.charges):
+        db.add(models.WarehouseCharge(
+            warehouse_rate_id=rate.warehouse_rate_id,
+            charge_name=charge.charge_name.strip(),
+            calc_unit=charge.calc_unit,
+            unit_rate=charge.unit_rate,
+            sort_order=charge.sort_order if charge.sort_order else index + 1,
+            use_yn=charge.use_yn,
         ))
 
 
@@ -1024,7 +1074,7 @@ def create_warehouse(comp_code: str, data: WarehouseSchema, db: Session = Depend
         raise HTTPException(status_code=409, detail="이미 등록된 창고코드입니다.")
     values = data.model_dump(exclude={
         "warehouse_code", "company_use_yn", "valid_from", "valid_to",
-        "inbound_rate", "outbound_rate", "storage_rate", "weighing_rate", "vat_yn",
+        "inbound_rate", "outbound_rate", "storage_rate", "weighing_rate", "vat_yn", "charges",
     })
     obj = models.Warehouse(**values, warehouse_code=code)
     db.add(obj); db.flush()
@@ -1044,7 +1094,7 @@ def update_warehouse(comp_code: str, warehouse_id: int, data: WarehouseSchema,
         raise HTTPException(status_code=400, detail="저장된 창고코드는 변경할 수 없습니다.")
     values = data.model_dump(exclude={
         "warehouse_code", "company_use_yn", "valid_from", "valid_to",
-        "inbound_rate", "outbound_rate", "storage_rate", "weighing_rate", "vat_yn",
+        "inbound_rate", "outbound_rate", "storage_rate", "weighing_rate", "vat_yn", "charges",
     })
     for key, value in values.items():
         setattr(obj, key, value)

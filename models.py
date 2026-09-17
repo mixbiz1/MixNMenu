@@ -198,12 +198,15 @@ class Warehouse(Base):
     warehouse_id = Column(Integer, primary_key=True, autoincrement=True)
     warehouse_code = Column(String(20), unique=True, nullable=False, index=True)
     warehouse_name = Column(String(100), nullable=False)
-    warehouse_type = Column(String(20), default="GENERAL", nullable=False)
+    warehouse_type = Column(String(20), default="BONDED", nullable=False)
     storage_type = Column(String(20), default="FROZEN", nullable=False)
     biz_no = Column(String(20), nullable=True)
     zip_code = Column(String(10), nullable=True)
     address = Column(String(300), nullable=True)
     phone = Column(String(30), nullable=True)
+    fax = Column(String(30), nullable=True)
+    web_url = Column(String(300), nullable=True)
+    web_user_id = Column(String(100), nullable=True)
     contact_name = Column(String(50), nullable=True)
     meatwatch_bplc_no = Column(String(30), nullable=True)
     memo = Column(String(1000), nullable=True)
@@ -250,6 +253,30 @@ class WarehouseRate(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     warehouse = relationship("Warehouse", back_populates="rates")
+    charges = relationship(
+        "WarehouseCharge", back_populates="rate", cascade="all, delete-orphan"
+    )
+
+
+class WarehouseCharge(Base):
+    """창고 요율기간에 속하는 가변 비용항목."""
+    __tablename__ = "tb_warehouse_charge"
+    __table_args__ = (
+        UniqueConstraint("warehouse_rate_id", "charge_name", name="UQ_warehouse_charge_name"),
+    )
+
+    warehouse_charge_id = Column(Integer, primary_key=True, autoincrement=True)
+    warehouse_rate_id = Column(
+        Integer, ForeignKey("tb_warehouse_rate.warehouse_rate_id"), nullable=False, index=True
+    )
+    charge_name = Column(String(100), nullable=False)
+    calc_unit = Column(String(20), nullable=False)  # KG / BOX / KG_DAY / FIXED
+    unit_rate = Column(Numeric(12, 4), default=0, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    use_yn = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    rate = relationship("WarehouseRate", back_populates="charges")
 
 
 # ==========================================

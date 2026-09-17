@@ -24,6 +24,7 @@
 -   `tb_warehouse`
 -   `tb_company_warehouse`: 회사별 창고 사용관계
 -   `tb_warehouse_rate`: 회사별 입출고료·보관료·계근료 적용기간 이력
+-   `tb_warehouse_charge`: 요율기간별 가변 비용항목과 계산기준
 -   `tb_establishment`
 -   `tb_tax_code`
 -   `tb_code_group`
@@ -66,7 +67,9 @@ Transaction으로 산출하는 것을 기본으로 한다.
 창고는 실제 창고의 명칭·주소·보관유형을 `tb_warehouse`에 한 번 저장하고,
 업무회사별 사용 여부는 `tb_company_warehouse`로 분리한다. 창고요율은 현재
 값으로 덮어쓰지 않고 `tb_warehouse_rate`의 적용 시작일/종료일 구간으로
-보존한다.
+보존한다. 실제 비용은 `tb_warehouse_charge`에 항목별로 저장하며 계산기준은
+KG당, BOX당, KG·일당, 건당 정액을 지원한다. 창고마다 필요한 비용항목을
+추가하거나 제외할 수 있다.
 
 LOT에는 개별원가를 유지한다. 평균원가를 사용하지 않는다.
 
