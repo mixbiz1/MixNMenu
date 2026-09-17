@@ -4,7 +4,7 @@ from PySide6.QtCore import QDate, QEvent, QTimer, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDateEdit, QDoubleSpinBox,
     QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QMdiSubWindow,
+    QApplication, QMessageBox, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QMdiSubWindow,
     QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -62,6 +62,7 @@ class WarehouseRegWindow(QWidget):
         self.contact = QLineEdit(); self.meatwatch = QLineEdit(); self.web_url = QLineEdit(); self.web_url.setPlaceholderText("https://...")
         self.web_user_id = QLineEdit(); self.web_user_id.setPlaceholderText("입출고지시 사이트 사용자 ID")
         self.btn_open_web = QPushButton("웹주소 이동"); self.btn_open_web.setMaximumWidth(105)
+        self.btn_open_web.setToolTip("창고 사이트를 열고 저장된 ID를 클립보드에 복사합니다.")
         self.web_id_label = QLabel("ID")
         g.addWidget(QLabel("창고코드"), 0, 0); g.addWidget(self.code, 0, 1); g.addWidget(QLabel("창고명 *"), 0, 2); g.addWidget(self.name, 0, 3)
         g.addWidget(QLabel("창고구분"), 1, 0); g.addWidget(self.warehouse_type, 1, 1); g.addWidget(QLabel("보관유형"), 1, 2); g.addWidget(self.storage_type, 1, 3)
@@ -125,6 +126,9 @@ class WarehouseRegWindow(QWidget):
     def open_web_url(self):
         url = self.web_url.text().strip()
         if not url: QMessageBox.information(self, "웹주소 확인", "입출고 웹주소를 입력해 주세요."); self.web_url.setFocus(); return
+        web_user_id = self.web_user_id.text().strip()
+        if web_user_id:
+            QApplication.clipboard().setText(web_user_id)
         if not url.lower().startswith(("http://", "https://")): url = "https://" + url
         webbrowser.open(url)
 
