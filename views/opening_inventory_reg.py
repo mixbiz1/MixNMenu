@@ -2,6 +2,7 @@ import math
 import httpx
 
 from PySide6.QtCore import QDate, QEvent, Qt, QTimer
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDateEdit, QGroupBox, QHBoxLayout,
     QHeaderView, QLabel, QMessageBox, QPushButton, QSplitter, QTableWidget,
@@ -59,6 +60,7 @@ class OpeningInventoryRegWindow(QWidget):
         self.current_id = None
         self._saving = False
         self._loading_row = False
+        self._formatting_money = False
         self._build_ui()
 
     def _build_ui(self):
@@ -93,8 +95,8 @@ class OpeningInventoryRegWindow(QWidget):
         edit_box = QGroupBox("입력 / 수정 Detail"); el = QVBoxLayout(edit_box)
         self.table = EnterTableWidget(0, len(COLUMNS)); self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems); self.table.setAlternatingRowColors(True)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Fixed)
-        for col, width in enumerate((280, 75, 145, 155, 105, 115, 115, 115, 120, 70, 90, 105, 120, 150)):
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        for col, width in enumerate((260, 75, 150, 170, 190, 125, 125, 115, 120, 70, 90, 115, 120, 150)):
             self.table.setColumnWidth(col, width)
         self.table.setMinimumHeight(240); el.addWidget(self.table); splitter.addWidget(edit_box)
 
@@ -105,8 +107,7 @@ class OpeningInventoryRegWindow(QWidget):
         )
         self.saved_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.saved_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        sh = self.saved_table.horizontalHeader(); sh.setSectionResizeMode(QHeaderView.ResizeToContents)
-        sh.setSectionResizeMode(4, QHeaderView.Stretch)
+        sh = self.saved_table.horizontalHeader(); sh.setSectionResizeMode(QHeaderView.Interactive)
         self.saved_table.setMinimumHeight(165); sl.addWidget(self.saved_table); splitter.addWidget(saved_box)
         splitter.setSizes([350, 230])
 
@@ -187,8 +188,14 @@ class OpeningInventoryRegWindow(QWidget):
                 if col in (5, 7, 8): display = f"{int(value):,}"
                 elif col == 6: display = f"{float(value):,.2f}"
                 else: display = str(value or "")
-                self.saved_table.setItem(row, col, QTableWidgetItem(display))
+                cell = QTableWidgetItem(display); cell.setToolTip(display)
+                self.saved_table.setItem(row, col, cell)
             self.saved_table.item(row, 0).setData(Qt.UserRole, header["inbound_id"])
+        self._fit_columns(
+            self.saved_table,
+            (135, 90, 100, 145, 180, 60, 75, 100, 110, 100),
+            (175, 110, 180, 210, 380, 75, 100, 140, 150, 125),
+        )
 
     def new_document(self):
         self.current_id = None; self.base_date.setDate(QDate.currentDate()); self.memo.clear()
@@ -200,18 +207,22 @@ class OpeningInventoryRegWindow(QWidget):
             row = self.table.rowCount(); self.table.insertRow(row)
             product = QComboBox(); self._fill_product_combo(product, item.get("product_id"))
             product.setProperty("inbound_item_id", item.get("inbound_item_id")); product.setProperty("lot_id", item.get("lot_id"))
-            product.currentIndexChanged.connect(lambda _, w=product: self._update_expiry_for_widget(w)); product.installEventFilter(self)
+            product.setToolTip(product.currentText())
+            product.currentIndexChanged.connect(lambda _, w=product: self._product_changed(w)); product.installEventFilter(self)
             self.table.setCellWidget(row, 0, product)
             source = QComboBox(); source.addItem("수입", "IMPORT"); source.addItem("국내매입", "DOMESTIC")
             source.setCurrentIndex(max(0, source.findData(item.get("source_type", "IMPORT")))); source.installEventFilter(self)
             self.table.setCellWidget(row, 1, source)
             for col in range(2, len(COLUMNS)): self.table.setItem(row, col, QTableWidgetItem(""))
             self.table.item(row, 2).setText(item.get("lot_code") or "자동생성")
+            self.table.item(row, 2).setToolTip(self.table.item(row, 2).text())
             self.table.item(row, 2).setFlags(self.table.item(row, 2).flags() & ~Qt.ItemIsEditable)
             mapping = {3:"business_lot_no", 4:"bl_no", 5:"container_no", 6:"history_no", 9:"box_qty", 10:"weight", 11:"individual_cost", 13:"memo"}
             for col, key in mapping.items():
                 default = "0.00" if col == 10 else "0" if col in (9, 11) else ""
-                self.table.item(row, col).setText(str(item.get(key) if item.get(key) is not None else default))
+                value = item.get(key) if item.get(key) is not None else default
+                display = f"{math.ceil(float(value)):,}" if col == 11 else str(value)
+                self.table.item(row, col).setText(display); self.table.item(row, col).setToolTip(display)
             production = QDate.fromString(str(item.get("production_date") or self.base_date.date().toString("yyyy-MM-dd")), "yyyy-MM-dd")
             date_edit = self._date_edit(production if production.isValid() else self.base_date.date())
             date_edit.dateChanged.connect(lambda _, w=date_edit: self._update_expiry_for_widget(w)); date_edit.installEventFilter(self)
@@ -220,6 +231,7 @@ class OpeningInventoryRegWindow(QWidget):
             self._update_expiry(row); self._update_amount(row); self.table.scrollToBottom()
         finally:
             self._loading_row = False
+        QTimer.singleShot(0, self._fit_input_columns)
 
     def _fill_product_combo(self, combo, selected=None):
         combo.clear(); combo.addItem("선택", None)
@@ -229,6 +241,11 @@ class OpeningInventoryRegWindow(QWidget):
     def _refresh_product_combos(self):
         for row in range(self.table.rowCount()):
             combo = self.table.cellWidget(row, 0); selected = combo.currentData(); self._fill_product_combo(combo, selected)
+
+    def _product_changed(self, combo):
+        combo.setToolTip(combo.currentText())
+        self._update_expiry_for_widget(combo)
+        QTimer.singleShot(0, self._fit_input_columns)
 
     def _update_expiry(self, row):
         if row < 0 or row >= self.table.rowCount() or self.table.item(row, 8) is None: return
@@ -248,7 +265,20 @@ class OpeningInventoryRegWindow(QWidget):
         if position: self._update_expiry(position[0])
 
     def _on_item_changed(self, item):
-        if not self._loading_row and item.column() in (10, 11): self._update_amount(item.row())
+        if self._loading_row or self._formatting_money:
+            return
+        if item.column() == 11:
+            try:
+                display = f"{math.ceil(float(item.text().replace(',', ''))):,}"
+                if item.text() != display:
+                    self._formatting_money = True; item.setText(display); item.setToolTip(display)
+            except ValueError:
+                pass
+            finally:
+                self._formatting_money = False
+        if item.column() in (10, 11): self._update_amount(item.row())
+        if item.column() in (3, 4, 5, 6, 13):
+            item.setToolTip(item.text()); QTimer.singleShot(0, self._fit_input_columns)
 
     def _update_amount(self, row):
         try:
@@ -257,6 +287,30 @@ class OpeningInventoryRegWindow(QWidget):
             self.table.item(row, 12).setText(f"{math.ceil(weight * cost):,}")
         except (ValueError, AttributeError):
             if self.table.item(row, 12): self.table.item(row, 12).setText("0")
+
+    def _fit_input_columns(self):
+        self._fit_columns(
+            self.table,
+            (190, 70, 145, 150, 170, 120, 120, 115, 120, 65, 75, 105, 110, 120),
+            (340, 85, 190, 260, 300, 190, 190, 125, 145, 80, 105, 145, 155, 300),
+        )
+
+    @staticmethod
+    def _fit_columns(table, minimums, maximums):
+        """고정형 항목은 좁게, 가변형 항목은 내용에 맞춰 제한 범위 안에서 조정한다."""
+        metrics = QFontMetrics(table.font())
+        for col, (minimum, maximum) in enumerate(zip(minimums, maximums)):
+            header_item = table.horizontalHeaderItem(col)
+            texts = [header_item.text() if header_item else ""]
+            for row in range(table.rowCount()):
+                widget = table.cellWidget(row, col)
+                if isinstance(widget, QComboBox):
+                    texts.append(widget.currentText())
+                else:
+                    item = table.item(row, col)
+                    if item: texts.append(item.text())
+            content_width = max((metrics.horizontalAdvance(text) for text in texts), default=0) + 30
+            table.setColumnWidth(col, max(minimum, min(content_width, maximum)))
 
     def load_selected_document(self):
         row = self.saved_table.currentRow()
