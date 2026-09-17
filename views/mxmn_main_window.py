@@ -66,6 +66,13 @@ try:
 except ImportError:
     from lot_reg import LotRegWindow
 
+try:
+    from views.opening_inventory_reg import OpeningInventoryRegWindow
+    from views.opening_balance_reg import OpeningBalanceRegWindow
+except ImportError:
+    from opening_inventory_reg import OpeningInventoryRegWindow
+    from opening_balance_reg import OpeningBalanceRegWindow
+
 
 # ============================================================
 # 1. 프로젝트 루트 및 views 폴더 경로 설정
@@ -830,12 +837,14 @@ class MixNMainWindow(QMainWindow):
             lot_action
         )
 
-        self.menu2.addAction(
-            QAction(
-                "8.거래처 기초잔액 입력",
-                self,
-            )
-        )
+        opening_menu = QMenu("8.초기자료등록", self)
+        opening_inventory_action = QAction("1.최초재고 등록", self)
+        opening_inventory_action.triggered.connect(self.open_opening_inventory_reg)
+        opening_menu.addAction(opening_inventory_action)
+        opening_balance_action = QAction("2.거래처 최초잔액 등록", self)
+        opening_balance_action.triggered.connect(self.open_opening_balance_reg)
+        opening_menu.addAction(opening_balance_action)
+        self.menu2.addMenu(opening_menu)
 
         self.menu2.addAction(
             QAction(
@@ -1436,6 +1445,47 @@ class MixNMainWindow(QMainWindow):
             self.set_work_status("7.LOT조회/보정 창이 열렸습니다.")
         except Exception as e:
             QMessageBox.critical(self, "LOT조회/보정 실행 오류", f"LOT조회/보정 화면을 열 수 없습니다.\n\n{e}")
+
+
+    def open_opening_inventory_reg(self):
+        """최초재고 등록 화면을 MDI에 1개만 연다."""
+        self._open_single_mdi(
+            OpeningInventoryRegWindow,
+            "최초재고 등록",
+            "초기자료등록 → 최초재고 등록",
+        )
+
+
+    def open_opening_balance_reg(self):
+        """거래처 최초잔액 등록 화면을 MDI에 1개만 연다."""
+        self._open_single_mdi(
+            OpeningBalanceRegWindow,
+            "거래처 최초잔액 등록",
+            "초기자료등록 → 거래처 최초잔액 등록",
+        )
+
+
+    def _open_single_mdi(self, widget_class, title, status_text):
+        try:
+            for sub in self.mdi_area.subWindowList():
+                widget = sub.widget()
+                if widget is not None and isinstance(widget, widget_class):
+                    self.mdi_area.setActiveSubWindow(sub)
+                    widget.show(); sub.showNormal(); sub.showMaximized()
+                    self._bring_subwindow_to_front(sub)
+                    self.set_work_status(f"{status_text} 창이 활성화되었습니다.")
+                    return
+            widget = widget_class()
+            sub_window = self.mdi_area.addSubWindow(widget)
+            sub_window.setAttribute(Qt.WA_DeleteOnClose, True)
+            sub_window.setWindowTitle(
+                f"{title} - {app_context.company_name or app_context.company_code}"
+            )
+            widget.show(); sub_window.show(); sub_window.showMaximized()
+            self._bring_subwindow_to_front(sub_window)
+            self.set_work_status(f"{status_text} 창이 열렸습니다.")
+        except Exception as e:
+            QMessageBox.critical(self, f"{title} 실행 오류", f"{title} 화면을 열 수 없습니다.\n\n{e}")
 
 
     # ========================================================

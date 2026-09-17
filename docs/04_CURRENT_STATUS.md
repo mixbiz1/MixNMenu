@@ -1,6 +1,6 @@
 # MXMN CURRENT STATUS
 
-**Version:** 1.8\
+**Version:** 1.9\
 **Status date:** 2026-09-17\
 **Project:** MXMN\
 **Purpose:** 현재 실제 구현·검증 상태와 다음 작업을 짧게 유지하는 운영
@@ -612,6 +612,79 @@ LOT 정밀도 최종 보완에는 DB 구조 변경이 없으므로 별도 Migrat
 > 기존 정상 기능은 변경하지 말고 관련 기준문서·레거시 DB·모델·API·
 > Migration·메뉴 구조를 먼저 확인한 뒤 작은 기능 단위로 수정·검증·
 > GitHub 동기화해 주세요.
+
+------------------------------------------------------------------------
+
+## 21. 초기자료등록 Vertical Slice 1차 구현 (2026-09-17)
+
+### 21.1 메뉴와 화면
+
+- 코드관리의 기존 단일 `거래처 기초잔액 입력` 자리에는
+  `8.초기자료등록` 상위 메뉴를 배치하였다.
+- 하위 메뉴는 `1.최초재고 등록`, `2.거래처 최초잔액 등록`이다.
+- 최초재고 화면은 회사·기준일·창고 Header와 복수 Detail 행을 입력한다.
+- Detail은 상품·수입/국내매입·공급자 LOT·BL·컨테이너·이력번호·원산지·
+  EST·생산일·소비기한·BOX·KG·개별원가·메모를 지원한다.
+- 거래처 최초잔액 화면은 기준일·미수/미지급·거래처·금액·메모를 입력하고,
+  이미 등록한 원거래의 최초금액·배분금액·미결잔액을 조회한다.
+
+### 21.2 원장과 원자성
+
+- `tb_inbound`, `tb_inbound_item`을 추가하였다.
+- 최초재고 저장 시 입고 Header, 각 LOT, 각 입고 Detail을 단일 DB
+  Transaction에서 생성하며 오류 시 전체 Rollback한다.
+- 재고수량은 LOT Master에 저장하지 않고 입고 Detail의 BOX·KG를 원본으로
+  사용한다.
+- `tb_account_transaction`에 최초 미수금과 최초 미지급금을 각각 독립된
+  원거래로 생성한다.
+- `tb_account_transaction_allocation`은 향후 수금·지급 Transaction과
+  원거래를 연결하여 부분수금·부분지급을 지원한다.
+- 미결잔액은 원거래 금액에서 Allocation 합계를 차감하여 조회한다.
+
+### 21.3 수치 원칙
+
+- 가격·단가·개별원가·금액: 원 단위 정수, 입력 소수점은 올림
+- 중량: KG 소수점 둘째 자리
+- BOX: 정수
+- 환율: 소수점 둘째 자리(이번 화면에는 환율 입력 없음)
+- 기존 LOT 원가 컬럼의 Scale은 호환성을 위해 유지하고 API 저장 규칙으로
+  정수 원을 보장한다.
+
+### 21.4 변경 파일
+
+- `models.py`
+- `main.py`
+- `db_opening_data_migrate.py`
+- `views/opening_inventory_reg.py`
+- `views/opening_balance_reg.py`
+- `views/mxmn_main_window.py`
+- `docs/03_DATABASE_DESIGN.md`
+- `docs/04_CURRENT_STATUS.md`
+- `docs/05_FOLDER_STRUCTURE.md`
+- `docs/12_MIGRATION_PLAN.md`
+
+### 21.5 검증 상태와 사용자 PC 실행 순서
+
+- Python 문법검사 통과
+- 임시 SQLite 기반 FastAPI 통합검증 통과
+  - 최초재고 저장 시 입고·LOT·Detail 동시 생성
+  - 잘못된 상품 입력 시 원장·LOT 추가 없음
+  - 중량 둘째 자리와 원 단위 올림 확인
+  - 미수금·미지급금 원거래 및 미결잔액 확인
+- PySide6 Offscreen 두 화면 생성검증 통과
+- `git diff --check` 통과
+- 현재 Linux 환경은 `libodbc.so.2`가 없어 SQL Server 연결검증 불가
+- 사용자 Windows PC에서는 먼저 `python db_opening_data_migrate.py`를 실행한
+  뒤 FastAPI와 Client를 재시작하여 실제 저장을 검증한다.
+
+### 다음 확인 순서
+
+1. 최초재고 1건 저장 후 LOT조회/보정에서 생성 LOT 확인
+2. SQL 또는 후속 재고조회에서 입고 BOX·KG 확인
+3. 매출거래 거래처의 최초 미수금 등록
+4. 매입거래 거래처의 최초 미지급금 등록
+5. 등록목록의 최초금액·배분금액 0·미결잔액 일치 확인
+6. 다음 Vertical Slice에서 재고조회와 수금·지급 Allocation 구현
 
 ### LOT 착수 시 우선 확인사항
 

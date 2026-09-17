@@ -1321,6 +1321,265 @@ def deactivate_lot(comp_code: str, lot_id: int, permanent: bool = False,
 
 
 # =============================================================================
+# Opening Data API
+# =============================================================================
+
+class OpeningInventoryItemSchema(BaseModel):
+    product_id: int
+    business_lot_no: Optional[str] = None
+    source_type: str = "IMPORT"
+    bl_no: Optional[str] = None
+    container_no: Optional[str] = None
+    history_no: Optional[str] = None
+    origin: Optional[str] = None
+    est_no: Optional[str] = None
+    production_date: Optional[date] = None
+    expiry_date: Optional[date] = None
+    box_qty: int = Field(ge=0)
+    weight: Decimal = Field(gt=0)
+    individual_cost: Decimal = Field(ge=0)
+    memo: Optional[str] = None
+
+
+class OpeningInventorySchema(BaseModel):
+    base_date: date
+    warehouse_id: int
+    memo: Optional[str] = None
+    items: list[OpeningInventoryItemSchema] = Field(min_length=1)
+
+
+class OpeningBalanceSchema(BaseModel):
+    base_date: date
+    account_id: int
+    balance_type: str
+    amount: Decimal = Field(gt=0)
+    memo: Optional[str] = None
+
+
+def _next_daily_number(model, number_column, comp_code: str, prefix: str,
+                       base_date: date, db: Session) -> str:
+    head = f"{prefix}{base_date:%Y%m%d}-"
+    numbers = []
+    rows = db.query(number_column).filter(
+        model.comp_code == comp_code, number_column.like(f"{head}%")
+    ).all()
+    for (number,) in rows:
+        suffix = (number or "")[len(head):]
+        if suffix.isdigit():
+            numbers.append(int(suffix))
+    return f"{head}{max(numbers, default=0) + 1:03d}"
+
+
+def _quantize_weight(value) -> Decimal:
+    return Decimal(str(value)).quantize(Decimal("0.01"))
+
+
+def _opening_inventory_result(header):
+    return {
+        "inbound_id": header.inbound_id,
+        "inbound_no": header.inbound_no,
+        "base_date": header.inbound_date,
+        "warehouse_id": header.warehouse_id,
+        "warehouse_name": header.warehouse.warehouse_name,
+        "memo": header.memo,
+        "items": [{
+            "inbound_item_id": item.inbound_item_id,
+            "line_no": item.line_no,
+            "product_id": item.product_id,
+            "product_code": item.product.product_code,
+            "product_name": item.product.product_name,
+            "lot_id": item.lot_id,
+            "lot_code": item.lot.lot_code,
+            "box_qty": item.box_qty,
+            "weight": item.weight,
+            "individual_cost": int(_ceil_won(item.individual_cost)),
+            "amount": int(item.amount),
+        } for item in header.items],
+    }
+
+
+@app.get("/api/v1/companies/{comp_code}/opening-inventories")
+def get_opening_inventories(comp_code: str, db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    rows = db.query(models.Inbound).filter(
+        models.Inbound.comp_code == comp_code,
+        models.Inbound.transaction_type == "OPENING_INVENTORY",
+    ).order_by(models.Inbound.inbound_date.desc(), models.Inbound.inbound_id.desc()).all()
+    return [_opening_inventory_result(row) for row in rows]
+
+
+@app.post("/api/v1/companies/{comp_code}/opening-inventories", status_code=status.HTTP_201_CREATED)
+def create_opening_inventory(comp_code: str, data: OpeningInventorySchema,
+                             db: Session = Depends(get_db)):
+    """LOT와 최초입고 Header/Detail을 단일 DB Transaction으로 생성한다."""
+    _get_company_or_404(comp_code, db)
+    warehouse = db.query(models.Warehouse).join(models.CompanyWarehouse).filter(
+        models.Warehouse.warehouse_id == data.warehouse_id,
+        models.Warehouse.use_yn == True,
+        models.CompanyWarehouse.comp_code == comp_code,
+        models.CompanyWarehouse.use_yn == True,
+    ).first()
+    if not warehouse:
+        raise HTTPException(status_code=400, detail="현재 회사에서 사용하는 창고를 선택해 주세요.")
+
+    product_ids = {item.product_id for item in data.items}
+    active_products = {
+        row.product_id for row in db.query(models.Product).filter(
+            models.Product.product_id.in_(product_ids), models.Product.use_yn == True
+        ).all()
+    }
+    if active_products != product_ids:
+        raise HTTPException(status_code=400, detail="사용할 수 없는 상품이 포함되어 있습니다.")
+    for item in data.items:
+        if item.source_type not in {"IMPORT", "DOMESTIC"}:
+            raise HTTPException(status_code=400, detail="LOT 구분 값이 올바르지 않습니다.")
+        if item.expiry_date and item.production_date and item.expiry_date < item.production_date:
+            raise HTTPException(status_code=400, detail="소비기한은 생산일보다 빠를 수 없습니다.")
+
+    try:
+        inbound = models.Inbound(
+            comp_code=comp_code,
+            inbound_no=_next_daily_number(
+                models.Inbound, models.Inbound.inbound_no, comp_code, "OI", data.base_date, db
+            ),
+            inbound_date=data.base_date,
+            warehouse_id=data.warehouse_id,
+            transaction_type="OPENING_INVENTORY",
+            memo=data.memo.strip() if data.memo else None,
+        )
+        db.add(inbound)
+        db.flush()
+        for line_no, item in enumerate(data.items, 1):
+            lot = models.Lot(
+                comp_code=comp_code,
+                lot_code=_next_daily_number(
+                    models.Lot, models.Lot.lot_code, comp_code, "L", data.base_date, db
+                ),
+                business_lot_no=item.business_lot_no.strip() if item.business_lot_no else None,
+                source_type=item.source_type,
+                product_id=item.product_id,
+                warehouse_id=data.warehouse_id,
+                bl_no=item.bl_no.strip() if item.bl_no else None,
+                container_no=item.container_no.strip() if item.container_no else None,
+                history_no=item.history_no.strip() if item.history_no else None,
+                origin=item.origin.strip() if item.origin else None,
+                est_no=item.est_no.strip() if item.est_no else None,
+                production_date=item.production_date,
+                expiry_date=item.expiry_date,
+                individual_cost=_ceil_won(item.individual_cost),
+                status="OPEN",
+                memo=item.memo.strip() if item.memo else None,
+                use_yn=True,
+            )
+            db.add(lot)
+            db.flush()
+            weight = _quantize_weight(item.weight)
+            cost = _ceil_won(item.individual_cost)
+            db.add(models.InboundItem(
+                inbound_id=inbound.inbound_id,
+                line_no=line_no,
+                product_id=item.product_id,
+                lot_id=lot.lot_id,
+                box_qty=item.box_qty,
+                weight=weight,
+                individual_cost=cost,
+                amount=_ceil_won(weight * cost),
+            ))
+        db.commit()
+        db.refresh(inbound)
+        return _opening_inventory_result(inbound)
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="최초재고 저장 중 중복 또는 연결 오류가 발생했습니다.") from exc
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _opening_balance_result(obj, allocated=Decimal("0")):
+    return {
+        "account_transaction_id": obj.account_transaction_id,
+        "transaction_no": obj.transaction_no,
+        "base_date": obj.transaction_date,
+        "account_id": obj.account_id,
+        "account_code": obj.account.account_code,
+        "account_name": obj.account.account_name,
+        "balance_type": obj.transaction_type.replace("OPENING_", ""),
+        "amount": int(obj.original_amount),
+        "allocated_amount": int(allocated),
+        "remaining_amount": int(Decimal(obj.original_amount) - allocated),
+        "memo": obj.memo,
+    }
+
+
+@app.get("/api/v1/companies/{comp_code}/opening-balances")
+def get_opening_balances(comp_code: str, db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    rows = db.query(models.AccountTransaction).filter(
+        models.AccountTransaction.comp_code == comp_code,
+        models.AccountTransaction.transaction_type.in_(("OPENING_RECEIVABLE", "OPENING_PAYABLE")),
+    ).order_by(
+        models.AccountTransaction.transaction_date.desc(),
+        models.AccountTransaction.account_transaction_id.desc(),
+    ).all()
+    results = []
+    for row in rows:
+        allocated = sum((Decimal(x.allocated_amount) for x in db.query(
+            models.AccountTransactionAllocation
+        ).filter(
+            models.AccountTransactionAllocation.source_transaction_id == row.account_transaction_id
+        ).all()), Decimal("0"))
+        results.append(_opening_balance_result(row, allocated))
+    return results
+
+
+@app.post("/api/v1/companies/{comp_code}/opening-balances", status_code=status.HTTP_201_CREATED)
+def create_opening_balance(comp_code: str, data: OpeningBalanceSchema,
+                           db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    balance_type = data.balance_type.strip().upper()
+    if balance_type not in {"RECEIVABLE", "PAYABLE"}:
+        raise HTTPException(status_code=400, detail="잔액구분은 미수금 또는 미지급금이어야 합니다.")
+    relation = db.query(models.CompanyAccount).filter(
+        models.CompanyAccount.comp_code == comp_code,
+        models.CompanyAccount.account_id == data.account_id,
+        models.CompanyAccount.use_yn == True,
+        models.CompanyAccount.trade_stop_yn == False,
+    ).first()
+    if not relation:
+        raise HTTPException(status_code=400, detail="현재 회사에서 거래 가능한 거래처를 선택해 주세요.")
+    if balance_type == "RECEIVABLE" and not relation.sales_yn:
+        raise HTTPException(status_code=400, detail="미수금은 매출거래 거래처에만 등록할 수 있습니다.")
+    if balance_type == "PAYABLE" and not relation.purchase_yn:
+        raise HTTPException(status_code=400, detail="미지급금은 매입거래 거래처에만 등록할 수 있습니다.")
+    prefix = "OR" if balance_type == "RECEIVABLE" else "OP"
+    amount = _ceil_won(data.amount)
+    obj = models.AccountTransaction(
+        comp_code=comp_code,
+        transaction_no=_next_daily_number(
+            models.AccountTransaction, models.AccountTransaction.transaction_no,
+            comp_code, prefix, data.base_date, db
+        ),
+        transaction_date=data.base_date,
+        account_id=data.account_id,
+        transaction_type=f"OPENING_{balance_type}",
+        original_amount=amount,
+        memo=data.memo.strip() if data.memo else None,
+    )
+    try:
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        return _opening_balance_result(obj)
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="최초잔액 저장 중 중복 또는 연결 오류가 발생했습니다.") from exc
+
+
+# =============================================================================
 # Account API
 #
 # 설계 원칙

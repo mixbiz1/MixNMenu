@@ -133,6 +133,24 @@ Opening Transaction으로 등록한다.
 초기자료도 등록 이후에는 일반 입고·출고·이동·수금·지급과 동일한 원장에
 포함되며, 잔액이나 현재고를 사용자가 직접 덮어쓰지 않는다.
 
+### 초기자료등록 1차 구현 구조 (2026-09-17)
+
+- `tb_inbound`: 회사·기준일·창고·거래유형을 가진 입고 Header
+- `tb_inbound_item`: 상품·LOT·BOX·KG·개별원가·평가금액을 가진 Detail
+- `tb_account_transaction`: 거래처 미수·미지급 및 향후 수금·지급 원거래
+- `tb_account_transaction_allocation`: 원거래와 부분수금·부분지급의 배분 연결
+
+최초재고는 `OPENING_INVENTORY`, 최초 미수금은 `OPENING_RECEIVABLE`, 최초
+미지급금은 `OPENING_PAYABLE`로 일반 거래와 명확히 구분한다. 최초재고 저장은
+입고 Header → LOT → 입고 Detail 전체를 한 DB Transaction에서 처리하여 한
+단계라도 실패하면 모두 Rollback한다.
+
+거래처 최초잔액은 단순 누적 잔액 컬럼이 아니라 각각 독립된 원거래로
+생성한다. 향후 `RECEIPT`·`PAYMENT` 거래를 만들고 Allocation에 배분 금액을
+저장하면 한 최초잔액에 여러 번 부분수금·부분지급하거나 한 수금·지급을 여러
+원거래에 나누어 연결할 수 있다. 미결잔액은 `원거래금액 - 배분합계`로
+산출한다.
+
 ## 5. MONEY
 
 -   `tb_purchase`

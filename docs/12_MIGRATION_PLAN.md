@@ -54,6 +54,11 @@ Warehouse 순으로 진행한다.
 접속정보 컬럼과 가변 비용항목 테이블만 추가하며 기존 고정요율 중 0이 아닌
 값은 대응하는 새 비용항목으로 자동 승계한다.
 
+초기자료등록 1차 Migration은 `db_opening_data_migrate.py`로 실행한다.
+`tb_inbound`, `tb_inbound_item`, `tb_account_transaction`,
+`tb_account_transaction_allocation`을 기존 테이블·데이터 삭제 없이 추가한다.
+Migration 실행 후 최초재고와 거래처 최초잔액 API/화면을 사용한다.
+
 ## 금지사항
 
 -   `models.py`를 목표 ERD 전체로 한 번에 교체하지 않는다.

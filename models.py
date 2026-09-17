@@ -311,6 +311,89 @@ class Lot(Base):
     warehouse = relationship("Warehouse")
 
 
+class Inbound(Base):
+    """입고 원장 Header. 최초재고도 일반 입고와 같은 원장에 기록한다."""
+    __tablename__ = "tb_inbound"
+    __table_args__ = (
+        UniqueConstraint("comp_code", "inbound_no", name="UQ_inbound_company_no"),
+    )
+
+    inbound_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False, index=True)
+    inbound_no = Column(String(30), nullable=False, index=True)
+    inbound_date = Column(Date, nullable=False, index=True)
+    warehouse_id = Column(Integer, ForeignKey("tb_warehouse.warehouse_id"), nullable=False, index=True)
+    transaction_type = Column(String(30), nullable=False)  # OPENING_INVENTORY / PURCHASE_INBOUND / IMPORT_INBOUND
+    memo = Column(String(1000), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    warehouse = relationship("Warehouse")
+    items = relationship("InboundItem", back_populates="inbound", cascade="all, delete-orphan")
+
+
+class InboundItem(Base):
+    """LOT별 입고수량. 재고는 이 원장과 향후 출고 원장의 합계로 산출한다."""
+    __tablename__ = "tb_inbound_item"
+    __table_args__ = (
+        UniqueConstraint("inbound_id", "line_no", name="UQ_inbound_item_line"),
+    )
+
+    inbound_item_id = Column(Integer, primary_key=True, autoincrement=True)
+    inbound_id = Column(Integer, ForeignKey("tb_inbound.inbound_id"), nullable=False, index=True)
+    line_no = Column(Integer, nullable=False)
+    product_id = Column(Integer, ForeignKey("tb_product.product_id"), nullable=False, index=True)
+    lot_id = Column(Integer, ForeignKey("tb_lot.lot_id"), nullable=False, index=True)
+    box_qty = Column(Integer, nullable=False)
+    weight = Column(Numeric(18, 2), nullable=False)
+    individual_cost = Column(Numeric(18, 4), nullable=False)
+    amount = Column(Numeric(18, 0), nullable=False)
+
+    inbound = relationship("Inbound", back_populates="items")
+    product = relationship("Product")
+    lot = relationship("Lot")
+
+
+class AccountTransaction(Base):
+    """거래처 원장 원거래. 최초 미수·미지급도 독립 원거래로 기록한다."""
+    __tablename__ = "tb_account_transaction"
+    __table_args__ = (
+        UniqueConstraint("comp_code", "transaction_no", name="UQ_account_tx_company_no"),
+    )
+
+    account_transaction_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False, index=True)
+    transaction_no = Column(String(30), nullable=False, index=True)
+    transaction_date = Column(Date, nullable=False, index=True)
+    account_id = Column(Integer, ForeignKey("tb_account.account_id"), nullable=False, index=True)
+    transaction_type = Column(String(30), nullable=False)  # OPENING_RECEIVABLE / OPENING_PAYABLE / RECEIPT / PAYMENT
+    original_amount = Column(Numeric(18, 0), nullable=False)
+    memo = Column(String(1000), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    account = relationship("Account")
+
+
+class AccountTransactionAllocation(Base):
+    """미수·미지급 원거래와 부분수금·부분지급 거래의 배분 연결."""
+    __tablename__ = "tb_account_transaction_allocation"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_transaction_id", "settlement_transaction_id",
+            name="UQ_account_tx_alloc_pair",
+        ),
+    )
+
+    allocation_id = Column(Integer, primary_key=True, autoincrement=True)
+    source_transaction_id = Column(
+        Integer, ForeignKey("tb_account_transaction.account_transaction_id"), nullable=False, index=True
+    )
+    settlement_transaction_id = Column(
+        Integer, ForeignKey("tb_account_transaction.account_transaction_id"), nullable=False, index=True
+    )
+    allocated_amount = Column(Numeric(18, 0), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 # ==========================================
 # 2. 거래전표(입/출고, 파이낸싱) 트랜잭션 테이블
 # ==========================================

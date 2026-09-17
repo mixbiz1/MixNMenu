@@ -53,6 +53,9 @@ MixNMenu/
 -   `views/warehouse_reg.py`: 창고 Master와 회사별 사용·기본요율 입력
 -   `views/mxmn_main_window.py`: 유지, Main Shell로 발전
 -   `db_warehouse_migrate.py`: 창고 관련 3개 테이블 비파괴 Migration
+-   `db_opening_data_migrate.py`: 최초재고·거래처 최초잔액 원장 비파괴 Migration
+-   `views/opening_inventory_reg.py`: 최초재고 Header/Detail 입력
+-   `views/opening_balance_reg.py`: 거래처 미수·미지급 최초 원거래 입력
 -   `views/main_dashboard.py`: QUiLoader 의존 제거 후 Pure Python화
 -   `views/main_view.py`: Legacy/Archive 후보
 -   `ui-당분간 사용안함`: 신규 개발에 사용하지 않고 Archive 성격으로
