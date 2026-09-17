@@ -24,8 +24,8 @@ from PySide6.QtWidgets import (
     QComboBox,
 )
 
-from PySide6.QtCore import Qt, QObject, QEvent, QTimer
-from PySide6.QtGui import QAction, QPalette, QColor
+from PySide6.QtCore import Qt, QObject, QEvent, QTimer, QUrl
+from PySide6.QtGui import QAction, QDesktopServices, QPalette, QColor
 
 # MXMN 공통 실행 Context
 from app_context import app_context
@@ -72,6 +72,11 @@ try:
 except ImportError:
     from opening_inventory_reg import OpeningInventoryRegWindow
     from opening_balance_reg import OpeningBalanceRegWindow
+
+try:
+    from views.password_change import PasswordChangeDialog
+except ImportError:
+    from password_change import PasswordChangeDialog
 
 
 # ============================================================
@@ -631,7 +636,7 @@ class MixNMainWindow(QMainWindow):
         )
 
         self.action_company_switch = QAction(
-            "업무회사 변경",
+            "2.업무회사 변경",
             self,
         )
         self.action_company_switch.triggered.connect(
@@ -642,12 +647,13 @@ class MixNMainWindow(QMainWindow):
         )
 
         self.action2 = QAction(
-            "2.비밀번호변경",
+            "3.비밀번호변경",
             self,
         )
+        self.action2.triggered.connect(self.open_password_change)
 
         self.action3 = QAction(
-            "3.프린터설정",
+            "4.프린터설정",
             self,
         )
 
@@ -662,12 +668,13 @@ class MixNMainWindow(QMainWindow):
         self.menu1.addSeparator()
 
         self.action4 = QAction(
-            "4.우편번호조회",
+            "5.우편번호조회",
             self,
         )
+        self.action4.triggered.connect(self.open_postcode_lookup)
 
         self.action_shortcut = QAction(
-            "5.단축메뉴",
+            "6.단축메뉴",
             self,
         )
 
@@ -683,37 +690,19 @@ class MixNMainWindow(QMainWindow):
             self.action_shortcut
         )
 
-        self.action6 = QAction(
-            "6.원격지원",
-            self,
-        )
-
         self.action7 = QAction(
             "7.환경설정",
             self,
-        )
-
-        self.action8 = QAction(
-            "8.미트통신 열기",
-            self,
-        )
-
-        self.menu1.addAction(
-            self.action6
         )
 
         self.menu1.addAction(
             self.action7
         )
 
-        self.menu1.addAction(
-            self.action8
-        )
-
         self.menu1.addSeparator()
 
         self.action_exit = QAction(
-            "9.종료",
+            "8.종료",
             self,
         )
 
@@ -1078,6 +1067,24 @@ class MixNMainWindow(QMainWindow):
     # ========================================================
     # Dashboard
     # ========================================================
+
+    def open_password_change(self):
+        """현재 로그인 사용자의 비밀번호 변경 창을 연다."""
+        dialog = PasswordChangeDialog(self)
+        if dialog.exec() == QDialog.Accepted:
+            self.set_work_status("비밀번호가 변경되었습니다.")
+
+    def open_postcode_lookup(self):
+        """행정안전부 도로명주소 안내시스템의 우편번호 조회를 연다."""
+        url = QUrl("https://www.juso.go.kr/openIndexPage.do")
+        if not QDesktopServices.openUrl(url):
+            QMessageBox.warning(
+                self,
+                "우편번호 조회",
+                "우편번호 조회 화면을 열 수 없습니다. 기본 웹 브라우저 설정을 확인해 주세요.",
+            )
+            return
+        self.set_work_status("우편번호 조회 화면을 기본 웹 브라우저에서 열었습니다.")
 
     def _bring_subwindow_to_front(self, sub_window):
         """가장 최근 요청한 MDI 창을 다른 작업창보다 앞으로 올린다."""

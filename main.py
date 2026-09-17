@@ -41,6 +41,25 @@ class LoginResponse(BaseModel):
     user_name: str
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=4, max_length=100)
+
+
+@app.put("/api/v1/users/{user_id}/password")
+def change_password(user_id: str, data: PasswordChangeRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if not user or not user.use_yn:
+        raise HTTPException(status_code=404, detail="사용 가능한 사용자 계정이 없습니다.")
+    if user.password_hash != data.current_password:
+        raise HTTPException(status_code=400, detail="현재 비밀번호가 일치하지 않습니다.")
+    if data.new_password == data.current_password:
+        raise HTTPException(status_code=400, detail="새 비밀번호는 현재 비밀번호와 다르게 입력해 주세요.")
+    user.password_hash = data.new_password
+    db.commit()
+    return {"message": "비밀번호가 변경되었습니다."}
+
+
 # =============================================================================
 # Company Schema
 # =============================================================================
