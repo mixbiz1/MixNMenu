@@ -65,6 +65,11 @@ Migration 실행 후 최초재고와 거래처 최초잔액 API/화면을 사용
 있는 LOT와 냉장·자동계산 안 함 상품은 변경하지 않으므로 반복 실행해도
 안전하다.
 
+경비코드 Migration은 `db_expense_code_migrate.py`로 실행한다.
+`tb_expense_code`가 없을 때만 Self FK·UNIQUE·계층 Check Constraint와 함께
+추가하며 기존 테이블이나 자료는 수정하지 않는다. 재실행 시 이미 존재하는
+테이블을 확인하고 종료한다.
+
 ## 금지사항
 
 -   `models.py`를 목표 ERD 전체로 한 번에 교체하지 않는다.

@@ -21,6 +21,10 @@ PRODUCT CATEGORY
 SERVICE ── default TAX CODE
  └─ SALE/PURCHASE ITEM
 
+EXPENSE CODE
+ └─ CHILD EXPENSE CODE (최대 4단계)
+      └─ 향후 PURCHASE/SALE/EXPENSE DETAIL 참조
+
 IMPORT CASE
  ├─ OFFER
  ├─ LC
@@ -75,3 +79,4 @@ LOT + INBOUND/OUTBOUND
 18. Document Storage 분리
 19. One Data → Multiple Reports
 20. Vertical Slice Development
+21. ExpenseCode는 ProductCategory와 분리된 계층형 Master

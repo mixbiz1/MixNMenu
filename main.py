@@ -592,6 +592,170 @@ def deactivate_code_value(
 
 
 # =============================================================================
+# Expense Code Master API
+# =============================================================================
+
+EXPENSE_STATEMENT_SECTIONS = {
+    "SALES",
+    "PURCHASE",
+    "SGA",
+    "NON_OPERATING_INCOME",
+    "NON_OPERATING_EXPENSE",
+}
+
+
+class ExpenseCodeSchema(BaseModel):
+    expense_code: str
+    expense_name: str
+    parent_expense_id: Optional[int] = None
+    statement_section: str
+    description: Optional[str] = None
+    sort_order: int = 0
+    use_yn: bool = True
+
+
+def _next_expense_code(db: Session) -> str:
+    numbers = []
+    for (code,) in db.query(models.ExpenseCode.expense_code).all():
+        if code and code.startswith("E") and code[1:].isdigit():
+            numbers.append(int(code[1:]))
+    return f"E{max(numbers, default=0) + 1:05d}"
+
+
+def _expense_parent_values(parent_id: Optional[int], section: str, db: Session):
+    normalized = (section or "").strip().upper()
+    if parent_id is None:
+        if normalized not in EXPENSE_STATEMENT_SECTIONS:
+            raise HTTPException(status_code=400, detail="올바른 손익구분을 선택하세요.")
+        return 1, normalized
+    parent = db.query(models.ExpenseCode).filter(
+        models.ExpenseCode.expense_id == parent_id
+    ).first()
+    if not parent:
+        raise HTTPException(status_code=400, detail="상위 경비코드가 없습니다.")
+    if not parent.use_yn:
+        raise HTTPException(status_code=400, detail="사용중지된 경비코드 아래에는 추가할 수 없습니다.")
+    if parent.expense_level >= 4:
+        raise HTTPException(status_code=400, detail="경비코드는 4단계까지만 생성할 수 있습니다.")
+    return parent.expense_level + 1, parent.statement_section
+
+
+@app.get("/api/v1/expense-codes/next-code")
+def get_next_expense_code(db: Session = Depends(get_db)):
+    return {"expense_code": _next_expense_code(db)}
+
+
+@app.get("/api/v1/expense-codes")
+def get_expense_codes(include_inactive: bool = False, db: Session = Depends(get_db)):
+    query = db.query(models.ExpenseCode)
+    if not include_inactive:
+        query = query.filter(models.ExpenseCode.use_yn == True)
+    return query.order_by(
+        models.ExpenseCode.expense_level,
+        models.ExpenseCode.sort_order,
+        models.ExpenseCode.expense_code,
+    ).all()
+
+
+@app.post("/api/v1/expense-codes", status_code=status.HTTP_201_CREATED)
+def create_expense_code(data: ExpenseCodeSchema, db: Session = Depends(get_db)):
+    code = data.expense_code.strip().upper() or _next_expense_code(db)
+    if db.query(models.ExpenseCode).filter(
+        models.ExpenseCode.expense_code == code
+    ).first():
+        raise HTTPException(status_code=409, detail="이미 등록된 경비코드입니다.")
+    level, section = _expense_parent_values(
+        data.parent_expense_id, data.statement_section, db
+    )
+    obj = models.ExpenseCode(
+        **data.model_dump(exclude={"expense_code", "statement_section"}),
+        expense_code=code,
+        expense_level=level,
+        statement_section=section,
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+@app.put("/api/v1/expense-codes/{expense_id}")
+def update_expense_code(
+    expense_id: int, data: ExpenseCodeSchema, db: Session = Depends(get_db)
+):
+    obj = db.query(models.ExpenseCode).filter(
+        models.ExpenseCode.expense_id == expense_id
+    ).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="등록되지 않은 경비코드입니다.")
+    if data.expense_code.strip().upper() != obj.expense_code:
+        raise HTTPException(status_code=400, detail="저장된 경비코드는 변경할 수 없습니다.")
+    if data.parent_expense_id == expense_id:
+        raise HTTPException(status_code=400, detail="자기 자신을 상위코드로 지정할 수 없습니다.")
+    if data.parent_expense_id != obj.parent_expense_id:
+        has_children = db.query(models.ExpenseCode).filter(
+            models.ExpenseCode.parent_expense_id == expense_id
+        ).first()
+        if has_children:
+            raise HTTPException(
+                status_code=400,
+                detail="하위코드가 있는 경비코드는 상위코드를 변경할 수 없습니다.",
+            )
+    level, section = _expense_parent_values(
+        data.parent_expense_id, data.statement_section, db
+    )
+    section_changed = obj.statement_section != section
+    values = data.model_dump(exclude={"expense_code", "statement_section"})
+    values["expense_level"] = level
+    values["statement_section"] = section
+    for key, value in values.items():
+        setattr(obj, key, value)
+    if section_changed:
+        pending = [expense_id]
+        descendants = []
+        while pending:
+            current = pending.pop()
+            children = db.query(models.ExpenseCode.expense_id).filter(
+                models.ExpenseCode.parent_expense_id == current
+            ).all()
+            child_ids = [row[0] for row in children if row[0] not in descendants]
+            descendants.extend(child_ids)
+            pending.extend(child_ids)
+        if descendants:
+            db.query(models.ExpenseCode).filter(
+                models.ExpenseCode.expense_id.in_(descendants)
+            ).update(
+                {models.ExpenseCode.statement_section: section},
+                synchronize_session=False,
+            )
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+@app.delete("/api/v1/expense-codes/{expense_id}")
+def deactivate_expense_code(expense_id: int, db: Session = Depends(get_db)):
+    if not db.query(models.ExpenseCode).filter(
+        models.ExpenseCode.expense_id == expense_id
+    ).first():
+        raise HTTPException(status_code=404, detail="등록되지 않은 경비코드입니다.")
+    pending = [expense_id]
+    affected = []
+    while pending:
+        current = pending.pop()
+        affected.append(current)
+        children = db.query(models.ExpenseCode.expense_id).filter(
+            models.ExpenseCode.parent_expense_id == current
+        ).all()
+        pending.extend(row[0] for row in children if row[0] not in affected)
+    db.query(models.ExpenseCode).filter(
+        models.ExpenseCode.expense_id.in_(affected)
+    ).update({models.ExpenseCode.use_yn: False}, synchronize_session=False)
+    db.commit()
+    return {"message": "선택 경비코드와 하위코드가 사용중지되었습니다."}
+
+
+# =============================================================================
 # Product Category / Product Master API
 # =============================================================================
 

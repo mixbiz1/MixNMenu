@@ -199,6 +199,7 @@ class CommonCodeWindow(QWidget):
         self.group_table.itemSelectionChanged.connect(self.on_group_selected)
         self.group_table.cellClicked.connect(self.on_group_clicked)
         self.value_table.itemSelectionChanged.connect(self.on_value_selected)
+        self.value_table.cellClicked.connect(self.on_value_clicked)
         self.btn_group_new.clicked.connect(self.new_group)
         self.btn_group_save.clicked.connect(self.save_group)
         self.btn_group_delete.clicked.connect(self.delete_group)
@@ -470,6 +471,14 @@ class CommonCodeWindow(QWidget):
         self.extra_value1.setText(item.get("extra_value1") or "")
         self.extra_value2.setText(item.get("extra_value2") or "")
         self.value_use.setChecked(bool(item.get("use_yn")))
+
+    def on_value_clicked(self, row, column):
+        """정렬된 표의 어느 셀을 눌러도 해당 행을 편집 대상으로 확정한다."""
+        if row < 0 or self.value_table.item(row, 0) is None:
+            return
+        if self.value_table.currentRow() != row:
+            self.value_table.selectRow(row)
+        self.on_value_selected()
 
     def new_value(self):
         self.current_value_id = None

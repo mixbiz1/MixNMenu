@@ -33,6 +33,8 @@ MXMN 코드를 작성·수정하는 AI는 다음 규칙을 우선 적용한다.
 -   Transaction Tax Snapshot
 -   BL + 축산물이력번호 자동승계
 -   One Fact → One Data
+-   ExpenseCode는 ProductCategory·CodeValue와 분리된 계층형 Master
+-   사용된 Master 코드는 물리삭제하지 않고 사용중지
 -   가변 비용/조건은 Row/Parameter화
 -   법적/회계적/계약적 계산결과는 Snapshot 보존
 

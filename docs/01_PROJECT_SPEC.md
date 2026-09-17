@@ -8,13 +8,16 @@
 ## 2. MASTER
 
 핵심 Master는 Partner, Customer, Product, ProductCategory, Service,
-Warehouse, Establishment(EST), TaxCode, CodeGroup/CodeValue이다.
+Warehouse, Establishment(EST), TaxCode, CodeGroup/CodeValue,
+ExpenseCode이다.
 
 -   Partner: 실제 법적 사업자
 -   Customer: MXMN 업무용 거래처코드
 -   Product: 재고를 가지는 상품
 -   Service: 재고를 가지지 않는 용역
 -   LOT: Product의 실제 입고/재고 추적 단위
+-   ExpenseCode: 매출·매입·판매관리비·영업외손익을 최대 4단계로 분류하는
+    손익·경비통계용 계층형 코드
 
 ## 3. 일반 유통
 

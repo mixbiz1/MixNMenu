@@ -145,6 +145,24 @@ class ProductCategory(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class ExpenseCode(Base):
+    """손익·경비통계에 사용하는 계층형 경비/계정 코드 Master."""
+    __tablename__ = "tb_expense_code"
+
+    expense_id = Column(Integer, primary_key=True, autoincrement=True)
+    expense_code = Column(String(20), unique=True, nullable=False, index=True)
+    expense_name = Column(String(100), nullable=False)
+    parent_expense_id = Column(
+        Integer, ForeignKey("tb_expense_code.expense_id"), nullable=True, index=True
+    )
+    expense_level = Column(Integer, default=1, nullable=False)
+    statement_section = Column(String(30), nullable=False)
+    description = Column(String(300), nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    use_yn = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Product(Base):
     """
     품목(수입육류) 정보 테이블

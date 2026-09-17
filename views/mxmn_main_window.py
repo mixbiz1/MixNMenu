@@ -54,6 +54,11 @@ try:
 except ImportError:
     from product_reg import ProductRegWindow
 
+try:
+    from views.expense_code_reg import ExpenseCodeWindow
+except ImportError:
+    from expense_code_reg import ExpenseCodeWindow
+
 # 창고입력 화면
 try:
     from views.warehouse_reg import WarehouseRegWindow
@@ -793,8 +798,19 @@ class MixNMainWindow(QMainWindow):
             product_action
         )
 
+        expense_code_action = QAction(
+            "5.경비코드입력",
+            self,
+        )
+        expense_code_action.triggered.connect(
+            self.open_expense_code
+        )
+        self.menu2.addAction(
+            expense_code_action
+        )
+
         account_action = QAction(
-            "5.거래처입력",
+            "6.거래처입력",
             self,
         )
         account_action.triggered.connect(
@@ -805,7 +821,7 @@ class MixNMainWindow(QMainWindow):
         )
 
         warehouse_action = QAction(
-            "6.창고입력",
+            "7.창고입력",
             self,
         )
         warehouse_action.triggered.connect(
@@ -816,7 +832,7 @@ class MixNMainWindow(QMainWindow):
         )
 
         lot_action = QAction(
-            "7.LOT조회/보정",
+            "8.LOT조회/보정",
             self,
         )
         lot_action.triggered.connect(
@@ -826,7 +842,7 @@ class MixNMainWindow(QMainWindow):
             lot_action
         )
 
-        opening_menu = QMenu("8.초기자료등록", self)
+        opening_menu = QMenu("9.초기자료등록", self)
         opening_inventory_action = QAction("1.최초재고 등록", self)
         opening_inventory_action.triggered.connect(self.open_opening_inventory_reg)
         opening_menu.addAction(opening_inventory_action)
@@ -1391,6 +1407,19 @@ class MixNMainWindow(QMainWindow):
 
 
     # ========================================================
+    # Expense Code Registration
+    # ========================================================
+
+    def open_expense_code(self):
+        """계층형 경비코드 Master 화면을 MDI에 1개만 연다."""
+        self._open_single_mdi(
+            ExpenseCodeWindow,
+            "경비코드입력",
+            "5.경비코드입력",
+        )
+
+
+    # ========================================================
     # Warehouse Registration
     # ========================================================
 
@@ -1404,7 +1433,7 @@ class MixNMainWindow(QMainWindow):
                     widget.show()
                     sub.showNormal(); sub.showMaximized()
                     self._bring_subwindow_to_front(sub)
-                    self.set_work_status("6.창고입력 창이 활성화되었습니다.")
+                    self.set_work_status("7.창고입력 창이 활성화되었습니다.")
                     return
             widget = WarehouseRegWindow()
             sub_window = self.mdi_area.addSubWindow(widget)
@@ -1414,7 +1443,7 @@ class MixNMainWindow(QMainWindow):
             )
             widget.show(); sub_window.show(); sub_window.showMaximized()
             self._bring_subwindow_to_front(sub_window)
-            self.set_work_status("6.창고입력 창이 열렸습니다.")
+            self.set_work_status("7.창고입력 창이 열렸습니다.")
         except Exception as e:
             QMessageBox.critical(self, "창고입력 실행 오류", f"창고입력 화면을 열 수 없습니다.\n\n{e}")
 
@@ -1432,7 +1461,7 @@ class MixNMainWindow(QMainWindow):
                     self.mdi_area.setActiveSubWindow(sub)
                     widget.show(); sub.showNormal(); sub.showMaximized()
                     self._bring_subwindow_to_front(sub)
-                    self.set_work_status("7.LOT조회/보정 창이 활성화되었습니다.")
+                    self.set_work_status("8.LOT조회/보정 창이 활성화되었습니다.")
                     return
             widget = LotRegWindow()
             sub_window = self.mdi_area.addSubWindow(widget)
@@ -1442,7 +1471,7 @@ class MixNMainWindow(QMainWindow):
             )
             widget.show(); sub_window.show(); sub_window.showMaximized()
             self._bring_subwindow_to_front(sub_window)
-            self.set_work_status("7.LOT조회/보정 창이 열렸습니다.")
+            self.set_work_status("8.LOT조회/보정 창이 열렸습니다.")
         except Exception as e:
             QMessageBox.critical(self, "LOT조회/보정 실행 오류", f"LOT조회/보정 화면을 열 수 없습니다.\n\n{e}")
 
@@ -1502,7 +1531,7 @@ class MixNMainWindow(QMainWindow):
                     sub.showNormal()
                     sub.showMaximized()
                     self._bring_subwindow_to_front(sub)
-                    self.set_work_status("5.거래처입력 창이 활성화되었습니다.")
+                    self.set_work_status("6.거래처입력 창이 활성화되었습니다.")
                     return
 
             # AccountRegWindow 실제 생성자는 parent=None만 받는다.
@@ -1530,7 +1559,7 @@ class MixNMainWindow(QMainWindow):
             sub_window.showMaximized()
             self._bring_subwindow_to_front(sub_window)
 
-            self.set_work_status("5.거래처입력 창이 열렸습니다.")
+            self.set_work_status("6.거래처입력 창이 열렸습니다.")
 
         except Exception as e:
             QMessageBox.critical(

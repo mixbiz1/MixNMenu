@@ -26,7 +26,11 @@
 ## Phase 4 --- Common Code / Master
 
 공통코드 → Partner/Customer → Product/Category/Brand/Origin/EST/Tax →
-Warehouse 순으로 구축한다.
+Warehouse → ExpenseCode 순으로 구축한다.
+
+2026-09-17 현재 공통코드·거래처·상품·창고·LOT·초기자료 1차와 계층형
+경비코드 Master를 구현하였다. 경비코드는 향후 매입·매출·경비 Detail 및
+손익계산서 Report와 연결한다.
 
 ## Phase 5 --- LOT / Logistics
 

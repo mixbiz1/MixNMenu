@@ -88,3 +88,13 @@ Dashboard/Main View에는 QUiLoader 잔재가 있다.
 
 현재 코드를 버리고 재작성하지 않는다. 실행되는 기능을 유지하면서 Company
 Vertical Slice부터 목표 구조로 전환한다.
+
+## 2026-09-17 추가 구현 상태
+
+-   일반 공통코드 상세행 선택을 고유 `code_value_id` 기준으로 편집·사용중지에
+    연결하였다.
+-   `tb_expense_code` Self FK 기반 계층형 경비코드 Master를 추가하였다.
+-   경비코드는 상품분류·일반 공통코드와 별도 PK/FK를 사용하며 최대 4단계,
+    손익구분 상속, 하위코드 동시 사용중지 원칙을 적용한다.
+-   장기 Gap: 실제 매입·매출·경비 Transaction Detail에 `expense_id` FK를
+    연결하고 손익계산서·경비통계 Report를 구현해야 한다.
