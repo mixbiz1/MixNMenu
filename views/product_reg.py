@@ -1,3 +1,4 @@
+import math
 import httpx
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -125,7 +126,8 @@ class ProductRegWindow(QWidget):
         self.product_category = QComboBox()
         self.specification = QLineEdit()
         self.tax_type = QComboBox(); self.tax_type.addItem("면세", "2"); self.tax_type.addItem("과세", "1")
-        self.unit_price = QDoubleSpinBox(); self.unit_price.setRange(0, 9999999999); self.unit_price.setDecimals(2)
+        self.unit_price = QDoubleSpinBox(); self.unit_price.setRange(0, 9999999999); self.unit_price.setDecimals(0)
+        self.unit_price.setSingleStep(1); self.unit_price.setGroupSeparatorShown(True)
         self.expiry_rule = QComboBox()
         self.expiry_rule.addItem("자동판단 (냉동은 2년-1일)", "AUTO")
         self.expiry_rule.addItem("냉동 2년-1일", "FROZEN_2Y")
@@ -627,7 +629,7 @@ class ProductRegWindow(QWidget):
         payload = {"product_code": self.product_code.text().strip(), "product_name": name,
                    "category_id": self.product_category.currentData(), "specification": self.specification.text().strip() or None,
                    "meat_regn_code": self.meat_regn_code.text().strip() or None, "meat_regn_name": self.meat_regn_name.text().strip() or None,
-                   "tax_type": self.tax_type.currentData(), "unit_price": self.unit_price.value(),
+                   "tax_type": self.tax_type.currentData(), "unit_price": math.ceil(self.unit_price.value()),
                    "expiry_rule": self.expiry_rule.currentData(),
                    "shelf_life_days": self.shelf_life_days.value() if self.expiry_rule.currentData() == "DAYS" else None,
                    "memo": self.memo.toPlainText().strip() or None, "use_yn": self.product_use.isChecked(),

@@ -12,7 +12,7 @@ from app_context import app_context
 
 API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 COLUMNS = [
-    "상품 *", "구분 *", "LOT번호", "공급자 LOT", "BL번호", "컨테이너",
+    "상품 *", "구분 *", "LOT번호", "공급자 LOT(포장표기)", "BL번호", "컨테이너",
     "이력번호", "생산일 *", "자동 소비기한", "BOX *", "KG *",
     "개별원가 *", "재고금액", "메모",
 ]
@@ -94,7 +94,7 @@ class OpeningInventoryRegWindow(QWidget):
         self.table = EnterTableWidget(0, len(COLUMNS)); self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems); self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Fixed)
-        for col, width in enumerate((280, 75, 115, 110, 105, 115, 115, 115, 120, 70, 90, 105, 120, 150)):
+        for col, width in enumerate((280, 75, 145, 155, 105, 115, 115, 115, 120, 70, 90, 105, 120, 150)):
             self.table.setColumnWidth(col, width)
         self.table.setMinimumHeight(240); el.addWidget(self.table); splitter.addWidget(edit_box)
 

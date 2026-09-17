@@ -598,7 +598,7 @@ class ProductSchema(BaseModel):
     meat_regn_code: Optional[str] = None
     meat_regn_name: Optional[str] = None
     tax_type: str = "2"
-    unit_price: float = 0
+    unit_price: Decimal = Field(default=Decimal("0"), ge=0)
     expiry_rule: str = "AUTO"
     shelf_life_days: Optional[int] = Field(default=None, ge=1)
     memo: Optional[str] = None
@@ -655,7 +655,7 @@ def _product_result(obj, db: Session, assignments=None):
         "meat_regn_code": obj.meat_regn_code,
         "meat_regn_name": obj.meat_regn_name,
         "tax_type": obj.tax_type,
-        "unit_price": float(obj.unit_price or 0),
+        "unit_price": int(_ceil_won(obj.unit_price)),
         "expiry_rule": obj.expiry_rule or "AUTO",
         "shelf_life_days": obj.shelf_life_days,
         "memo": obj.memo,
@@ -845,6 +845,7 @@ def create_product(data: ProductSchema, db: Session = Depends(get_db)):
     if db.query(models.Product).filter(models.Product.product_code == code).first():
         raise HTTPException(status_code=409, detail="이미 등록된 상품코드입니다.")
     values = data.model_dump(exclude={"product_code", "code_value_ids"})
+    values["unit_price"] = _ceil_won(data.unit_price)
     obj = models.Product(**values, product_code=code)
     db.add(obj); db.flush()
     _save_product_assignments(obj.product_id, data.code_value_ids, db)
@@ -863,7 +864,9 @@ def update_product(product_id: int, data: ProductSchema, db: Session = Depends(g
         raise HTTPException(status_code=400, detail="소비기한 계산규칙이 올바르지 않습니다.")
     if data.expiry_rule == "DAYS" and not data.shelf_life_days:
         raise HTTPException(status_code=400, detail="지정일수 계산은 소비기한 일수가 필요합니다.")
-    for key, value in data.model_dump(exclude={"product_code", "code_value_ids"}).items():
+    values = data.model_dump(exclude={"product_code", "code_value_ids"})
+    values["unit_price"] = _ceil_won(data.unit_price)
+    for key, value in values.items():
         setattr(obj, key, value)
     _save_product_assignments(obj.product_id, data.code_value_ids, db)
     db.commit(); db.refresh(obj)
@@ -1381,6 +1384,23 @@ def _next_daily_number(model, number_column, comp_code: str, prefix: str,
     return f"{head}{max(numbers, default=0) + 1:03d}"
 
 
+def _opening_lot_code(inbound_no: str, detail_sequence: int) -> str:
+    """최초재고 LOT를 기준일-입고전표순번-상세순번으로 식별한다."""
+    header_part = inbound_no[2:] if inbound_no.startswith("OI") else inbound_no
+    return f"L{header_part}-{detail_sequence:02d}"
+
+
+def _next_opening_detail_sequence(header) -> int:
+    sequences = []
+    prefix = f"L{header.inbound_no[2:] if header.inbound_no.startswith('OI') else header.inbound_no}-"
+    for detail in header.items:
+        code = detail.lot.lot_code or ""
+        suffix = code[len(prefix):] if code.startswith(prefix) else ""
+        if suffix.isdigit():
+            sequences.append(int(suffix))
+    return max(sequences, default=len(header.items)) + 1
+
+
 def _quantize_weight(value) -> Decimal:
     return Decimal(str(value)).quantize(Decimal("0.01"))
 
@@ -1514,9 +1534,7 @@ def create_opening_inventory(comp_code: str, data: OpeningInventorySchema,
             expiry_date = _calculate_expiry_date(product, item.production_date, db)
             lot = models.Lot(
                 comp_code=comp_code,
-                lot_code=_next_daily_number(
-                    models.Lot, models.Lot.lot_code, comp_code, "L", data.base_date, db
-                ),
+                lot_code=_opening_lot_code(inbound.inbound_no, line_no),
                 business_lot_no=item.business_lot_no.strip() if item.business_lot_no else None,
                 source_type=item.source_type,
                 product_id=item.product_id,
@@ -1590,6 +1608,7 @@ def update_opening_inventory(comp_code: str, inbound_id: int,
     if not requested_ids.issubset(existing):
         raise HTTPException(status_code=400, detail="현재 전표에 속하지 않은 상세행입니다.")
     try:
+        next_detail_sequence = _next_opening_detail_sequence(header)
         header.inbound_date = data.base_date
         header.warehouse_id = data.warehouse_id
         header.memo = data.memo.strip() if data.memo else None
@@ -1601,6 +1620,7 @@ def update_opening_inventory(comp_code: str, inbound_id: int,
             old_item = existing[removed_id]
             old_lot = old_item.lot
             db.delete(old_item); db.flush(); db.delete(old_lot)
+        db.flush()
         for line_no, item in enumerate(data.items, 1):
             if item.source_type not in {"IMPORT", "DOMESTIC"}:
                 raise HTTPException(status_code=400, detail="LOT 구분 값이 올바르지 않습니다.")
@@ -1614,12 +1634,11 @@ def update_opening_inventory(comp_code: str, inbound_id: int,
             else:
                 lot = models.Lot(
                     comp_code=comp_code,
-                    lot_code=_next_daily_number(
-                        models.Lot, models.Lot.lot_code, comp_code, "L", data.base_date, db
-                    ),
+                    lot_code=_opening_lot_code(header.inbound_no, next_detail_sequence),
                     product_id=item.product_id,
                     warehouse_id=data.warehouse_id,
                 )
+                next_detail_sequence += 1
                 db.add(lot); db.flush()
                 detail = models.InboundItem(inbound_id=header.inbound_id, lot_id=lot.lot_id)
                 db.add(detail)

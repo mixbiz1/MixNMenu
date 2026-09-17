@@ -772,7 +772,7 @@ class MixNMainWindow(QMainWindow):
         )
 
         common_code_action = QAction(
-            "2.코드관리",
+            "2.공통코드입력",
             self,
         )
         common_code_action.triggered.connect(
@@ -845,13 +845,6 @@ class MixNMainWindow(QMainWindow):
         opening_balance_action.triggered.connect(self.open_opening_balance_reg)
         opening_menu.addAction(opening_balance_action)
         self.menu2.addMenu(opening_menu)
-
-        self.menu2.addAction(
-            QAction(
-                "9.더존iU연동관리",
-                self,
-            )
-        )
 
         # ----------------------------------------------------
         # 기타 업무 메뉴

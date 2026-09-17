@@ -141,9 +141,9 @@ class MainDashboard(QWidget):
         menu_structure = {
             "코드관리": [
                 "거래처입력",
-                "공통코드입력(공통)",
-                "공통코드입력(상품)",
-                "상품입력",
+                "공통코드입력",
+                "상품코드입력",
+                "상품입력코드",
                 "경비코드입력"
             ],
             "입출금관리": [
@@ -230,7 +230,17 @@ class MainDashboard(QWidget):
                     "메인창의 거래처입력 기능과 연결되지 않았습니다.",
                     "warning",
                 )
-        elif menu_name == "상품입력":
+        elif menu_name == "공통코드입력":
+            if self.main_window and hasattr(self.main_window, "open_common_code"):
+                self.main_window.open_common_code()
+            else:
+                self.show_popup_msg("실행 오류", "공통코드입력 기능과 연결되지 않았습니다.", "warning")
+        elif menu_name == "상품코드입력":
+            if self.main_window and hasattr(self.main_window, "open_goods_common_code"):
+                self.main_window.open_goods_common_code()
+            else:
+                self.show_popup_msg("실행 오류", "상품코드입력 기능과 연결되지 않았습니다.", "warning")
+        elif menu_name == "상품입력코드":
             if self.main_window and hasattr(self.main_window, "open_product_reg"):
                 self.main_window.open_product_reg()
             else:

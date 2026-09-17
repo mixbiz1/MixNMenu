@@ -90,10 +90,13 @@ LOT에는 개별원가를 유지한다. 평균원가를 사용하지 않는다.
 Master이다.
 
 -   내부 PK: `lot_id`
--   업무 표시번호: 회사별 `lot_code` (`LYYYYMMDD-001` 형식 자동발번)
+-   업무 표시번호: 일반 LOT는 회사별 `LYYYYMMDD-001`, 최초재고 LOT는
+    `LYYYYMMDD-HHH-DD`(기준일-최초입고 Header 순번-Detail 생성순번) 형식으로
+    자동발번한다.
 -   발생구분: 수입(`IMPORT`) / 국내매입(`DOMESTIC`)
 -   연결: `comp_code + product_id + warehouse_id`(최초 입고 예정창고)
--   추적: 공급자 LOT번호, BL번호, 컨테이너번호, 축산물이력번호
+-   추적: 공급자 LOT번호(공급자 포장·라벨에 표시된 외부 LOT), BL번호,
+    컨테이너번호, 축산물이력번호
 -   속성 Snapshot: 원산지, EST NO, 생산일, 소비기한
 -   평가: `individual_cost` 원/KG, LOT별 개별원가(정수 원, 소수점 올림)
 -   상태: 사용중(`OPEN`) / 보류(`HOLD`) / 마감(`CLOSED`)
