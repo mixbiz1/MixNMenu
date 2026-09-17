@@ -1,6 +1,6 @@
 # MXMN CURRENT STATUS
 
-**Version:** 1.7\
+**Version:** 1.8\
 **Status date:** 2026-09-17\
 **Project:** MXMN\
 **Purpose:** 현재 실제 구현·검증 상태와 다음 작업을 짧게 유지하는 운영
@@ -14,9 +14,9 @@ MXMN은 MASTER 영역의 **거래처관리·공통코드관리·상품공통코�
 계층형 상품분류·상품 Master 입력 Vertical Slice를 구현하고 주요 사용자
 실행검증을 완료**하였다.
 
-상품코드 영역과 **창고 Master는 1차 기능 구현 및 사용자 실행검증을
-완료**하였다. 다음 개발 단계는 LOT Master를 설계한 뒤 입고 → 재고 → 출고
-Vertical Slice로 연결하는 것이다.
+상품코드·창고 Master·LOT 조회/보정 영역은 **1차 완료**하였다. 다음 개발
+단계는 시스템 도입 시점의 최초재고와 거래처 최초잔액을 등록하는
+`초기자료등록` Vertical Slice이다.
 
 기본 실행 구조는 다음과 같다.
 
@@ -450,13 +450,13 @@ ChatGPT Project의 문서는 설계 및 현재 상태 공유에 사용한다.
 
 ## 16. Git 기준점
 
-2026-09-16 상품코드 1차 마무리 기준:
+2026-09-17 LOT 1차 마무리 기준:
 
 -   저장소: `mixbiz1/MixNMenu`
 -   Branch: `main`
--   최신 기능 Commit: `bd0cfa2b250d14b64cd4bf3793bd93a08d13dbbb`
--   Commit Message: `feat: add human-friendly code selector sorting`
--   로컬 작업내용은 상태문서 갱신 Commit으로 GitHub에 추가 동기화한다.
+-   최신 기능 Commit: `3f7687f0e85e59959a7c6c9db3380f121c769550`
+-   Commit Message: `fix: enforce lot numeric precision rules`
+-   LOT 기능·정밀도 원칙은 위 Commit을 정상 기준점으로 한다.
 
 향후 이 문서에는 필요 시 다음 정보를 기록한다.
 
@@ -481,9 +481,9 @@ venv\Scripts\activate
 1.  FastAPI 서버와 MXMN을 실행한다.
 2.  FastAPI와 MXMN Client의 정상 실행을 확인한다.
 3.  `04_CURRENT_STATUS.md`와 GitHub `main` 최신 소스를 기준으로 작업한다.
-4.  아래의 다음 작업 시작문을 사용하여 LOT Master 설계를 시작한다.
+4.  이 문서 마지막의 새 대화 시작문으로 초기자료등록 설계를 시작한다.
 
-마지막 상품목록 조회 최적화에는 DB 구조 변경이 없으므로 별도 Migration은
+LOT 정밀도 최종 보완에는 DB 구조 변경이 없으므로 별도 Migration은
 필요하지 않다. FastAPI와 MXMN Client는 재시작한다.
 
 ------------------------------------------------------------------------
