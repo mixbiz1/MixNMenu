@@ -61,6 +61,7 @@ MixNMenu/
 -   `views/password_change.py`: 현재 로그인 사용자 비밀번호 변경 대화상자
 -   `views/expense_code_reg.py`: 손익·경비통계용 계층형 경비코드 입력
 -   `db_expense_code_migrate.py`: `tb_expense_code` 비파괴 Migration
+-   `expense_code_defaults.py`: 시스템 표준 손익·경비코드 트리 정의
 -   `views/main_view.py`: Legacy/Archive 후보
 -   `ui-당분간 사용안함`: 신규 개발에 사용하지 않고 Archive 성격으로
     유지

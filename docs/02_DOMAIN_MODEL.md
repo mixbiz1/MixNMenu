@@ -80,3 +80,5 @@ LOT + INBOUND/OUTBOUND
 19. One Data → Multiple Reports
 20. Vertical Slice Development
 21. ExpenseCode는 ProductCategory와 분리된 계층형 Master
+22. ExpenseCode의 최상위 손익·자동계산 항목은 시스템 표준구조
+23. 거래 Detail은 ExpenseCode의 실제입력(INPUT) 말단만 참조

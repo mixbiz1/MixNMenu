@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db, engine, Base
+from expense_code_defaults import STANDARD_EXPENSE_TREE
 import models
 
 
@@ -597,11 +598,17 @@ def deactivate_code_value(
 
 EXPENSE_STATEMENT_SECTIONS = {
     "SALES",
-    "PURCHASE",
+    "COST_OF_SALES",
     "SGA",
     "NON_OPERATING_INCOME",
     "NON_OPERATING_EXPENSE",
+    "GROSS_PROFIT",
+    "OPERATING_PROFIT",
+    "PRETAX_PROFIT",
+    "INCOME_TAX",
+    "NET_PROFIT",
 }
+EXPENSE_NODE_TYPES = {"GROUP", "INPUT"}
 
 
 class ExpenseCodeSchema(BaseModel):
@@ -609,6 +616,7 @@ class ExpenseCodeSchema(BaseModel):
     expense_name: str
     parent_expense_id: Optional[int] = None
     statement_section: str
+    node_type: str = "INPUT"
     description: Optional[str] = None
     sort_order: int = 0
     use_yn: bool = True
@@ -625,9 +633,7 @@ def _next_expense_code(db: Session) -> str:
 def _expense_parent_values(parent_id: Optional[int], section: str, db: Session):
     normalized = (section or "").strip().upper()
     if parent_id is None:
-        if normalized not in EXPENSE_STATEMENT_SECTIONS:
-            raise HTTPException(status_code=400, detail="올바른 손익구분을 선택하세요.")
-        return 1, normalized
+        raise HTTPException(status_code=400, detail="최상위 손익구조는 시스템이 관리합니다.")
     parent = db.query(models.ExpenseCode).filter(
         models.ExpenseCode.expense_id == parent_id
     ).first()
@@ -635,9 +641,56 @@ def _expense_parent_values(parent_id: Optional[int], section: str, db: Session):
         raise HTTPException(status_code=400, detail="상위 경비코드가 없습니다.")
     if not parent.use_yn:
         raise HTTPException(status_code=400, detail="사용중지된 경비코드 아래에는 추가할 수 없습니다.")
+    if parent.node_type != "GROUP":
+        raise HTTPException(status_code=400, detail="그룹 항목 아래에만 하위항목을 추가할 수 있습니다.")
     if parent.expense_level >= 4:
         raise HTTPException(status_code=400, detail="경비코드는 4단계까지만 생성할 수 있습니다.")
     return parent.expense_level + 1, parent.statement_section
+
+
+def _seed_standard_expense_codes(db: Session, replace=False):
+    existing = db.query(models.ExpenseCode).count()
+    if existing and not replace:
+        return False
+    if existing:
+        rows = db.query(models.ExpenseCode).order_by(
+            models.ExpenseCode.expense_level.desc()
+        ).all()
+        for row in rows:
+            db.delete(row)
+        db.flush()
+    ids = {}
+    for index, row in enumerate(STANDARD_EXPENSE_TREE, start=1):
+        key, parent_key, name, section, node_type, formula, order, description = row
+        parent_id = ids.get(parent_key)
+        level = 1
+        if parent_id:
+            parent = db.query(models.ExpenseCode).filter(
+                models.ExpenseCode.expense_id == parent_id
+            ).one()
+            level = parent.expense_level + 1
+        obj = models.ExpenseCode(
+            expense_code=f"E{index:05d}", expense_name=name,
+            parent_expense_id=parent_id, expense_level=level,
+            statement_section=section, node_type=node_type,
+            formula_code=formula, system_yn=(level == 1),
+            description=description, sort_order=order, use_yn=True,
+        )
+        db.add(obj)
+        db.flush()
+        ids[key] = obj.expense_id
+    db.commit()
+    return True
+
+
+@app.post("/api/v1/expense-codes/initialize-standard")
+def initialize_standard_expense_codes(replace: bool = False, db: Session = Depends(get_db)):
+    try:
+        changed = _seed_standard_expense_codes(db, replace=replace)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="거래에 연결된 코드가 있어 표준구조로 재구성할 수 없습니다.")
+    return {"changed": changed, "message": "표준 손익구조가 생성되었습니다." if changed else "기존 구조를 유지했습니다."}
 
 
 @app.get("/api/v1/expense-codes/next-code")
@@ -647,6 +700,8 @@ def get_next_expense_code(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/expense-codes")
 def get_expense_codes(include_inactive: bool = False, db: Session = Depends(get_db)):
+    if db.query(models.ExpenseCode).count() == 0:
+        _seed_standard_expense_codes(db)
     query = db.query(models.ExpenseCode)
     if not include_inactive:
         query = query.filter(models.ExpenseCode.use_yn == True)
@@ -667,11 +722,16 @@ def create_expense_code(data: ExpenseCodeSchema, db: Session = Depends(get_db)):
     level, section = _expense_parent_values(
         data.parent_expense_id, data.statement_section, db
     )
+    node_type = data.node_type.strip().upper()
+    if node_type not in EXPENSE_NODE_TYPES:
+        raise HTTPException(status_code=400, detail="항목성격은 그룹 또는 실제입력만 선택할 수 있습니다.")
     obj = models.ExpenseCode(
-        **data.model_dump(exclude={"expense_code", "statement_section"}),
+        **data.model_dump(exclude={"expense_code", "statement_section", "node_type"}),
         expense_code=code,
         expense_level=level,
         statement_section=section,
+        node_type=node_type,
+        system_yn=False,
     )
     db.add(obj)
     db.commit()
@@ -688,6 +748,8 @@ def update_expense_code(
     ).first()
     if not obj:
         raise HTTPException(status_code=404, detail="등록되지 않은 경비코드입니다.")
+    if obj.system_yn:
+        raise HTTPException(status_code=400, detail="시스템 표준항목은 수정할 수 없습니다.")
     if data.expense_code.strip().upper() != obj.expense_code:
         raise HTTPException(status_code=400, detail="저장된 경비코드는 변경할 수 없습니다.")
     if data.parent_expense_id == expense_id:
@@ -704,10 +766,19 @@ def update_expense_code(
     level, section = _expense_parent_values(
         data.parent_expense_id, data.statement_section, db
     )
+    node_type = data.node_type.strip().upper()
+    if node_type not in EXPENSE_NODE_TYPES:
+        raise HTTPException(status_code=400, detail="항목성격은 그룹 또는 실제입력만 선택할 수 있습니다.")
+    has_children = db.query(models.ExpenseCode).filter(
+        models.ExpenseCode.parent_expense_id == expense_id
+    ).first()
+    if has_children and node_type != "GROUP":
+        raise HTTPException(status_code=400, detail="하위항목이 있는 코드는 그룹으로 유지해야 합니다.")
     section_changed = obj.statement_section != section
-    values = data.model_dump(exclude={"expense_code", "statement_section"})
+    values = data.model_dump(exclude={"expense_code", "statement_section", "node_type"})
     values["expense_level"] = level
     values["statement_section"] = section
+    values["node_type"] = node_type
     for key, value in values.items():
         setattr(obj, key, value)
     if section_changed:
@@ -734,10 +805,11 @@ def update_expense_code(
 
 
 @app.delete("/api/v1/expense-codes/{expense_id}")
-def deactivate_expense_code(expense_id: int, db: Session = Depends(get_db)):
-    if not db.query(models.ExpenseCode).filter(
+def delete_expense_code(expense_id: int, db: Session = Depends(get_db)):
+    target = db.query(models.ExpenseCode).filter(
         models.ExpenseCode.expense_id == expense_id
-    ).first():
+    ).first()
+    if not target:
         raise HTTPException(status_code=404, detail="등록되지 않은 경비코드입니다.")
     pending = [expense_id]
     affected = []
@@ -748,11 +820,25 @@ def deactivate_expense_code(expense_id: int, db: Session = Depends(get_db)):
             models.ExpenseCode.parent_expense_id == current
         ).all()
         pending.extend(row[0] for row in children if row[0] not in affected)
-    db.query(models.ExpenseCode).filter(
-        models.ExpenseCode.expense_id.in_(affected)
-    ).update({models.ExpenseCode.use_yn: False}, synchronize_session=False)
-    db.commit()
-    return {"message": "선택 경비코드와 하위코드가 사용중지되었습니다."}
+    protected = db.query(models.ExpenseCode).filter(
+        models.ExpenseCode.expense_id.in_(affected), models.ExpenseCode.system_yn == True
+    ).first()
+    if protected:
+        raise HTTPException(status_code=400, detail="시스템 표준항목은 삭제할 수 없습니다.")
+    try:
+        for row in db.query(models.ExpenseCode).filter(
+            models.ExpenseCode.expense_id.in_(affected)
+        ).order_by(models.ExpenseCode.expense_level.desc()).all():
+            db.delete(row)
+        db.commit()
+        return {"mode": "deleted", "message": "사용 이력이 없는 항목을 삭제했습니다."}
+    except IntegrityError:
+        db.rollback()
+        db.query(models.ExpenseCode).filter(
+            models.ExpenseCode.expense_id.in_(affected)
+        ).update({models.ExpenseCode.use_yn: False}, synchronize_session=False)
+        db.commit()
+        return {"mode": "deactivated", "message": "연결 자료가 있어 삭제하지 않고 사용중지했습니다."}
 
 
 # =============================================================================

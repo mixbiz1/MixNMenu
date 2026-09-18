@@ -41,12 +41,13 @@
 -   `tb_code_group`
 -   `tb_code_value`
 -   `tb_expense_code`: `expense_id` PK, `expense_code` UNIQUE,
-    `parent_expense_id` Self FK, 최대 4단계, 손익구분
+    `parent_expense_id` Self FK, 최대 4단계, 손익구분, `node_type`,
+    `formula_code`, `system_yn`
 
-경비코드는 매출·매입·판매관리비·영업외수익·영업외비용을 공통 분류하고,
-하위코드는 상위코드의 손익구분을 상속하고 최상위 구분 변경도 전체 하위에
-원자적으로 반영한다. 상품분류나 일반 공통코드와
-PK/FK를 공유하지 않으며, 사용된 코드는 삭제 대신 사용중지한다.
+경비코드는 표준 손익구조 아래 `GROUP`, 거래선택용 `INPUT`, 보고서 계산용
+`CALCULATED`를 구분한다. 하위코드는 상위코드의 손익구분을 상속한다.
+상품분류나 일반 공통코드와 PK/FK를 공유하지 않는다. 참조가 없는 사용자
+코드는 삭제하고, 사용된 코드는 삭제 대신 사용중지한다.
 
 ### Tax
 

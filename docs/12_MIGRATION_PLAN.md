@@ -66,9 +66,11 @@ Migration 실행 후 최초재고와 거래처 최초잔액 API/화면을 사용
 안전하다.
 
 경비코드 Migration은 `db_expense_code_migrate.py`로 실행한다.
-`tb_expense_code`가 없을 때만 Self FK·UNIQUE·계층 Check Constraint와 함께
-추가하며 기존 테이블이나 자료는 수정하지 않는다. 재실행 시 이미 존재하는
-테이블을 확인하고 종료한다.
+`tb_expense_code`가 없으면 Self FK·UNIQUE·계층 Check Constraint와 함께
+추가하고, 기존 테이블에는 `node_type`, `formula_code`, `system_yn` 누락
+Column을 추가한다. 시스템 표준항목이 없는 1차 시험 DB는 현재 거래 참조가
+없다는 전제에서 시험 코드를 표준 손익 트리로 1회 전환한다. 표준항목 생성
+후 재실행은 기존 사용자 하위항목을 유지한다.
 
 ## 금지사항
 
