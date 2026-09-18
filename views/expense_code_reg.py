@@ -60,22 +60,24 @@ class ExpenseCodeWindow(QWidget):
         toolbar.addWidget(QLabel("손익·경비코드 계층관리"))
         toolbar.addStretch()
         self.include_inactive = QCheckBox("사용중지 포함")
-        self.btn_refresh = QPushButton("조회 [F7]")
+        self.btn_refresh = QPushButton("새로고침 [F7]")
         self.btn_child = QPushButton("하위항목 추가 [F2]")
         self.btn_standard = QPushButton("표준구조 재생성")
         self.btn_save = QPushButton("저장 [F4]")
+        self.btn_cancel = QPushButton("취소 [F5]")
         self.btn_delete = QPushButton("삭제 [F6]")
         self.btn_close = QPushButton("닫기")
         for widget in (
             self.include_inactive, self.btn_refresh, self.btn_child, self.btn_standard,
-            self.btn_save, self.btn_delete, self.btn_close,
+            self.btn_save, self.btn_cancel, self.btn_delete, self.btn_close,
         ):
             toolbar.addWidget(widget)
         root.addLayout(toolbar)
 
         guide = QLabel(
-            "최상위 손익·세전·세후 계산항목은 시스템이 자동 관리합니다. 그룹 아래에 실제 입력항목이나 "
-            "하위그룹을 최대 4단계로 구성합니다. 미사용 항목은 삭제하고, 연결 자료가 있으면 사용중지합니다."
+            "최상위 손익·세전·세후 계산항목은 시스템이 자동 관리합니다. 일반 항목은 필요하면 "
+            "하위항목을 최대 4단계로 구성할 수 있으며 거래 입력에서는 최하위 항목을 선택합니다. "
+            "미사용 항목은 삭제하고, 연결 자료가 있으면 사용중지합니다."
         )
         guide.setWordWrap(True)
         guide.setObjectName("guide")
@@ -129,6 +131,7 @@ class ExpenseCodeWindow(QWidget):
         self.btn_child.clicked.connect(self.new_child)
         self.btn_standard.clicked.connect(self.rebuild_standard)
         self.btn_save.clicked.connect(self.save_code)
+        self.btn_cancel.clicked.connect(self.cancel_edit)
         self.btn_delete.clicked.connect(self.delete_code)
         self.btn_close.clicked.connect(self.close_window)
         self.tree.itemClicked.connect(self.on_tree_selected)
@@ -211,7 +214,7 @@ class ExpenseCodeWindow(QWidget):
         self.parent_code.addItem("상위항목을 선택하세요", None)
         for code in self.codes:
             if (not code.get("use_yn") or code.get("expense_level", 1) >= 4
-                    or code.get("node_type") != "GROUP"):
+                    or code.get("node_type") == "CALCULATED"):
                 continue
             if code.get("expense_id") == self.current_expense_id:
                 continue
@@ -277,7 +280,11 @@ class ExpenseCodeWindow(QWidget):
         self.use_yn.setEnabled(not protected)
         self.btn_save.setEnabled(not protected)
         self.btn_delete.setEnabled(not protected)
-        self.btn_child.setEnabled(code.get("node_type") == "GROUP" and bool(code.get("use_yn")))
+        self.btn_child.setEnabled(
+            code.get("node_type") != "CALCULATED"
+            and code.get("expense_level", 1) < 4
+            and bool(code.get("use_yn"))
+        )
 
     def _next_code(self):
         response = httpx.get(f"{API_BASE_URL}/expense-codes/next-code", timeout=10)
@@ -293,8 +300,8 @@ class ExpenseCodeWindow(QWidget):
         if parent.get("expense_level", 1) >= 4:
             QMessageBox.warning(self, "계층 확인", "경비코드는 4단계까지만 생성할 수 있습니다.")
             return
-        if parent.get("node_type") != "GROUP":
-            QMessageBox.warning(self, "항목 확인", "그룹 항목 아래에만 하위항목을 추가할 수 있습니다.")
+        if parent.get("node_type") == "CALCULATED":
+            QMessageBox.warning(self, "항목 확인", "자동계산 항목 아래에는 하위항목을 추가할 수 없습니다.")
             return
         self.current_expense_id = None
         self.expense_name.clear()
@@ -376,11 +383,29 @@ class ExpenseCodeWindow(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "삭제 오류", str(exc))
 
+    def cancel_edit(self):
+        """신규/수정 중인 값을 버리고 트리에서 선택한 저장값으로 되돌린다."""
+        selected = self.tree.selectedItems()
+        if selected:
+            self.on_tree_selected(selected[0], 0)
+            return
+        self.current_expense_id = None
+        self.expense_code.clear()
+        self.expense_name.clear()
+        self.description.clear()
+        self.sort_order.setValue(0)
+        self.use_yn.setChecked(True)
+        self.path_label.setText("-")
+        self._fill_parent_combo(None)
+        self.btn_delete.setEnabled(False)
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_F2:
             self.new_child()
         elif event.key() == Qt.Key_F4:
             self.save_code()
+        elif event.key() == Qt.Key_F5:
+            self.cancel_edit()
         elif event.key() == Qt.Key_F6:
             self.delete_code()
         elif event.key() == Qt.Key_F7:

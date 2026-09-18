@@ -641,8 +641,8 @@ def _expense_parent_values(parent_id: Optional[int], section: str, db: Session):
         raise HTTPException(status_code=400, detail="상위 경비코드가 없습니다.")
     if not parent.use_yn:
         raise HTTPException(status_code=400, detail="사용중지된 경비코드 아래에는 추가할 수 없습니다.")
-    if parent.node_type != "GROUP":
-        raise HTTPException(status_code=400, detail="그룹 항목 아래에만 하위항목을 추가할 수 있습니다.")
+    if parent.node_type == "CALCULATED":
+        raise HTTPException(status_code=400, detail="자동계산 항목 아래에는 하위항목을 추가할 수 없습니다.")
     if parent.expense_level >= 4:
         raise HTTPException(status_code=400, detail="경비코드는 4단계까지만 생성할 수 있습니다.")
     return parent.expense_level + 1, parent.statement_section
@@ -769,11 +769,6 @@ def update_expense_code(
     node_type = data.node_type.strip().upper()
     if node_type not in EXPENSE_NODE_TYPES:
         raise HTTPException(status_code=400, detail="항목성격은 그룹 또는 실제입력만 선택할 수 있습니다.")
-    has_children = db.query(models.ExpenseCode).filter(
-        models.ExpenseCode.parent_expense_id == expense_id
-    ).first()
-    if has_children and node_type != "GROUP":
-        raise HTTPException(status_code=400, detail="하위항목이 있는 코드는 그룹으로 유지해야 합니다.")
     section_changed = obj.statement_section != section
     values = data.model_dump(exclude={"expense_code", "statement_section", "node_type"})
     values["expense_level"] = level
