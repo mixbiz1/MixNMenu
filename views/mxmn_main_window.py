@@ -867,7 +867,7 @@ class MixNMainWindow(QMainWindow):
             "4.상품입/출고관리",
             self,
         )
-        self.action_purchase = QAction("1.일반 매입등록", self)
+        self.action_purchase = QAction("1.상품매입등록", self)
         self.action_purchase.triggered.connect(self.open_purchase_reg)
         self.menu4.addAction(self.action_purchase)
 
@@ -1538,8 +1538,8 @@ class MixNMainWindow(QMainWindow):
 
 
     def open_purchase_reg(self):
-        """일반 매입등록 화면을 MDI에 1개만 연다."""
-        self._open_single_mdi(PurchaseRegWindow, "일반 매입등록", "상품입/출고관리 → 일반 매입등록")
+        """상품매입등록 화면을 MDI에 1개만 연다."""
+        self._open_single_mdi(PurchaseRegWindow, "상품매입등록", "상품입/출고관리 → 상품매입등록")
 
 
     def _open_single_mdi(self, widget_class, title, status_text):

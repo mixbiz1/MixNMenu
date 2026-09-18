@@ -27,6 +27,12 @@ def test_api_route_permission_mapping():
         "POST", "/api/v1/companies/00001/purchases/1/confirm"
     )
     assert (confirm.menu_code, confirm.action) == ("PURCHASE_GENERAL", "update")
+    assert permissions.permission_for_request(
+        "GET", "/api/v1/companies/00001/purchase-payable-summary"
+    ).menu_code == "PURCHASE_GENERAL"
+    assert permissions.permission_for_request(
+        "GET", "/api/v1/companies/00001/meatwatch/bl-lookup"
+    ).menu_code == "PURCHASE_GENERAL"
 
 
 def test_company_code_from_path():

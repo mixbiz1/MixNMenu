@@ -311,7 +311,13 @@ class PurchaseItem(Base):
     purchase_id = Column(Integer, ForeignKey("tb_purchase.purchase_id"), nullable=False, index=True)
     line_no = Column(Integer, nullable=False)
     product_id = Column(Integer, ForeignKey("tb_product.product_id"), nullable=False, index=True)
-    expense_id = Column(Integer, ForeignKey("tb_expense_code.expense_id"), nullable=False, index=True)
+    # 상품매입에는 경비코드를 사용하지 않는다. 경비매입은 별도 전표로 구현한다.
+    expense_id = Column(Integer, ForeignKey("tb_expense_code.expense_id"), nullable=True, index=True)
+    warehouse_id = Column(Integer, ForeignKey("tb_warehouse.warehouse_id"), nullable=True, index=True)
+    history_no = Column(String(30), nullable=True, index=True)
+    bl_no = Column(String(80), nullable=True, index=True)
+    lot_id = Column(Integer, ForeignKey("tb_lot.lot_id"), nullable=True, index=True)
+    inbound_item_id = Column(Integer, ForeignKey("tb_inbound_item.inbound_item_id"), nullable=True, index=True)
     box_qty = Column(Integer, nullable=False)
     weight = Column(Numeric(18, 2), nullable=False)
     unit_price = Column(Numeric(18, 0), nullable=False)
@@ -326,6 +332,9 @@ class PurchaseItem(Base):
     purchase = relationship("Purchase", back_populates="items")
     product = relationship("Product")
     expense = relationship("ExpenseCode")
+    warehouse = relationship("Warehouse")
+    lot = relationship("Lot")
+    inbound_item = relationship("InboundItem")
 
 
 class Product(Base):
@@ -550,7 +559,7 @@ class AccountTransaction(Base):
     transaction_no = Column(String(30), nullable=False, index=True)
     transaction_date = Column(Date, nullable=False, index=True)
     account_id = Column(Integer, ForeignKey("tb_account.account_id"), nullable=False, index=True)
-    transaction_type = Column(String(30), nullable=False)  # OPENING_RECEIVABLE / OPENING_PAYABLE / RECEIPT / PAYMENT
+    transaction_type = Column(String(30), nullable=False)  # OPENING_* / PURCHASE_PAYABLE / RECEIPT / PAYMENT
     original_amount = Column(Numeric(18, 0), nullable=False)
     memo = Column(String(1000), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

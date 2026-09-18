@@ -2,8 +2,11 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING
 import hashlib
 import hmac
+import os
 import secrets
 from typing import Optional
+
+import httpx as external_httpx
 
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -2730,11 +2733,15 @@ def get_trade_input_options(comp_code: str, transaction_date: date, db: Session 
 class PurchaseItemInput(BaseModel):
     line_no: int = Field(ge=1)
     product_id: int
-    expense_id: int
+    expense_id: Optional[int] = None  # 구버전 Client 호환. 상품매입에서는 사용하지 않는다.
+    warehouse_id: int
     box_qty: int = Field(ge=0)
     weight: Decimal = Field(gt=0, decimal_places=2)
     unit_price: int = Field(ge=0)
-    tax_code: str = Field(min_length=1, max_length=20)
+    taxable_yn: bool = False
+    tax_code: Optional[str] = Field(default=None, max_length=20)
+    history_no: Optional[str] = Field(default=None, max_length=30)
+    bl_no: Optional[str] = Field(default=None, max_length=80)
     supply_amount: Optional[int] = Field(default=None, ge=0)
     tax_amount: Optional[int] = Field(default=None, ge=0)
     total_amount: Optional[int] = Field(default=None, ge=0)
@@ -2762,7 +2769,7 @@ def _purchase_supplier(db: Session, comp_code: str, account_id: int):
     return row
 
 
-def _prepare_purchase_lines(db: Session, purchase_date: date, items):
+def _prepare_purchase_lines(db: Session, comp_code: str, purchase_date: date, items):
     line_numbers = [item.line_no for item in items]
     if len(set(line_numbers)) != len(line_numbers):
         raise HTTPException(status_code=400, detail="전표 내 Detail 순번은 중복될 수 없습니다.")
@@ -2773,8 +2780,16 @@ def _prepare_purchase_lines(db: Session, purchase_date: date, items):
         ).first()
         if not product:
             raise HTTPException(status_code=400, detail=f"{item.line_no}행 상품은 사용 중인 상품이 아닙니다.")
-        validate_leaf_input_expense(db, item.expense_id)
-        tax = db.query(models.TaxCode).filter(models.TaxCode.tax_code == item.tax_code).first()
+        warehouse = db.query(models.Warehouse).join(models.CompanyWarehouse).filter(
+            models.Warehouse.warehouse_id == item.warehouse_id,
+            models.Warehouse.use_yn == True,
+            models.CompanyWarehouse.comp_code == comp_code,
+            models.CompanyWarehouse.use_yn == True,
+        ).first()
+        if not warehouse:
+            raise HTTPException(status_code=400, detail=f"{item.line_no}행 창고는 현재 회사에서 사용하는 창고가 아닙니다.")
+        tax_code = "VAT10" if item.taxable_yn else "EXEMPT"
+        tax = db.query(models.TaxCode).filter(models.TaxCode.tax_code == tax_code).first()
         if not tax:
             raise HTTPException(status_code=400, detail=f"{item.line_no}행 세금코드가 없습니다.")
         snapshot = tax_snapshot(tax, purchase_date)
@@ -2782,7 +2797,10 @@ def _prepare_purchase_lines(db: Session, purchase_date: date, items):
         validate_client_amounts(calculated, item.model_dump())
         prepared.append({
             "line_no": item.line_no, "product_id": item.product_id,
-            "expense_id": item.expense_id, "box_qty": validate_box_qty(item.box_qty),
+            "expense_id": None, "warehouse_id": item.warehouse_id,
+            "history_no": item.history_no.strip() if item.history_no else None,
+            "bl_no": item.bl_no.strip() if item.bl_no else None,
+            "box_qty": validate_box_qty(item.box_qty),
             "weight": Decimal(item.weight), "unit_price": item.unit_price,
             **snapshot, **calculated, "memo": item.memo,
         })
@@ -2812,6 +2830,12 @@ def _purchase_result(row):
             "expense_id": item.expense_id,
             "expense_code": item.expense.expense_code if item.expense else None,
             "expense_name": item.expense.expense_name if item.expense else None,
+            "warehouse_id": item.warehouse_id,
+            "warehouse_name": item.warehouse.warehouse_name if item.warehouse else None,
+            "history_no": item.history_no, "bl_no": item.bl_no,
+            "average_weight": (Decimal(item.weight) / item.box_qty).quantize(Decimal("0.01")) if item.box_qty else Decimal("0.00"),
+            "lot_id": item.lot_id, "lot_code": item.lot.lot_code if item.lot else None,
+            "inbound_item_id": item.inbound_item_id,
             "box_qty": item.box_qty, "weight": item.weight, "unit_price": item.unit_price,
             "supply_amount": item.supply_amount,
             "tax_code_snapshot": item.tax_code_snapshot,
@@ -2834,24 +2858,54 @@ def _purchase_or_404(db: Session, comp_code: str, purchase_id: int):
 
 
 @app.get("/api/v1/companies/{comp_code}/purchase-options")
-def get_purchase_options(comp_code: str, transaction_date: date, db: Session = Depends(get_db)):
+def get_purchase_options(comp_code: str, transaction_date: date,
+                         supplier_query: str = "", product_query: str = "",
+                         db: Session = Depends(get_db)):
     _get_company_or_404(comp_code, db)
-    suppliers = (db.query(models.CompanyAccount, models.Account)
+    suppliers_query = (db.query(models.CompanyAccount, models.Account)
                  .join(models.Account, models.Account.account_id == models.CompanyAccount.account_id)
                  .filter(models.CompanyAccount.comp_code == comp_code,
                          models.CompanyAccount.use_yn == True,
                          models.CompanyAccount.trade_stop_yn == False,
                          models.CompanyAccount.purchase_yn == True,
-                         models.Account.use_yn == True)
-                 .order_by(models.Account.account_name).all())
-    products = db.query(models.Product).filter(models.Product.use_yn == True).order_by(
-        models.Product.product_name, models.Product.product_code).all()
+                         models.Account.use_yn == True))
+    supplier_keyword = supplier_query.strip()
+    if supplier_keyword:
+        pattern = f"%{supplier_keyword}%"
+        suppliers_query = suppliers_query.filter(
+            (models.Account.account_name.like(pattern)) |
+            (models.Account.account_code.like(pattern)) |
+            (models.Account.biz_no.like(pattern))
+        )
+    else:
+        suppliers_query = suppliers_query.filter(models.Account.account_id == -1)
+    suppliers = suppliers_query.order_by(models.Account.account_name).limit(50).all()
+
+    products_query = db.query(models.Product).filter(models.Product.use_yn == True)
+    product_keyword = product_query.strip()
+    if product_keyword:
+        pattern = f"%{product_keyword}%"
+        products_query = products_query.filter(
+            (models.Product.product_name.like(pattern)) |
+            (models.Product.product_code.like(pattern)) |
+            (models.Product.specification.like(pattern))
+        )
+    else:
+        products_query = products_query.filter(models.Product.product_id == -1)
+    products = products_query.order_by(models.Product.product_name, models.Product.product_code).limit(50).all()
+    warehouses = (db.query(models.Warehouse).join(models.CompanyWarehouse)
+                  .filter(models.CompanyWarehouse.comp_code == comp_code,
+                          models.CompanyWarehouse.use_yn == True,
+                          models.Warehouse.use_yn == True)
+                  .order_by(models.Warehouse.warehouse_name).all())
     trade = get_trade_input_options(comp_code, transaction_date, db)
     return {
         "suppliers": [{"account_id": a.account_id, "account_code": a.account_code,
                        "account_name": a.account_name} for _, a in suppliers],
         "products": [{"product_id": p.product_id, "product_code": p.product_code,
                       "product_name": p.product_name, "tax_type": p.tax_type} for p in products],
+        "warehouses": [{"warehouse_id": w.warehouse_id, "warehouse_code": w.warehouse_code,
+                         "warehouse_name": w.warehouse_name} for w in warehouses],
         **trade,
     }
 
@@ -2869,7 +2923,7 @@ def create_purchase(comp_code: str, data: PurchaseInput, request: Request,
                     db: Session = Depends(get_db)):
     _get_company_or_404(comp_code, db); _purchase_supplier(db, comp_code, data.account_id)
     ensure_period_open(db, comp_code, data.purchase_date)
-    prepared = _prepare_purchase_lines(db, data.purchase_date, data.items)
+    prepared = _prepare_purchase_lines(db, comp_code, data.purchase_date, data.items)
     totals = summarize_purchase(prepared)
     row = models.Purchase(
         comp_code=comp_code, purchase_no=allocate_document_no(db, comp_code, "PURCHASE", data.purchase_date),
@@ -2893,7 +2947,7 @@ def update_purchase(comp_code: str, purchase_id: int, data: PurchaseInput,
     ensure_period_open(db, comp_code, row.purchase_date)
     ensure_period_open(db, comp_code, data.purchase_date)
     _purchase_supplier(db, comp_code, data.account_id)
-    prepared = _prepare_purchase_lines(db, data.purchase_date, data.items)
+    prepared = _prepare_purchase_lines(db, comp_code, data.purchase_date, data.items)
     totals = summarize_purchase(prepared)
     if row.purchase_date != data.purchase_date:
         row.purchase_no = allocate_document_no(db, comp_code, "PURCHASE", data.purchase_date)
@@ -2920,13 +2974,131 @@ def delete_purchase(comp_code: str, purchase_id: int, db: Session = Depends(get_
 def confirm_purchase(comp_code: str, purchase_id: int, request: Request,
                      db: Session = Depends(get_db)):
     row = _purchase_or_404(db, comp_code, purchase_id); ensure_period_open(db, comp_code, row.purchase_date)
-    apply_status_transition(row, "CONFIRMED", request.state.user_id)
-    db.commit(); db.refresh(row); return _purchase_result(row)
+    ensure_draft(row)
+    try:
+        inbound_by_warehouse = {}
+        for item in sorted(row.items, key=lambda value: value.line_no):
+            if not item.warehouse_id:
+                raise HTTPException(status_code=400, detail=f"{item.line_no}행 입고창고를 선택하세요.")
+            inbound = inbound_by_warehouse.get(item.warehouse_id)
+            if inbound is None:
+                inbound = models.Inbound(
+                    comp_code=comp_code,
+                    inbound_no=allocate_document_no(db, comp_code, "PURCHASE_INBOUND", row.purchase_date),
+                    inbound_date=row.purchase_date,
+                    warehouse_id=item.warehouse_id,
+                    transaction_type="PURCHASE_INBOUND",
+                    memo=f"상품매입 {row.purchase_no}",
+                )
+                db.add(inbound); db.flush(); inbound_by_warehouse[item.warehouse_id] = inbound
+            product = item.product
+            lot = models.Lot(
+                comp_code=comp_code,
+                lot_code=f"L{row.purchase_no[3:]}-{item.line_no:02d}",
+                business_lot_no=None,
+                source_type="DOMESTIC",
+                product_id=item.product_id,
+                warehouse_id=item.warehouse_id,
+                bl_no=item.bl_no,
+                history_no=item.history_no,
+                origin=_product_attribute(product, "PC003", db),
+                est_no=_product_attribute(product, "PC008", db),
+                individual_cost=item.unit_price,
+                status="OPEN", use_yn=True,
+                memo=f"상품매입 {row.purchase_no} {item.line_no}행",
+            )
+            db.add(lot); db.flush()
+            inbound_item = models.InboundItem(
+                inbound_id=inbound.inbound_id, line_no=item.line_no,
+                product_id=item.product_id, lot_id=lot.lot_id,
+                box_qty=item.box_qty, weight=item.weight,
+                individual_cost=item.unit_price, amount=item.supply_amount,
+            )
+            db.add(inbound_item); db.flush()
+            item.lot_id = lot.lot_id; item.inbound_item_id = inbound_item.inbound_item_id
+
+        db.add(models.AccountTransaction(
+            comp_code=comp_code, transaction_no=row.purchase_no,
+            transaction_date=row.purchase_date, account_id=row.account_id,
+            transaction_type="PURCHASE_PAYABLE", original_amount=row.total_amount,
+            memo=f"상품매입 확정 {row.purchase_no}",
+        ))
+        apply_status_transition(row, "CONFIRMED", request.state.user_id)
+        db.commit()
+    except HTTPException:
+        db.rollback(); raise
+    except IntegrityError:
+        db.rollback(); raise HTTPException(status_code=409, detail="이미 확정되었거나 LOT·입고·미지급 원장 연결이 중복되었습니다.")
+    db.refresh(row); return _purchase_result(row)
 
 
 @app.post("/api/v1/companies/{comp_code}/purchases/{purchase_id}/cancel")
 def cancel_purchase(comp_code: str, purchase_id: int, request: Request,
                     db: Session = Depends(get_db)):
     row = _purchase_or_404(db, comp_code, purchase_id); ensure_period_open(db, comp_code, row.purchase_date)
+    # 현재 출고 Vertical Slice 전이므로 매입확정이 만든 입고/LOT만 원자적으로 회수한다.
+    # 후속 출고 연결 뒤에는 취소출고 원장을 생성하는 방식으로 교체한다.
+    inbound_ids = {item.inbound_item.inbound_id for item in row.items if item.inbound_item}
+    lots = [item.lot for item in row.items if item.lot]
+    for item in row.items:
+        item.inbound_item_id = None; item.lot_id = None
+    db.flush()
+    if inbound_ids:
+        db.query(models.InboundItem).filter(models.InboundItem.inbound_id.in_(inbound_ids)).delete(synchronize_session=False)
+        db.query(models.Inbound).filter(models.Inbound.inbound_id.in_(inbound_ids)).delete(synchronize_session=False)
+    for lot in lots: db.delete(lot)
+    db.query(models.AccountTransaction).filter(
+        models.AccountTransaction.comp_code == comp_code,
+        models.AccountTransaction.transaction_no == row.purchase_no,
+        models.AccountTransaction.transaction_type == "PURCHASE_PAYABLE",
+    ).delete(synchronize_session=False)
     apply_status_transition(row, "CANCELLED", request.state.user_id)
-    db.commit(); db.refresh(row); return _purchase_result(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback(); raise HTTPException(status_code=409, detail="후속 입출고에 연결된 매입은 취소할 수 없습니다.")
+    db.refresh(row); return _purchase_result(row)
+
+
+@app.get("/api/v1/companies/{comp_code}/purchase-payable-summary")
+def get_purchase_payable_summary(comp_code: str, account_id: int, transaction_date: date,
+                                 db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db); _purchase_supplier(db, comp_code, account_id)
+    previous_rows = db.query(models.AccountTransaction).filter(
+        models.AccountTransaction.comp_code == comp_code,
+        models.AccountTransaction.account_id == account_id,
+        models.AccountTransaction.transaction_date < transaction_date,
+    ).all()
+    previous = sum((Decimal(row.original_amount) if row.transaction_type in {
+        "OPENING_PAYABLE", "PURCHASE_PAYABLE"
+    } else -Decimal(row.original_amount) if row.transaction_type == "PAYMENT" else Decimal(0)
+                    for row in previous_rows), Decimal(0))
+    today_payment = db.query(models.AccountTransaction).filter(
+        models.AccountTransaction.comp_code == comp_code,
+        models.AccountTransaction.account_id == account_id,
+        models.AccountTransaction.transaction_date == transaction_date,
+        models.AccountTransaction.transaction_type == "PAYMENT",
+    ).all()
+    return {"previous_payable": int(previous),
+            "today_payment": int(sum((Decimal(row.original_amount) for row in today_payment), Decimal(0)))}
+
+
+@app.get("/api/v1/companies/{comp_code}/meatwatch/bl-lookup")
+def lookup_meatwatch_bl(comp_code: str, history_no: str, db: Session = Depends(get_db)):
+    """미트와치 연동 URL이 설정된 경우 이력번호로 BL번호를 조회한다."""
+    _get_company_or_404(comp_code, db)
+    template = os.getenv("MEATWATCH_BL_LOOKUP_URL", "").strip()
+    if not template:
+        raise HTTPException(status_code=503, detail="미트와치 BL 조회 연동정보가 설정되지 않았습니다. BL번호를 수기로 입력해 주세요.")
+    token = os.getenv("MEATWATCH_API_TOKEN", "").strip()
+    try:
+        response = external_httpx.get(template.format(history_no=history_no.strip()),
+                                      headers={"Authorization": f"Bearer {token}"} if token else {}, timeout=15)
+        response.raise_for_status(); payload = response.json()
+        bl_no = payload.get("bl_no") or payload.get("blNo") or payload.get("BL_NO")
+        if not bl_no: raise HTTPException(status_code=404, detail="해당 이력번호의 BL번호를 찾지 못했습니다.")
+        return {"history_no": history_no, "bl_no": str(bl_no)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"미트와치 BL 조회에 실패했습니다: {exc}")

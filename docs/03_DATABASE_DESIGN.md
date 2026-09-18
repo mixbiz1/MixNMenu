@@ -211,12 +211,11 @@ Purchase/Sale와 Inbound/Outbound는 분리한다.
 ### 일반 매입 Vertical Slice 1차 (2026-09-18)
 
 `tb_purchase`는 회사·전표번호·매입일·매입처·상태·합계 및 작성/수정/확정/
-취소 Audit을 가진 금액전표 Header이다. `tb_purchase_item`은 상품·최하위
-`INPUT` 손익/경비코드·BOX·KG·원단위 단가·세금 Snapshot·공급가액·세액을
-가진 Detail이며 `(purchase_id, line_no)`를 UNIQUE로 관리한다.
+취소 Audit을 가진 금액전표 Header이다. 최초 1차안은 상품과 경비코드를 한
+Detail에 넣고 매입·입고를 수동 분리하는 구조였으나, 아래 상품매입 업무
+보정안으로 대체되었다.
 
-매입 저장이나 확정은 `tb_inbound`/`tb_inbound_item` 또는 `tb_lot`을 만들지
-않는다. 후속 매입입고 Vertical Slice에서는 아래 연결을 추가한다.
+계약매입처럼 부분입고가 필요한 후속 업무에서는 아래 배분 연결을 추가한다.
 
 - `tb_purchase_inbound_link`
   - `purchase_item_id` FK
@@ -224,7 +223,7 @@ Purchase/Sale와 Inbound/Outbound는 분리한다.
   - `allocated_box_qty`, `allocated_weight`, `allocated_amount`
   - `(purchase_item_id, inbound_item_id)` UNIQUE
 
-따라서 한 매입 Detail을 여러 차례 부분입고할 수 있고, 필요하면 여러 매입
+이를 통해 한 계약매입 Detail을 여러 차례 부분입고할 수 있고, 필요하면 여러 매입
 Detail을 한 실제 입고전표에서 처리할 수 있다. 미입고량은 매입 Detail 수량에서
 확정된 연결 배분합계를 차감해 산출하며 원문 수량을 덮어쓰지 않는다.
 
@@ -232,6 +231,36 @@ Detail을 한 실제 입고전표에서 처리할 수 있다. 미입고량은 �
 `ceil(공급가액 × Snapshot 세율 / 100)`으로 서버에서 계산한다. 원 단위
 정수만 저장하며 사용자가 보낸 공급가액·세액·합계가 계산값과 다르면 저장을
 거부한다.
+
+### 상품매입 업무 보정 (2026-09-18)
+
+일반 매입은 `상품매입`과 `경비매입`을 같은 Detail에 섞지 않는다. 현재
+`PURCHASE_GENERAL`은 상품매입 전용이며 경비매입은 별도 Header/Detail과
+화면으로 후속 구현한다. 따라서 상품매입 Detail의 `expense_id`는 사용하지
+않고 기존 1차 자료 보존을 위해 NULL 허용 컬럼으로만 남긴다.
+
+상품매입은 금액원문과 물류원장을 서로 다른 테이블에 유지하되, 사용자가
+확정하면 한 DB Transaction에서 다음을 함께 생성한다.
+
+1. `tb_purchase` 상태를 `CONFIRMED`로 변경
+2. 입고창고별 `tb_inbound(PURCHASE_INBOUND)` 생성
+3. 상품행별 `tb_lot(DOMESTIC)`과 `tb_inbound_item` 생성
+4. `tb_purchase_item.lot_id/inbound_item_id`로 결과 연결
+5. `tb_account_transaction(PURCHASE_PAYABLE)` 미지급 원거래 생성
+
+작성중 저장은 재고가 아니며, 확정이 업무상 입력 완료 시점이다. 이렇게 하면
+미완성 전표가 재고에 섞이지 않으면서 확정 직후에는 상품·이력번호·BL번호·
+LOT번호가 하나의 추적 묶음으로 재고에 반영된다. 현재 취소는 후속 출고가
+없는 동안 생성된 입고·LOT·미지급 원거래를 같은 Transaction에서 회수한다.
+출고 구현 후에는 삭제가 아니라 취소출고 원장 방식으로 전환한다.
+
+매입처와 상품은 전체 목록을 Desktop에 적재하지 않는다. 키워드로 서버 검색해
+최대 50건만 반환한다. 세금은 면세(`EXEMPT`)가 기본이고 행별 과세 체크 시
+`VAT10` Snapshot을 사용한다. 평균중량은 `중량 / BOX`로 표시한다.
+
+미트와치 BL조회는 `MEATWATCH_BL_LOOKUP_URL`(이력번호 자리 `{history_no}`)과
+선택적 `MEATWATCH_API_TOKEN` 환경설정으로 외부 호출한다. 설정이 없거나
+이력번호가 없는 경우 BL번호를 직접 입력·수정할 수 있다.
 
 ## 6. FINANCING
 
