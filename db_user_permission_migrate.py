@@ -11,19 +11,21 @@ def migrate():
         first_install = conn.execute(
             text("SELECT CASE WHEN COL_LENGTH('tb_user', 'is_admin') IS NULL THEN 1 ELSE 0 END")
         ).scalar() == 1
-        conn.execute(text("""
-            IF COL_LENGTH('tb_user', 'is_admin') IS NULL
-            BEGIN
+        if first_install:
+            # SQL Server는 같은 Batch의 ALTER 뒤에 새 Column을 참조하면 전체
+            # Batch 컴파일 시점에 207 오류를 낼 수 있으므로 반드시 분리한다.
+            conn.execute(text("""
                 ALTER TABLE tb_user ADD is_admin BIT NOT NULL
-                    CONSTRAINT DF_tb_user_is_admin DEFAULT 0;
+                    CONSTRAINT DF_tb_user_is_admin DEFAULT 0
+            """))
+            conn.execute(text("""
                 UPDATE tb_user SET is_admin = 1
                 WHERE user_id = (
                     SELECT TOP 1 user_id FROM tb_user WHERE use_yn = 1
                     ORDER BY CASE WHEN LOWER(user_id) IN ('admin', 'administrator') THEN 0 ELSE 1 END,
                              created_at, user_id
-                );
-            END
-        """))
+                )
+            """))
         conn.execute(text("""
             IF OBJECT_ID('tb_menu_master', 'U') IS NULL
             CREATE TABLE tb_menu_master (
