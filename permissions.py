@@ -26,7 +26,7 @@ MENU_DEFINITIONS = (
     ("OPENING_INVENTORY", "최초재고 등록", "초기자료등록", 180),
     ("OPENING_BALANCE", "거래처 최초잔액 등록", "초기자료등록", 190),
     ("TRADE_COMMON", "거래 공통설정", "거래관리", 200),
-    ("PURCHASE_GENERAL", "상품매입등록", "상품입/출고관리", 210),
+    ("PURCHASE_GENERAL", "상품매입등록/수정", "상품입/출고관리", 210),
 )
 
 MENU_CODES = {row[0] for row in MENU_DEFINITIONS}

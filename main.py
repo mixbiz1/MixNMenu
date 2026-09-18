@@ -2744,6 +2744,7 @@ class PurchaseItemInput(BaseModel):
     bl_no: Optional[str] = Field(default=None, max_length=80)
     supply_amount: Optional[int] = Field(default=None, ge=0)
     tax_amount: Optional[int] = Field(default=None, ge=0)
+    discount_amount: int = 0
     total_amount: Optional[int] = Field(default=None, ge=0)
     memo: Optional[str] = Field(default=None, max_length=500)
 
@@ -2789,12 +2790,15 @@ def _prepare_purchase_lines(db: Session, comp_code: str, purchase_date: date, it
         ).first()
         if not warehouse:
             raise HTTPException(status_code=400, detail=f"{item.line_no}행 창고는 현재 회사에서 사용하는 창고가 아닙니다.")
-        tax_code = "VAT10" if item.taxable_yn else "EXEMPT"
+        # 세무구분은 화면 선택값이 아니라 상품 Master를 단일 기준으로 사용한다.
+        tax_code = "VAT10" if str(product.tax_type) in {"1", "VAT10"} else "EXEMPT"
         tax = db.query(models.TaxCode).filter(models.TaxCode.tax_code == tax_code).first()
         if not tax:
             raise HTTPException(status_code=400, detail=f"{item.line_no}행 세금코드가 없습니다.")
         snapshot = tax_snapshot(tax, purchase_date)
-        calculated = calculate_purchase_line(item.weight, item.unit_price, snapshot["tax_rate_snapshot"])
+        calculated = calculate_purchase_line(
+            item.weight, item.unit_price, snapshot["tax_rate_snapshot"], item.discount_amount
+        )
         validate_client_amounts(calculated, item.model_dump())
         prepared.append({
             "line_no": item.line_no, "product_id": item.product_id,
@@ -2818,7 +2822,9 @@ def _purchase_result(row):
         "document_status": row.document_status,
         "total_box_qty": row.total_box_qty, "total_weight": row.total_weight,
         "total_supply_amount": row.total_supply_amount,
-        "total_tax_amount": row.total_tax_amount, "total_amount": row.total_amount,
+        "total_tax_amount": row.total_tax_amount,
+        "total_discount_amount": row.total_discount_amount,
+        "total_amount": row.total_amount,
         "memo": row.memo, "created_by": row.created_by, "created_at": row.created_at,
         "updated_by": row.updated_by, "updated_at": row.updated_at,
         "confirmed_by": row.confirmed_by, "confirmed_at": row.confirmed_at,
@@ -2842,7 +2848,8 @@ def _purchase_result(row):
             "tax_code_snapshot": item.tax_code_snapshot,
             "tax_name_snapshot": item.tax_name_snapshot,
             "tax_rate_snapshot": item.tax_rate_snapshot,
-            "tax_amount": item.tax_amount, "total_amount": item.total_amount,
+            "tax_amount": item.tax_amount, "discount_amount": item.discount_amount,
+            "total_amount": item.total_amount,
             "memo": item.memo,
         } for item in sorted(row.items, key=lambda value: value.line_no)],
     }
@@ -3037,24 +3044,26 @@ def update_purchase(comp_code: str, purchase_id: int, data: PurchaseInput,
     try:
         if was_confirmed:
             _dematerialize_purchase(db, row, old_purchase_no)
-    except IntegrityError:
-        db.rollback(); raise HTTPException(status_code=409, detail="후속 입출고에 연결된 매입은 수정할 수 없습니다.")
-    if row.purchase_date != data.purchase_date:
-        row.purchase_no = allocate_document_no(db, comp_code, "PURCHASE", data.purchase_date)
-    row.purchase_date = data.purchase_date; row.account_id = data.account_id; row.memo = data.memo
-    row.updated_by = request.state.user_id; row.updated_at = datetime.now(timezone.utc)
-    for key, value in totals.items(): setattr(row, key, value)
-    row.items.clear(); db.flush()
-    row.items.extend(models.PurchaseItem(**item) for item in prepared)
-    try:
+        if row.purchase_date != data.purchase_date:
+            row.purchase_no = allocate_document_no(db, comp_code, "PURCHASE", data.purchase_date)
+        row.purchase_date = data.purchase_date; row.account_id = data.account_id; row.memo = data.memo
+        row.updated_by = request.state.user_id; row.updated_at = datetime.now(timezone.utc)
+        for key, value in totals.items(): setattr(row, key, value)
+        row.items.clear(); db.flush()
+        row.items.extend(models.PurchaseItem(**item) for item in prepared)
         db.flush()
         if data.finalize or was_confirmed:
             _materialize_purchase(db, row)
             if not was_confirmed:
                 apply_status_transition(row, "CONFIRMED", request.state.user_id)
         db.commit()
+    except HTTPException:
+        db.rollback(); raise
     except IntegrityError:
-        db.rollback(); raise HTTPException(status_code=409, detail="Detail 순번 또는 참조자료 연결을 확인하세요.")
+        db.rollback()
+        detail = ("후속 입출고에 연결된 매입은 수정할 수 없습니다."
+                  if was_confirmed else "Detail 순번 또는 참조자료 연결을 확인하세요.")
+        raise HTTPException(status_code=409, detail=detail)
     db.refresh(row); return _purchase_result(row)
 
 

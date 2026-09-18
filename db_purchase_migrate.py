@@ -25,6 +25,7 @@ def migrate():
             total_weight NUMERIC(18,2) NOT NULL CONSTRAINT DF_purchase_weight DEFAULT 0,
             total_supply_amount NUMERIC(18,0) NOT NULL CONSTRAINT DF_purchase_supply DEFAULT 0,
             total_tax_amount NUMERIC(18,0) NOT NULL CONSTRAINT DF_purchase_tax DEFAULT 0,
+            total_discount_amount NUMERIC(18,0) NOT NULL CONSTRAINT DF_purchase_discount DEFAULT 0,
             total_amount NUMERIC(18,0) NOT NULL CONSTRAINT DF_purchase_total DEFAULT 0,
             memo NVARCHAR(1000) NULL,
             created_by VARCHAR(50) NOT NULL, created_at DATETIMEOFFSET NOT NULL CONSTRAINT DF_purchase_created DEFAULT SYSDATETIMEOFFSET(),
@@ -39,9 +40,21 @@ def migrate():
             CONSTRAINT FK_purchase_confirmed_user FOREIGN KEY(confirmed_by) REFERENCES dbo.tb_user(user_id),
             CONSTRAINT FK_purchase_cancelled_user FOREIGN KEY(cancelled_by) REFERENCES dbo.tb_user(user_id),
             CONSTRAINT CK_purchase_status CHECK(document_status IN ('DRAFT','CONFIRMED','CANCELLED')),
-            CONSTRAINT CK_purchase_totals CHECK(total_box_qty>=0 AND total_weight>=0 AND total_supply_amount>=0 AND total_tax_amount>=0 AND total_amount=total_supply_amount+total_tax_amount)
+            CONSTRAINT CK_purchase_totals CHECK(total_box_qty>=0 AND total_weight>=0 AND total_supply_amount>=0 AND total_tax_amount>=0 AND total_amount>=0 AND total_amount=total_supply_amount+total_tax_amount-total_discount_amount)
           );
           CREATE INDEX IX_purchase_lookup ON dbo.tb_purchase(comp_code,purchase_date,document_status);
+        END
+        """))
+        conn.execute(text("""
+        IF OBJECT_ID('dbo.tb_purchase', 'U') IS NOT NULL
+        BEGIN
+          IF COL_LENGTH('dbo.tb_purchase','total_discount_amount') IS NULL
+            ALTER TABLE dbo.tb_purchase ADD total_discount_amount NUMERIC(18,0) NOT NULL CONSTRAINT DF_purchase_discount DEFAULT 0 WITH VALUES;
+          IF EXISTS(SELECT 1 FROM sys.check_constraints WHERE name='CK_purchase_totals')
+            ALTER TABLE dbo.tb_purchase DROP CONSTRAINT CK_purchase_totals;
+          ALTER TABLE dbo.tb_purchase ADD CONSTRAINT CK_purchase_totals
+            CHECK(total_box_qty>=0 AND total_weight>=0 AND total_supply_amount>=0 AND total_tax_amount>=0
+              AND total_amount>=0 AND total_amount=total_supply_amount+total_tax_amount-total_discount_amount);
         END
         """))
         conn.execute(text("""
@@ -53,13 +66,15 @@ def migrate():
             box_qty INT NOT NULL, weight NUMERIC(18,2) NOT NULL, unit_price NUMERIC(18,0) NOT NULL,
             supply_amount NUMERIC(18,0) NOT NULL, tax_code_snapshot VARCHAR(20) NOT NULL,
             tax_name_snapshot NVARCHAR(100) NOT NULL, tax_rate_snapshot NUMERIC(5,2) NOT NULL,
-            tax_amount NUMERIC(18,0) NOT NULL, total_amount NUMERIC(18,0) NOT NULL,
+            tax_amount NUMERIC(18,0) NOT NULL,
+            discount_amount NUMERIC(18,0) NOT NULL CONSTRAINT DF_purchase_item_discount DEFAULT 0,
+            total_amount NUMERIC(18,0) NOT NULL,
             memo NVARCHAR(500) NULL,
             CONSTRAINT UQ_purchase_item_line UNIQUE(purchase_id,line_no),
             CONSTRAINT FK_purchase_item_header FOREIGN KEY(purchase_id) REFERENCES dbo.tb_purchase(purchase_id),
             CONSTRAINT FK_purchase_item_product FOREIGN KEY(product_id) REFERENCES dbo.tb_product(product_id),
             CONSTRAINT FK_purchase_item_expense FOREIGN KEY(expense_id) REFERENCES dbo.tb_expense_code(expense_id),
-            CONSTRAINT CK_purchase_item_values CHECK(line_no>0 AND box_qty>=0 AND weight>0 AND unit_price>=0 AND supply_amount>=0 AND tax_rate_snapshot BETWEEN 0 AND 100 AND tax_amount>=0 AND total_amount=supply_amount+tax_amount)
+            CONSTRAINT CK_purchase_item_values CHECK(line_no>0 AND box_qty>=0 AND weight>0 AND unit_price>=0 AND supply_amount>=0 AND tax_rate_snapshot BETWEEN 0 AND 100 AND tax_amount>=0 AND total_amount>=0 AND total_amount=supply_amount+tax_amount-discount_amount)
           );
           CREATE INDEX IX_purchase_item_product ON dbo.tb_purchase_item(product_id);
         END
@@ -78,6 +93,8 @@ def migrate():
             ALTER TABLE dbo.tb_purchase_item ADD lot_id INT NULL;
           IF COL_LENGTH('dbo.tb_purchase_item','inbound_item_id') IS NULL
             ALTER TABLE dbo.tb_purchase_item ADD inbound_item_id INT NULL;
+          IF COL_LENGTH('dbo.tb_purchase_item','discount_amount') IS NULL
+            ALTER TABLE dbo.tb_purchase_item ADD discount_amount NUMERIC(18,0) NOT NULL CONSTRAINT DF_purchase_item_discount DEFAULT 0 WITH VALUES;
 
           ALTER TABLE dbo.tb_purchase_item ALTER COLUMN expense_id INT NULL;
 
@@ -89,6 +106,13 @@ def migrate():
             ALTER TABLE dbo.tb_purchase_item ADD CONSTRAINT FK_purchase_item_inbound FOREIGN KEY(inbound_item_id) REFERENCES dbo.tb_inbound_item(inbound_item_id);
           IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name='IX_purchase_item_history' AND object_id=OBJECT_ID('dbo.tb_purchase_item'))
             CREATE INDEX IX_purchase_item_history ON dbo.tb_purchase_item(history_no);
+
+          IF EXISTS(SELECT 1 FROM sys.check_constraints WHERE name='CK_purchase_item_values')
+            ALTER TABLE dbo.tb_purchase_item DROP CONSTRAINT CK_purchase_item_values;
+          ALTER TABLE dbo.tb_purchase_item ADD CONSTRAINT CK_purchase_item_values
+            CHECK(line_no>0 AND box_qty>=0 AND weight>0 AND unit_price>=0 AND supply_amount>=0
+              AND tax_rate_snapshot BETWEEN 0 AND 100 AND tax_amount>=0 AND total_amount>=0
+              AND total_amount=supply_amount+tax_amount-discount_amount);
         END
         """))
         conn.execute(text("""
@@ -104,8 +128,8 @@ def migrate():
         IF OBJECT_ID('dbo.tb_menu_master','U') IS NOT NULL
         BEGIN
           IF EXISTS(SELECT 1 FROM dbo.tb_menu_master WHERE menu_code='PURCHASE_GENERAL')
-            UPDATE dbo.tb_menu_master SET menu_name=N'상품매입등록',menu_group=N'상품입/출고관리',sort_order=210,use_yn=1 WHERE menu_code='PURCHASE_GENERAL';
-          ELSE INSERT dbo.tb_menu_master(menu_code,menu_name,menu_group,sort_order,use_yn) VALUES('PURCHASE_GENERAL',N'상품매입등록',N'상품입/출고관리',210,1);
+            UPDATE dbo.tb_menu_master SET menu_name=N'상품매입등록/수정',menu_group=N'상품입/출고관리',sort_order=210,use_yn=1 WHERE menu_code='PURCHASE_GENERAL';
+          ELSE INSERT dbo.tb_menu_master(menu_code,menu_name,menu_group,sort_order,use_yn) VALUES('PURCHASE_GENERAL',N'상품매입등록/수정',N'상품입/출고관리',210,1);
           IF OBJECT_ID('dbo.tb_user_menu_permission','U') IS NOT NULL
             INSERT dbo.tb_user_menu_permission(user_id,menu_code,can_read,can_create,can_update,can_delete)
             SELECT user_id,'PURCHASE_GENERAL',1,1,1,1 FROM dbo.tb_user u WHERE u.is_admin=1 AND NOT EXISTS(SELECT 1 FROM dbo.tb_user_menu_permission p WHERE p.user_id=u.user_id AND p.menu_code='PURCHASE_GENERAL');
@@ -117,6 +141,10 @@ def migrate():
         for name in ("tb_purchase", "tb_purchase_item"):
             if not conn.execute(text("SELECT OBJECT_ID(:name,'U')"), {"name": f"dbo.{name}"}).scalar():
                 raise RuntimeError(f"{name} 생성 검증에 실패했습니다.")
+        if not conn.execute(text("SELECT COL_LENGTH('dbo.tb_purchase','total_discount_amount')")).scalar():
+            raise RuntimeError("tb_purchase.total_discount_amount 반영에 실패했습니다.")
+        if not conn.execute(text("SELECT COL_LENGTH('dbo.tb_purchase_item','discount_amount')")).scalar():
+            raise RuntimeError("tb_purchase_item.discount_amount 반영에 실패했습니다.")
     print("General purchase migration completed.")
 
 

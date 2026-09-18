@@ -285,6 +285,7 @@ class Purchase(Base):
     total_weight = Column(Numeric(18, 2), default=0, nullable=False)
     total_supply_amount = Column(Numeric(18, 0), default=0, nullable=False)
     total_tax_amount = Column(Numeric(18, 0), default=0, nullable=False)
+    total_discount_amount = Column(Numeric(18, 0), default=0, nullable=False)
     total_amount = Column(Numeric(18, 0), default=0, nullable=False)
     memo = Column(String(1000), nullable=True)
     created_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
@@ -326,6 +327,8 @@ class PurchaseItem(Base):
     tax_name_snapshot = Column(String(100), nullable=False)
     tax_rate_snapshot = Column(Numeric(5, 2), nullable=False)
     tax_amount = Column(Numeric(18, 0), nullable=False)
+    # 양수는 할인(차감), 음수는 할증(가산)이다.
+    discount_amount = Column(Numeric(18, 0), default=0, nullable=False)
     total_amount = Column(Numeric(18, 0), nullable=False)
     memo = Column(String(500), nullable=True)
 

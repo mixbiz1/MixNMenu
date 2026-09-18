@@ -3,6 +3,7 @@
 from decimal import Decimal, ROUND_CEILING
 import api_client as httpx
 from PySide6.QtCore import QDate, Qt
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDateEdit,
     QDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
@@ -10,7 +11,8 @@ from app_context import app_context
 
 API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 COLUMNS = ["상품코드/상품명 *", "입고창고 *", "BOX *", "평균중량", "중량(KG) *", "단가 *",
-           "과세", "공급가액", "세액", "합계", "이력번호", "BL번호", "미트와치", "LOT 결과", "메모"]
+           "세액", "공급가액", "합계금액", "할인(+)/할증(-)", "이력번호", "BL번호",
+           "LOT 결과", "메모", "과세"]
 
 def _number(text): return (text or "").replace(",", "").strip()
 def _won(value): return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_CEILING))
@@ -63,7 +65,7 @@ class PurchaseRegWindow(QWidget):
         self._build_ui(); self.load_base_options(); self.load_all(); self.new_document()
 
     def _build_ui(self):
-        root = QVBoxLayout(self); title = QLabel("상품매입등록")
+        root = QVBoxLayout(self); title = QLabel("상품매입등록/수정")
         title.setStyleSheet("font-size:20px;font-weight:700;"); root.addWidget(title)
         root.addWidget(QLabel("저장하면 매입전표·입고·LOT·재고·미지급 원거래가 한 번에 생성됩니다."))
         top = QHBoxLayout(); left = QGroupBox("매입일자별 전표"); ll = QVBoxLayout(left)
@@ -81,13 +83,20 @@ class PurchaseRegWindow(QWidget):
         form.addRow("전표번호", self.document_no); form.addRow("상태", self.status); form.addRow("매입처 *", sl)
         self.memo = QTextEdit(); self.memo.setMaximumHeight(55); self.memo.setPlaceholderText("전표 메모"); form.addRow("메모", self.memo)
         top.addWidget(right, 3); root.addLayout(top)
-        buttons = QHBoxLayout(); self.btn_new = QPushButton("신규 [F2]"); self.btn_add = QPushButton("행 추가")
-        self.btn_remove = QPushButton("행 삭제"); self.btn_save = QPushButton("저장 [F4]"); self.btn_cancel = QPushButton("전표취소")
-        for button in (self.btn_new, self.btn_add, self.btn_remove, self.btn_save, self.btn_cancel): buttons.addWidget(button)
-        buttons.addStretch(); root.addLayout(buttons)
+        buttons = QHBoxLayout(); self.btn_search = QPushButton("조회 [F7]"); self.btn_new = QPushButton("신규 [F2]")
+        self.btn_add = QPushButton("행 추가"); self.btn_remove = QPushButton("행 삭제")
+        self.btn_save = QPushButton("저장 [F4]"); self.btn_reset = QPushButton("입력취소 [F5]")
+        self.btn_cancel = QPushButton("전표취소"); self.btn_history_lookup = QPushButton("이력번호 → BL 조회")
+        for button in (self.btn_search, self.btn_new, self.btn_add, self.btn_remove,
+                       self.btn_save, self.btn_reset, self.btn_cancel): buttons.addWidget(button)
+        buttons.addStretch(); buttons.addWidget(self.btn_history_lookup); root.addLayout(buttons)
         self.table = QTableWidget(0, len(COLUMNS)); self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems); self.table.setAlternatingRowColors(True)
-        for col, width in enumerate((250,170,70,85,100,100,55,105,85,105,135,145,85,145,150)): self.table.setColumnWidth(col, width)
+        for col, width in enumerate((220,135,55,70,85,85,75,95,100,100,110,120,120,120,42)):
+            self.table.setColumnWidth(col, width)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(13, QHeaderView.Stretch)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         root.addWidget(self.table, 1); totals = QHBoxLayout(); totals.addStretch(); self.total_label = QLabel()
         self.total_label.setStyleSheet("font-size:16px;font-weight:700;"); totals.addWidget(self.total_label); root.addLayout(totals)
         payable = QGroupBox("매입처 미지급 현황"); pl = QHBoxLayout(payable)
@@ -97,8 +106,14 @@ class PurchaseRegWindow(QWidget):
         pl.addStretch(); root.addWidget(payable)
         self.purchase_date.dateChanged.connect(self._date_changed); self.today_table.itemSelectionChanged.connect(self.load_selected)
         self.supplier_button.clicked.connect(self.lookup_supplier); self.supplier_edit.returnPressed.connect(self.lookup_supplier)
-        self.btn_new.clicked.connect(self.new_document); self.btn_add.clicked.connect(self.add_row); self.btn_remove.clicked.connect(self.remove_rows)
-        self.btn_save.clicked.connect(self.save_data); self.btn_cancel.clicked.connect(self.cancel_document)
+        self.supplier_edit.textEdited.connect(lambda _: self._clear_supplier_selection())
+        self.btn_search.clicked.connect(self.load_all); self.btn_new.clicked.connect(self.new_document)
+        self.btn_add.clicked.connect(self.add_row); self.btn_remove.clicked.connect(self.remove_rows)
+        self.btn_save.clicked.connect(self.save_data); self.btn_reset.clicked.connect(self.reset_input)
+        self.btn_cancel.clicked.connect(self.cancel_document); self.btn_history_lookup.clicked.connect(self.lookup_all_bl)
+        for key, callback in (("F2", self.new_document), ("F4", self.save_data),
+                              ("F5", self.reset_input), ("F7", self.load_all)):
+            shortcut = QShortcut(QKeySequence(key), self); shortcut.activated.connect(callback)
 
     def _option_request(self, **params):
         params["transaction_date"] = self.purchase_date.date().toString("yyyy-MM-dd")
@@ -123,7 +138,8 @@ class PurchaseRegWindow(QWidget):
             lambda q: self._option_request(product_query=q).get("products", []))
         if dialog.exec() == QDialog.Accepted and dialog.selected:
             value = dialog.selected; editor.setProperty("selected", value); editor.setText(f"{value['product_code']}  {value['product_name']}")
-            self.table.cellWidget(row, 6).setChecked(str(value.get("tax_type")) in {"1","VAT10"}); self.table.cellWidget(row, 1).setFocus()
+            self.table.cellWidget(row, 14).setChecked(str(value.get("tax_type")) in {"1","VAT10"})
+            self._recalculate(row); self.table.cellWidget(row, 1).setFocus()
 
     def add_row(self, value=None):
         value = value or {}; row = self.table.rowCount(); self.table.insertRow(row)
@@ -131,22 +147,23 @@ class PurchaseRegWindow(QWidget):
         if value.get("product_id"):
             product.setProperty("selected", {"product_id":value["product_id"],"product_code":value.get("product_code"),"product_name":value.get("product_name")})
             product.setText(f"{value.get('product_code') or ''}  {value.get('product_name') or ''}")
-        product.returnPressed.connect(lambda r=row: self.lookup_product(r)); self.table.setCellWidget(row, 0, product)
+        product.returnPressed.connect(lambda r=row: self.lookup_product(r))
+        product.textEdited.connect(lambda _, r=row: self._clear_product_selection(r)); self.table.setCellWidget(row, 0, product)
         warehouse = AdvanceCombo(lambda r=row: self._focus_cell(r, 2))
         for option in self.warehouses: warehouse.addItem(option["warehouse_name"], option["warehouse_id"])
         if value.get("warehouse_id") is not None: warehouse.setCurrentIndex(max(0, warehouse.findData(value["warehouse_id"])))
         self.table.setCellWidget(row, 1, warehouse)
-        for col, default in ((2,value.get("box_qty","")),(4,value.get("weight","")),(5,value.get("unit_price","")),
-                             (10,value.get("history_no","")),(11,value.get("bl_no","")),(14,value.get("memo",""))):
+        for col, default in ((2,value.get("box_qty","")),(4,value.get("weight","0.00")),(5,value.get("unit_price","")),
+                             (9,value.get("discount_amount",0)),(10,value.get("history_no","")),
+                             (11,value.get("bl_no","")),(13,value.get("memo",""))):
             editor = QLineEdit(str(default or "")); self.table.setCellWidget(row, col, editor); editor.textChanged.connect(lambda _, r=row: self._recalculate(r))
         taxable = QCheckBox(); taxable.setChecked(value.get("tax_code_snapshot","EXEMPT") == "VAT10")
-        taxable.setToolTip("미체크=면세(기본), 체크=과세 10%"); taxable.stateChanged.connect(lambda _, r=row: self._recalculate(r)); self.table.setCellWidget(row, 6, taxable)
-        lookup = QPushButton("BL 조회"); lookup.clicked.connect(lambda _, r=row: self.lookup_bl(r)); self.table.setCellWidget(row, 12, lookup)
-        for col in (3,7,8,9,13): self.table.setItem(row, col, QTableWidgetItem(""))
-        self.table.item(row, 13).setText(str(value.get("lot_code") or "")); self._wire_enter(row); self._recalculate(row)
+        taxable.setEnabled(False); taxable.setToolTip("상품코드의 과세구분과 자동 연동됩니다."); self.table.setCellWidget(row, 14, taxable)
+        for col in (3,6,7,8,12): self.table.setItem(row, col, QTableWidgetItem(""))
+        self.table.item(row, 12).setText(str(value.get("lot_code") or "")); self._wire_enter(row); self._recalculate(row)
 
     def _wire_enter(self, row):
-        widgets = [self.table.cellWidget(row, col) for col in (2,4,5,10,11,14)]
+        widgets = [self.table.cellWidget(row, col) for col in (2,4,5,9,10,11,13)]
         for index, editor in enumerate(widgets):
             def advance(i=index, r=row):
                 self._format_row(r)
@@ -162,9 +179,18 @@ class PurchaseRegWindow(QWidget):
             widget.setFocus()
             if isinstance(widget, QLineEdit): widget.selectAll()
 
+    def _clear_supplier_selection(self):
+        self._supplier = None; self._payable_values = (0, 0); self._show_current_payable()
+
+    def _clear_product_selection(self, row):
+        editor = self.table.cellWidget(row, 0)
+        if editor:
+            editor.setProperty("selected", None); self.table.cellWidget(row, 14).setChecked(False)
+            self._recalculate(row)
+
     def _format_row(self, row):
         try:
-            for col in (2,5):
+            for col in (2,5,9):
                 editor = self.table.cellWidget(row,col); editor.setText(f"{int(_number(editor.text()) or 0):,}")
             editor = self.table.cellWidget(row,4); editor.setText(f"{Decimal(_number(editor.text()) or 0):,.2f}")
         except Exception: pass
@@ -177,36 +203,49 @@ class PurchaseRegWindow(QWidget):
     def _recalculate(self, row):
         try:
             box=int(self._text(row,2) or 0); weight=Decimal(self._text(row,4) or 0); price=Decimal(self._text(row,5) or 0)
+            discount=int(self._text(row,9) or 0)
             average=(weight/box).quantize(Decimal("0.01")) if box else Decimal("0.00"); supply=_won(weight*price)
-            tax=_won(Decimal(supply)/10) if self.table.cellWidget(row,6).isChecked() else 0
-            for col,text in ((3,f"{average:,.2f}"),(7,f"{supply:,}"),(8,f"{tax:,}"),(9,f"{supply+tax:,}")): self.table.item(row,col).setText(text)
+            tax=_won(Decimal(supply)/10) if self.table.cellWidget(row,14).isChecked() else 0
+            total=supply+tax-discount
+            for col,text in ((3,f"{average:,.2f}"),(6,f"{tax:,}" if tax else ""),
+                             (7,f"{supply:,}"),(8,f"{total:,}")): self.table.item(row,col).setText(text)
         except Exception: pass
         self.update_totals()
 
     def update_totals(self):
         boxes=sum(int(self._text(r,2) or 0) for r in range(self.table.rowCount()))
         weight=sum((Decimal(self._text(r,4) or 0) for r in range(self.table.rowCount())),Decimal(0))
-        amount=sum(int(self._text(r,9) or 0) for r in range(self.table.rowCount()))
+        amount=sum(int(self._text(r,8) or 0) for r in range(self.table.rowCount()))
         self.total_label.setText(f"합계  BOX {boxes:,} / 중량 {weight:,.2f} KG / 매입액 {amount:,}"); self._show_current_payable(amount)
 
-    def lookup_bl(self, row):
-        history_no=self._text(row,10)
-        if not history_no: QMessageBox.warning(self,"입력 확인","이력번호를 먼저 입력하세요."); return
-        try:
-            response=httpx.get(f"{API_BASE_URL}/companies/{app_context.company_code}/meatwatch/bl-lookup",params={"history_no":history_no},timeout=20)
-            response.raise_for_status(); self.table.cellWidget(row,11).setText(response.json()["bl_no"])
-        except Exception as exc: QMessageBox.warning(self,"미트와치 BL 조회",self._error_text(exc))
+    def lookup_all_bl(self):
+        targets = [row for row in range(self.table.rowCount())
+                   if self._text(row,10) and not self._text(row,11)]
+        if not targets:
+            QMessageBox.information(self,"이력번호 조회","이력번호가 입력되고 BL번호가 비어 있는 행이 없습니다."); return
+        completed, failures = 0, []
+        for row in targets:
+            try:
+                response=httpx.get(f"{API_BASE_URL}/companies/{app_context.company_code}/meatwatch/bl-lookup",
+                    params={"history_no":self._text(row,10)},timeout=20)
+                response.raise_for_status(); self.table.cellWidget(row,11).setText(response.json()["bl_no"]); completed += 1
+            except Exception as exc: failures.append(f"{row+1}행: {self._error_text(exc)}")
+        message=f"BL번호 {completed}건을 입력했습니다."
+        if failures: message += "\n\n조회 실패\n" + "\n".join(failures)
+        QMessageBox.information(self,"이력번호 조회",message)
 
     def _row_payload(self,row):
         selected=self.table.cellWidget(row,0).property("selected"); warehouse=self.table.cellWidget(row,1)
         if not selected: raise ValueError(f"{row+1}행 상품을 조회하여 선택하세요.")
+        if warehouse.currentData() is None: raise ValueError(f"{row+1}행 입고창고를 선택하세요.")
         try: box=int(self._text(row,2)); weight=Decimal(self._text(row,4)); price=int(self._text(row,5))
         except Exception as exc: raise ValueError(f"{row+1}행 BOX·중량·단가를 확인하세요.") from exc
         if box<0 or weight<=0 or weight.as_tuple().exponent < -2 or price<0: raise ValueError(f"{row+1}행은 BOX 정수, 중량 소수점 2자리, 단가 원 단위로 입력하세요.")
         return {"line_no":row+1,"product_id":selected["product_id"],"warehouse_id":warehouse.currentData(),"box_qty":box,
-            "weight":str(weight),"unit_price":price,"taxable_yn":self.table.cellWidget(row,6).isChecked(),
+            "weight":str(weight),"unit_price":price,"taxable_yn":self.table.cellWidget(row,14).isChecked(),
             "history_no":self._text(row,10) or None,"bl_no":self._text(row,11) or None,"supply_amount":int(self._text(row,7) or 0),
-            "tax_amount":int(self._text(row,8) or 0),"total_amount":int(self._text(row,9) or 0),"memo":self._text(row,14) or None}
+            "tax_amount":int(self._text(row,6) or 0),"discount_amount":int(self._text(row,9) or 0),
+            "total_amount":int(self._text(row,8) or 0),"memo":self._text(row,13) or None}
 
     def save_data(self):
         if not self._supplier: QMessageBox.warning(self,"입력 확인","매입처를 조회하여 선택하세요."); return
@@ -262,6 +301,10 @@ class PurchaseRegWindow(QWidget):
         if self.table.rowCount()==0: self.add_row()
         self.update_totals()
 
+    def reset_input(self):
+        if QMessageBox.question(self,"입력 취소","현재 입력 또는 수정 중인 내용을 취소하시겠습니까?") == QMessageBox.Yes:
+            self.new_document(keep_date=True)
+
     def cancel_document(self):
         if not self.current_id: return
         if QMessageBox.question(self,"전표 취소","입고·LOT·미지급 원거래를 함께 회수하고 취소하시겠습니까?") != QMessageBox.Yes: return
@@ -285,7 +328,7 @@ class PurchaseRegWindow(QWidget):
 
     def _show_current_payable(self,current=None):
         previous,payment=self._payable_values
-        if current is None: current=sum(int(self._text(r,9) or 0) for r in range(self.table.rowCount()))
+        if current is None: current=sum(int(self._text(r,8) or 0) for r in range(self.table.rowCount()))
         self.previous_payable.setText(f"전미지급금 {previous:,}"); self.current_purchase.setText(f"현매입액 {current:,}")
         self.today_payment.setText(f"당일출금액 {payment:,}"); self.current_payable.setText(f"현미지급금 {previous+current-payment:,}")
 

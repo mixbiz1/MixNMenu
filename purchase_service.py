@@ -9,19 +9,26 @@ def ceil_won(value) -> int:
     return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_CEILING))
 
 
-def calculate_purchase_line(weight, unit_price, tax_rate) -> dict:
+def calculate_purchase_line(weight, unit_price, tax_rate, discount_amount=0) -> dict:
     weight_value = Decimal(str(weight)).quantize(Decimal("0.01"))
     price_value = Decimal(str(unit_price))
     rate_value = Decimal(str(tax_rate))
+    discount_value = Decimal(str(discount_amount))
     if weight_value <= 0 or price_value < 0 or rate_value < 0:
         raise HTTPException(status_code=400, detail="중량·단가·세율을 확인하세요.")
     if weight_value != Decimal(str(weight)):
         raise HTTPException(status_code=400, detail="중량은 소수점 둘째 자리까지만 입력할 수 있습니다.")
     if price_value != price_value.to_integral_value():
         raise HTTPException(status_code=400, detail="단가는 원 단위 정수로 입력하세요.")
+    if discount_value != discount_value.to_integral_value():
+        raise HTTPException(status_code=400, detail="할인·할증은 원 단위 정수로 입력하세요.")
     supply = ceil_won(weight_value * price_value)
     tax = ceil_won(Decimal(supply) * rate_value / Decimal("100"))
-    return {"supply_amount": supply, "tax_amount": tax, "total_amount": supply + tax}
+    total = supply + tax - int(discount_value)
+    if total < 0:
+        raise HTTPException(status_code=400, detail="할인액은 공급가액과 세액의 합계를 초과할 수 없습니다.")
+    return {"supply_amount": supply, "tax_amount": tax,
+            "discount_amount": int(discount_value), "total_amount": total}
 
 
 def validate_box_qty(value) -> int:
@@ -32,7 +39,8 @@ def validate_box_qty(value) -> int:
 
 def validate_client_amounts(calculated: dict, supplied: dict) -> None:
     labels = {
-        "supply_amount": "공급가액", "tax_amount": "세액", "total_amount": "합계금액",
+        "supply_amount": "공급가액", "tax_amount": "세액",
+        "discount_amount": "할인·할증", "total_amount": "합계금액",
     }
     for key, label in labels.items():
         value = supplied.get(key)
@@ -48,5 +56,6 @@ def summarize_purchase(lines: list[dict]) -> dict:
         "total_weight": sum((Decimal(str(line["weight"])) for line in lines), Decimal("0.00")),
         "total_supply_amount": sum(line["supply_amount"] for line in lines),
         "total_tax_amount": sum(line["tax_amount"] for line in lines),
+        "total_discount_amount": sum(line.get("discount_amount", 0) for line in lines),
         "total_amount": sum(line["total_amount"] for line in lines),
     }

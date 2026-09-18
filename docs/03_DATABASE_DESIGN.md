@@ -267,6 +267,13 @@ LOT번호가 하나의 추적 묶음으로 재고에 반영된다. 현재 취소
 상품매입 UI는 `finalize=true` 저장 경로만 사용한다.
 출고 구현 후에는 삭제가 아니라 취소출고 원장 방식으로 전환한다.
 
+행별 `discount_amount`는 원 단위 정수이며 양수는 할인(합계 차감), 음수는
+할증(합계 가산)으로 정의한다. 계산식은
+`total_amount = supply_amount + tax_amount - discount_amount`이다. Header에는
+`total_discount_amount`를 합산 저장하고 미지급 원거래는 에누리 반영 후
+`total_amount`를 사용한다. 상품 과세구분은 Client 체크값이 아니라 저장 시점의
+`tb_product.tax_type`을 기준으로 세금 Snapshot을 만든다.
+
 매입처와 상품은 전체 목록을 Desktop에 적재하지 않는다. 키워드로 서버 검색해
 최대 50건만 반환한다. 세금은 면세(`EXEMPT`)가 기본이고 행별 과세 체크 시
 `VAT10` Snapshot을 사용한다. 평균중량은 `중량 / BOX`로 표시한다.

@@ -10,12 +10,14 @@ from purchase_service import (
 
 def test_purchase_rounds_calculated_won_up():
     result = calculate_purchase_line(Decimal("10.01"), 1234, Decimal("10.00"))
-    assert result == {"supply_amount": 12353, "tax_amount": 1236, "total_amount": 13589}
+    assert result == {"supply_amount": 12353, "tax_amount": 1236,
+                      "discount_amount": 0, "total_amount": 13589}
 
 
 def test_purchase_zero_tax_snapshot_calculation():
     assert calculate_purchase_line("256.37", 7000, 0) == {
-        "supply_amount": 1794590, "tax_amount": 0, "total_amount": 1794590,
+        "supply_amount": 1794590, "tax_amount": 0,
+        "discount_amount": 0, "total_amount": 1794590,
     }
 
 
@@ -45,5 +47,19 @@ def test_purchase_summary():
         {"box_qty": 3, "weight": Decimal("20.10"), "supply_amount": 2000, "tax_amount": 0, "total_amount": 2000},
     ])
     assert result == {"total_box_qty": 5, "total_weight": Decimal("30.35"),
-                      "total_supply_amount": 3000, "total_tax_amount": 100, "total_amount": 3100}
+                      "total_supply_amount": 3000, "total_tax_amount": 100,
+                      "total_discount_amount": 0, "total_amount": 3100}
     with pytest.raises(HTTPException): summarize_purchase([])
+
+
+def test_purchase_discount_and_surcharge_use_signed_won():
+    assert calculate_purchase_line("10.00", 1000, 10, 500) == {
+        "supply_amount": 10000, "tax_amount": 1000,
+        "discount_amount": 500, "total_amount": 10500,
+    }
+    assert calculate_purchase_line("10.00", 1000, 0, -500) == {
+        "supply_amount": 10000, "tax_amount": 0,
+        "discount_amount": -500, "total_amount": 10500,
+    }
+    with pytest.raises(HTTPException):
+        calculate_purchase_line("1.00", 1000, 0, 1001)
