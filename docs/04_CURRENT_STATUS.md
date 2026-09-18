@@ -1,10 +1,35 @@
 # MXMN CURRENT STATUS
 
-**Version:** 1.22\
+**Version:** 1.23\
 **Status date:** 2026-09-18\
 **Project:** MXMN\
 **Purpose:** 현재 실제 구현·검증 상태와 다음 작업을 짧게 유지하는 운영
 문서
+
+## 0. 2026-09-18 일반 매입 Vertical Slice 1차
+
+일반 매입의 작성·조회·수정·삭제·확정·취소를 구현하였다.
+
+- 신규 `tb_purchase` / `tb_purchase_item`과 비파괴 `db_purchase_migrate.py`
+- 회사별 자료분리 및 회사+업무일자 기준 `PU-YYYYMMDD-NNNN` 공통 자동발번
+- 현재 회사에서 사용 중이고 거래중단되지 않은 매입거래처만 선택/저장
+- 사용 중인 상품, 활성 최하위 `INPUT` 손익·경비코드만 저장
+- Detail별 세금코드·명칭·세율 Snapshot
+- BOX 정수, 중량 소수점 2자리, 단가·공급가액·세액·합계 원 단위 정수
+- `ceil(KG×단가)` 및 `ceil(공급가액×세율/100)` 서버 재계산과 전송값 검증
+- `DRAFT → CONFIRMED → CANCELLED`, 확정/취소 원문 수정·삭제 차단
+- 원전표일과 변경일 회계기간 마감 통제 및 전 단계 Audit
+- `PURCHASE_GENERAL` 메뉴 CRUD 권한과 API 공통검사
+- PySide6 `일반 매입등록` 화면: 조회·신규·행 입력·저장·수정·삭제·확정·취소
+
+매입전표는 금액/세금의 근거이며 저장·확정 시 입고·LOT·재고를 만들지 않는다.
+후속 단계에서 `tb_purchase_inbound_link`로 매입 Detail과 실제 입고 Detail을
+배분 연결하여 부분입고를 지원한다. 이번 단계에서는 미지급금 자동생성도 하지
+않으며 지급 Allocation 단계에서 확정 매입과 연결한다.
+
+실행 Migration: `python db_purchase_migrate.py`
+
+자동검증: `python -m pytest -q`
 
 ## 0. 2026-09-18 거래 공통기반 Vertical Slice 1차
 
@@ -45,7 +70,7 @@ MXMN은 MASTER 영역의 **거래처·공통코드·상품공통코드·계층�
 상품·창고·LOT·계층형 경비코드 Vertical Slice를 구현**하였다.
 
 최초재고와 거래처 최초잔액을 등록하는 `초기자료등록` 1차도 구현하였다.
-현재 다음 큰 업무 단계는 일반 매입·입고·재고·매출·출고 및 수금·지급
+현재 다음 큰 업무 단계는 일반 매입입고·재고조회·매출·출고 및 수금·지급
 Transaction 연결이며, 경비코드는 향후 거래 Detail과 손익·경비통계
 Report에 FK로 연결한다.
 

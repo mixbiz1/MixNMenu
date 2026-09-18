@@ -208,6 +208,31 @@ Opening Transaction으로 등록한다.
 
 Purchase/Sale와 Inbound/Outbound는 분리한다.
 
+### 일반 매입 Vertical Slice 1차 (2026-09-18)
+
+`tb_purchase`는 회사·전표번호·매입일·매입처·상태·합계 및 작성/수정/확정/
+취소 Audit을 가진 금액전표 Header이다. `tb_purchase_item`은 상품·최하위
+`INPUT` 손익/경비코드·BOX·KG·원단위 단가·세금 Snapshot·공급가액·세액을
+가진 Detail이며 `(purchase_id, line_no)`를 UNIQUE로 관리한다.
+
+매입 저장이나 확정은 `tb_inbound`/`tb_inbound_item` 또는 `tb_lot`을 만들지
+않는다. 후속 매입입고 Vertical Slice에서는 아래 연결을 추가한다.
+
+- `tb_purchase_inbound_link`
+  - `purchase_item_id` FK
+  - `inbound_item_id` FK
+  - `allocated_box_qty`, `allocated_weight`, `allocated_amount`
+  - `(purchase_item_id, inbound_item_id)` UNIQUE
+
+따라서 한 매입 Detail을 여러 차례 부분입고할 수 있고, 필요하면 여러 매입
+Detail을 한 실제 입고전표에서 처리할 수 있다. 미입고량은 매입 Detail 수량에서
+확정된 연결 배분합계를 차감해 산출하며 원문 수량을 덮어쓰지 않는다.
+
+공급가액은 `ceil(KG × 단가)`, 세액은
+`ceil(공급가액 × Snapshot 세율 / 100)`으로 서버에서 계산한다. 원 단위
+정수만 저장하며 사용자가 보낸 공급가액·세액·합계가 계산값과 다르면 저장을
+거부한다.
+
 ## 6. FINANCING
 
 -   `tb_fin_contract`

@@ -74,9 +74,11 @@ except ImportError:
 try:
     from views.opening_inventory_reg import OpeningInventoryRegWindow
     from views.opening_balance_reg import OpeningBalanceRegWindow
+    from views.purchase_reg import PurchaseRegWindow
 except ImportError:
     from opening_inventory_reg import OpeningInventoryRegWindow
     from opening_balance_reg import OpeningBalanceRegWindow
+    from purchase_reg import PurchaseRegWindow
 
 try:
     from views.password_change import PasswordChangeDialog
@@ -865,6 +867,9 @@ class MixNMainWindow(QMainWindow):
             "4.상품입/출고관리",
             self,
         )
+        self.action_purchase = QAction("1.일반 매입등록", self)
+        self.action_purchase.triggered.connect(self.open_purchase_reg)
+        self.menu4.addAction(self.action_purchase)
 
         self.menu5 = QMenu(
             "5.입금/출금관리",
@@ -928,6 +933,7 @@ class MixNMainWindow(QMainWindow):
             "MASTER_LOT": self.action_lot,
             "OPENING_INVENTORY": self.action_opening_inventory,
             "OPENING_BALANCE": self.action_opening_balance,
+            "PURCHASE_GENERAL": self.action_purchase,
         }
         for code, action in mapping.items():
             action.setVisible(app_context.can(code, "read"))
@@ -1529,6 +1535,11 @@ class MixNMainWindow(QMainWindow):
             "거래처 최초잔액 등록",
             "초기자료등록 → 거래처 최초잔액 등록",
         )
+
+
+    def open_purchase_reg(self):
+        """일반 매입등록 화면을 MDI에 1개만 연다."""
+        self._open_single_mdi(PurchaseRegWindow, "일반 매입등록", "상품입/출고관리 → 일반 매입등록")
 
 
     def _open_single_mdi(self, widget_class, title, status_text):

@@ -17,6 +17,13 @@ from expense_code_defaults import STANDARD_EXPENSE_TREE
 from permissions import (
     MENU_CODES, company_code_from_path, issue_token, permission_for_request, verify_token,
 )
+from purchase_service import (
+    calculate_purchase_line, summarize_purchase, validate_box_qty, validate_client_amounts,
+)
+from trade_common import (
+    allocate_document_no, apply_status_transition, ensure_draft, ensure_period_open,
+    tax_snapshot, validate_leaf_input_expense,
+)
 import models
 
 
@@ -2714,3 +2721,212 @@ def get_trade_input_options(comp_code: str, transaction_date: date, db: Session 
             for row in expenses if row.expense_id not in parent_ids
         ],
     }
+
+
+# =============================================================================
+# General purchase Vertical Slice
+# =============================================================================
+
+class PurchaseItemInput(BaseModel):
+    line_no: int = Field(ge=1)
+    product_id: int
+    expense_id: int
+    box_qty: int = Field(ge=0)
+    weight: Decimal = Field(gt=0, decimal_places=2)
+    unit_price: int = Field(ge=0)
+    tax_code: str = Field(min_length=1, max_length=20)
+    supply_amount: Optional[int] = Field(default=None, ge=0)
+    tax_amount: Optional[int] = Field(default=None, ge=0)
+    total_amount: Optional[int] = Field(default=None, ge=0)
+    memo: Optional[str] = Field(default=None, max_length=500)
+
+
+class PurchaseInput(BaseModel):
+    purchase_date: date
+    account_id: int
+    memo: Optional[str] = Field(default=None, max_length=1000)
+    items: list[PurchaseItemInput] = Field(min_length=1)
+
+
+def _purchase_supplier(db: Session, comp_code: str, account_id: int):
+    row = (db.query(models.CompanyAccount, models.Account)
+           .join(models.Account, models.Account.account_id == models.CompanyAccount.account_id)
+           .filter(models.CompanyAccount.comp_code == comp_code,
+                   models.CompanyAccount.account_id == account_id,
+                   models.CompanyAccount.use_yn == True,
+                   models.CompanyAccount.trade_stop_yn == False,
+                   models.CompanyAccount.purchase_yn == True,
+                   models.Account.use_yn == True).first())
+    if not row:
+        raise HTTPException(status_code=400, detail="현재 회사에서 사용 중인 매입거래처만 선택할 수 있습니다.")
+    return row
+
+
+def _prepare_purchase_lines(db: Session, purchase_date: date, items):
+    line_numbers = [item.line_no for item in items]
+    if len(set(line_numbers)) != len(line_numbers):
+        raise HTTPException(status_code=400, detail="전표 내 Detail 순번은 중복될 수 없습니다.")
+    prepared = []
+    for item in items:
+        product = db.query(models.Product).filter(
+            models.Product.product_id == item.product_id, models.Product.use_yn == True
+        ).first()
+        if not product:
+            raise HTTPException(status_code=400, detail=f"{item.line_no}행 상품은 사용 중인 상품이 아닙니다.")
+        validate_leaf_input_expense(db, item.expense_id)
+        tax = db.query(models.TaxCode).filter(models.TaxCode.tax_code == item.tax_code).first()
+        if not tax:
+            raise HTTPException(status_code=400, detail=f"{item.line_no}행 세금코드가 없습니다.")
+        snapshot = tax_snapshot(tax, purchase_date)
+        calculated = calculate_purchase_line(item.weight, item.unit_price, snapshot["tax_rate_snapshot"])
+        validate_client_amounts(calculated, item.model_dump())
+        prepared.append({
+            "line_no": item.line_no, "product_id": item.product_id,
+            "expense_id": item.expense_id, "box_qty": validate_box_qty(item.box_qty),
+            "weight": Decimal(item.weight), "unit_price": item.unit_price,
+            **snapshot, **calculated, "memo": item.memo,
+        })
+    return prepared
+
+
+def _purchase_result(row):
+    return {
+        "purchase_id": row.purchase_id, "comp_code": row.comp_code,
+        "purchase_no": row.purchase_no, "purchase_date": row.purchase_date,
+        "account_id": row.account_id,
+        "account_code": row.account.account_code if row.account else None,
+        "account_name": row.account.account_name if row.account else None,
+        "document_status": row.document_status,
+        "total_box_qty": row.total_box_qty, "total_weight": row.total_weight,
+        "total_supply_amount": row.total_supply_amount,
+        "total_tax_amount": row.total_tax_amount, "total_amount": row.total_amount,
+        "memo": row.memo, "created_by": row.created_by, "created_at": row.created_at,
+        "updated_by": row.updated_by, "updated_at": row.updated_at,
+        "confirmed_by": row.confirmed_by, "confirmed_at": row.confirmed_at,
+        "cancelled_by": row.cancelled_by, "cancelled_at": row.cancelled_at,
+        "items": [{
+            "purchase_item_id": item.purchase_item_id, "line_no": item.line_no,
+            "product_id": item.product_id,
+            "product_code": item.product.product_code if item.product else None,
+            "product_name": item.product.product_name if item.product else None,
+            "expense_id": item.expense_id,
+            "expense_code": item.expense.expense_code if item.expense else None,
+            "expense_name": item.expense.expense_name if item.expense else None,
+            "box_qty": item.box_qty, "weight": item.weight, "unit_price": item.unit_price,
+            "supply_amount": item.supply_amount,
+            "tax_code_snapshot": item.tax_code_snapshot,
+            "tax_name_snapshot": item.tax_name_snapshot,
+            "tax_rate_snapshot": item.tax_rate_snapshot,
+            "tax_amount": item.tax_amount, "total_amount": item.total_amount,
+            "memo": item.memo,
+        } for item in sorted(row.items, key=lambda value: value.line_no)],
+    }
+
+
+def _purchase_or_404(db: Session, comp_code: str, purchase_id: int):
+    row = db.query(models.Purchase).filter(
+        models.Purchase.purchase_id == purchase_id,
+        models.Purchase.comp_code == comp_code,
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="일반 매입전표가 없습니다.")
+    return row
+
+
+@app.get("/api/v1/companies/{comp_code}/purchase-options")
+def get_purchase_options(comp_code: str, transaction_date: date, db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    suppliers = (db.query(models.CompanyAccount, models.Account)
+                 .join(models.Account, models.Account.account_id == models.CompanyAccount.account_id)
+                 .filter(models.CompanyAccount.comp_code == comp_code,
+                         models.CompanyAccount.use_yn == True,
+                         models.CompanyAccount.trade_stop_yn == False,
+                         models.CompanyAccount.purchase_yn == True,
+                         models.Account.use_yn == True)
+                 .order_by(models.Account.account_name).all())
+    products = db.query(models.Product).filter(models.Product.use_yn == True).order_by(
+        models.Product.product_name, models.Product.product_code).all()
+    trade = get_trade_input_options(comp_code, transaction_date, db)
+    return {
+        "suppliers": [{"account_id": a.account_id, "account_code": a.account_code,
+                       "account_name": a.account_name} for _, a in suppliers],
+        "products": [{"product_id": p.product_id, "product_code": p.product_code,
+                      "product_name": p.product_name, "tax_type": p.tax_type} for p in products],
+        **trade,
+    }
+
+
+@app.get("/api/v1/companies/{comp_code}/purchases")
+def get_purchases(comp_code: str, db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    rows = db.query(models.Purchase).filter(models.Purchase.comp_code == comp_code).order_by(
+        models.Purchase.purchase_date.desc(), models.Purchase.purchase_id.desc()).all()
+    return [_purchase_result(row) for row in rows]
+
+
+@app.post("/api/v1/companies/{comp_code}/purchases", status_code=status.HTTP_201_CREATED)
+def create_purchase(comp_code: str, data: PurchaseInput, request: Request,
+                    db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db); _purchase_supplier(db, comp_code, data.account_id)
+    ensure_period_open(db, comp_code, data.purchase_date)
+    prepared = _prepare_purchase_lines(db, data.purchase_date, data.items)
+    totals = summarize_purchase(prepared)
+    row = models.Purchase(
+        comp_code=comp_code, purchase_no=allocate_document_no(db, comp_code, "PURCHASE", data.purchase_date),
+        purchase_date=data.purchase_date, account_id=data.account_id, memo=data.memo,
+        document_status="DRAFT", created_by=request.state.user_id,
+        updated_by=request.state.user_id, **totals,
+    )
+    row.items = [models.PurchaseItem(**item) for item in prepared]
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback(); raise HTTPException(status_code=409, detail="전표번호·Detail 순번 또는 참조자료 중복/연결을 확인하세요.")
+    db.refresh(row); return _purchase_result(row)
+
+
+@app.put("/api/v1/companies/{comp_code}/purchases/{purchase_id}")
+def update_purchase(comp_code: str, purchase_id: int, data: PurchaseInput,
+                    request: Request, db: Session = Depends(get_db)):
+    row = _purchase_or_404(db, comp_code, purchase_id); ensure_draft(row)
+    ensure_period_open(db, comp_code, row.purchase_date)
+    ensure_period_open(db, comp_code, data.purchase_date)
+    _purchase_supplier(db, comp_code, data.account_id)
+    prepared = _prepare_purchase_lines(db, data.purchase_date, data.items)
+    totals = summarize_purchase(prepared)
+    if row.purchase_date != data.purchase_date:
+        row.purchase_no = allocate_document_no(db, comp_code, "PURCHASE", data.purchase_date)
+    row.purchase_date = data.purchase_date; row.account_id = data.account_id; row.memo = data.memo
+    row.updated_by = request.state.user_id; row.updated_at = datetime.now(timezone.utc)
+    for key, value in totals.items(): setattr(row, key, value)
+    row.items.clear(); db.flush()
+    row.items.extend(models.PurchaseItem(**item) for item in prepared)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback(); raise HTTPException(status_code=409, detail="Detail 순번 또는 참조자료 연결을 확인하세요.")
+    db.refresh(row); return _purchase_result(row)
+
+
+@app.delete("/api/v1/companies/{comp_code}/purchases/{purchase_id}")
+def delete_purchase(comp_code: str, purchase_id: int, db: Session = Depends(get_db)):
+    row = _purchase_or_404(db, comp_code, purchase_id); ensure_draft(row)
+    ensure_period_open(db, comp_code, row.purchase_date)
+    db.delete(row); db.commit(); return {"message": "작성 중인 일반 매입전표가 삭제되었습니다."}
+
+
+@app.post("/api/v1/companies/{comp_code}/purchases/{purchase_id}/confirm")
+def confirm_purchase(comp_code: str, purchase_id: int, request: Request,
+                     db: Session = Depends(get_db)):
+    row = _purchase_or_404(db, comp_code, purchase_id); ensure_period_open(db, comp_code, row.purchase_date)
+    apply_status_transition(row, "CONFIRMED", request.state.user_id)
+    db.commit(); db.refresh(row); return _purchase_result(row)
+
+
+@app.post("/api/v1/companies/{comp_code}/purchases/{purchase_id}/cancel")
+def cancel_purchase(comp_code: str, purchase_id: int, request: Request,
+                    db: Session = Depends(get_db)):
+    row = _purchase_or_404(db, comp_code, purchase_id); ensure_period_open(db, comp_code, row.purchase_date)
+    apply_status_transition(row, "CANCELLED", request.state.user_id)
+    db.commit(); db.refresh(row); return _purchase_result(row)

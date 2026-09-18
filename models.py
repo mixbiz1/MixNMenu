@@ -268,6 +268,66 @@ class TaxCode(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class Purchase(Base):
+    """일반 매입 금액전표 Header. 실제 입고/재고와 분리한다."""
+    __tablename__ = "tb_purchase"
+    __table_args__ = (
+        UniqueConstraint("comp_code", "purchase_no", name="UQ_purchase_company_no"),
+    )
+
+    purchase_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False, index=True)
+    purchase_no = Column(String(30), nullable=False, index=True)
+    purchase_date = Column(Date, nullable=False, index=True)
+    account_id = Column(Integer, ForeignKey("tb_account.account_id"), nullable=False, index=True)
+    document_status = Column(String(20), default="DRAFT", nullable=False, index=True)
+    total_box_qty = Column(Integer, default=0, nullable=False)
+    total_weight = Column(Numeric(18, 2), default=0, nullable=False)
+    total_supply_amount = Column(Numeric(18, 0), default=0, nullable=False)
+    total_tax_amount = Column(Numeric(18, 0), default=0, nullable=False)
+    total_amount = Column(Numeric(18, 0), default=0, nullable=False)
+    memo = Column(String(1000), nullable=True)
+    created_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    confirmed_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    cancelled_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=True)
+    cancelled_at = Column(DateTime(timezone=True), nullable=True)
+
+    account = relationship("Account")
+    items = relationship("PurchaseItem", back_populates="purchase", cascade="all, delete-orphan")
+
+
+class PurchaseItem(Base):
+    """일반 매입 Detail. 세금과 경비코드는 거래시점 Snapshot을 보관한다."""
+    __tablename__ = "tb_purchase_item"
+    __table_args__ = (
+        UniqueConstraint("purchase_id", "line_no", name="UQ_purchase_item_line"),
+    )
+
+    purchase_item_id = Column(Integer, primary_key=True, autoincrement=True)
+    purchase_id = Column(Integer, ForeignKey("tb_purchase.purchase_id"), nullable=False, index=True)
+    line_no = Column(Integer, nullable=False)
+    product_id = Column(Integer, ForeignKey("tb_product.product_id"), nullable=False, index=True)
+    expense_id = Column(Integer, ForeignKey("tb_expense_code.expense_id"), nullable=False, index=True)
+    box_qty = Column(Integer, nullable=False)
+    weight = Column(Numeric(18, 2), nullable=False)
+    unit_price = Column(Numeric(18, 0), nullable=False)
+    supply_amount = Column(Numeric(18, 0), nullable=False)
+    tax_code_snapshot = Column(String(20), nullable=False)
+    tax_name_snapshot = Column(String(100), nullable=False)
+    tax_rate_snapshot = Column(Numeric(5, 2), nullable=False)
+    tax_amount = Column(Numeric(18, 0), nullable=False)
+    total_amount = Column(Numeric(18, 0), nullable=False)
+    memo = Column(String(500), nullable=True)
+
+    purchase = relationship("Purchase", back_populates="items")
+    product = relationship("Product")
+    expense = relationship("ExpenseCode")
+
+
 class Product(Base):
     """
     품목(수입육류) 정보 테이블
