@@ -2752,6 +2752,7 @@ class PurchaseInput(BaseModel):
     purchase_date: date
     account_id: int
     memo: Optional[str] = Field(default=None, max_length=1000)
+    finalize: bool = False
     items: list[PurchaseItemInput] = Field(min_length=1)
 
 
@@ -2857,6 +2858,80 @@ def _purchase_or_404(db: Session, comp_code: str, purchase_id: int):
     return row
 
 
+def _materialize_purchase(db: Session, row):
+    """상품매입 원문을 실제 입고·LOT·미지급 원장으로 한 번에 전개한다."""
+    inbound_by_warehouse = {}
+    for item in sorted(row.items, key=lambda value: value.line_no):
+        if not item.warehouse_id:
+            raise HTTPException(status_code=400, detail=f"{item.line_no}행 입고창고를 선택하세요.")
+        inbound = inbound_by_warehouse.get(item.warehouse_id)
+        if inbound is None:
+            inbound = models.Inbound(
+                comp_code=row.comp_code,
+                inbound_no=allocate_document_no(db, row.comp_code, "PURCHASE_INBOUND", row.purchase_date),
+                inbound_date=row.purchase_date,
+                warehouse_id=item.warehouse_id,
+                transaction_type="PURCHASE_INBOUND",
+                memo=f"상품매입 {row.purchase_no}",
+            )
+            db.add(inbound); db.flush(); inbound_by_warehouse[item.warehouse_id] = inbound
+        lot = models.Lot(
+            comp_code=row.comp_code,
+            lot_code=f"L{row.purchase_no[3:]}-{item.line_no:02d}",
+            business_lot_no=None,
+            source_type="DOMESTIC",
+            product_id=item.product_id,
+            warehouse_id=item.warehouse_id,
+            bl_no=item.bl_no,
+            history_no=item.history_no,
+            origin=_product_attribute(item.product, "PC003", db),
+            est_no=_product_attribute(item.product, "PC008", db),
+            individual_cost=item.unit_price,
+            status="OPEN", use_yn=True,
+            memo=f"상품매입 {row.purchase_no} {item.line_no}행",
+        )
+        db.add(lot); db.flush()
+        inbound_item = models.InboundItem(
+            inbound_id=inbound.inbound_id, line_no=item.line_no,
+            product_id=item.product_id, lot_id=lot.lot_id,
+            box_qty=item.box_qty, weight=item.weight,
+            individual_cost=item.unit_price, amount=item.supply_amount,
+        )
+        db.add(inbound_item); db.flush()
+        item.lot_id = lot.lot_id
+        item.inbound_item_id = inbound_item.inbound_item_id
+    db.add(models.AccountTransaction(
+        comp_code=row.comp_code, transaction_no=row.purchase_no,
+        transaction_date=row.purchase_date, account_id=row.account_id,
+        transaction_type="PURCHASE_PAYABLE", original_amount=row.total_amount,
+        memo=f"상품매입 {row.purchase_no}",
+    ))
+
+
+def _dematerialize_purchase(db: Session, row, transaction_no: Optional[str] = None):
+    """수정·취소 전에 이 매입이 만든 파생자료만 회수한다."""
+    inbound_ids = {item.inbound_item.inbound_id for item in row.items if item.inbound_item}
+    lots = [item.lot for item in row.items if item.lot]
+    for item in row.items:
+        item.inbound_item_id = None
+        item.lot_id = None
+    db.flush()
+    if inbound_ids:
+        db.query(models.InboundItem).filter(
+            models.InboundItem.inbound_id.in_(inbound_ids)
+        ).delete(synchronize_session=False)
+        db.query(models.Inbound).filter(
+            models.Inbound.inbound_id.in_(inbound_ids)
+        ).delete(synchronize_session=False)
+    for lot in lots:
+        db.delete(lot)
+    db.query(models.AccountTransaction).filter(
+        models.AccountTransaction.comp_code == row.comp_code,
+        models.AccountTransaction.transaction_no == (transaction_no or row.purchase_no),
+        models.AccountTransaction.transaction_type == "PURCHASE_PAYABLE",
+    ).delete(synchronize_session=False)
+
+
 @app.get("/api/v1/companies/{comp_code}/purchase-options")
 def get_purchase_options(comp_code: str, transaction_date: date,
                          supplier_query: str = "", product_query: str = "",
@@ -2934,7 +3009,13 @@ def create_purchase(comp_code: str, data: PurchaseInput, request: Request,
     row.items = [models.PurchaseItem(**item) for item in prepared]
     db.add(row)
     try:
+        db.flush()
+        if data.finalize:
+            _materialize_purchase(db, row)
+            apply_status_transition(row, "CONFIRMED", request.state.user_id)
         db.commit()
+    except HTTPException:
+        db.rollback(); raise
     except IntegrityError:
         db.rollback(); raise HTTPException(status_code=409, detail="전표번호·Detail 순번 또는 참조자료 중복/연결을 확인하세요.")
     db.refresh(row); return _purchase_result(row)
@@ -2943,12 +3024,21 @@ def create_purchase(comp_code: str, data: PurchaseInput, request: Request,
 @app.put("/api/v1/companies/{comp_code}/purchases/{purchase_id}")
 def update_purchase(comp_code: str, purchase_id: int, data: PurchaseInput,
                     request: Request, db: Session = Depends(get_db)):
-    row = _purchase_or_404(db, comp_code, purchase_id); ensure_draft(row)
+    row = _purchase_or_404(db, comp_code, purchase_id)
+    if row.document_status == "CANCELLED":
+        raise HTTPException(status_code=400, detail="취소된 상품매입전표는 수정할 수 없습니다.")
     ensure_period_open(db, comp_code, row.purchase_date)
     ensure_period_open(db, comp_code, data.purchase_date)
     _purchase_supplier(db, comp_code, data.account_id)
     prepared = _prepare_purchase_lines(db, comp_code, data.purchase_date, data.items)
     totals = summarize_purchase(prepared)
+    was_confirmed = row.document_status == "CONFIRMED"
+    old_purchase_no = row.purchase_no
+    try:
+        if was_confirmed:
+            _dematerialize_purchase(db, row, old_purchase_no)
+    except IntegrityError:
+        db.rollback(); raise HTTPException(status_code=409, detail="후속 입출고에 연결된 매입은 수정할 수 없습니다.")
     if row.purchase_date != data.purchase_date:
         row.purchase_no = allocate_document_no(db, comp_code, "PURCHASE", data.purchase_date)
     row.purchase_date = data.purchase_date; row.account_id = data.account_id; row.memo = data.memo
@@ -2957,6 +3047,11 @@ def update_purchase(comp_code: str, purchase_id: int, data: PurchaseInput,
     row.items.clear(); db.flush()
     row.items.extend(models.PurchaseItem(**item) for item in prepared)
     try:
+        db.flush()
+        if data.finalize or was_confirmed:
+            _materialize_purchase(db, row)
+            if not was_confirmed:
+                apply_status_transition(row, "CONFIRMED", request.state.user_id)
         db.commit()
     except IntegrityError:
         db.rollback(); raise HTTPException(status_code=409, detail="Detail 순번 또는 참조자료 연결을 확인하세요.")
@@ -2976,53 +3071,7 @@ def confirm_purchase(comp_code: str, purchase_id: int, request: Request,
     row = _purchase_or_404(db, comp_code, purchase_id); ensure_period_open(db, comp_code, row.purchase_date)
     ensure_draft(row)
     try:
-        inbound_by_warehouse = {}
-        for item in sorted(row.items, key=lambda value: value.line_no):
-            if not item.warehouse_id:
-                raise HTTPException(status_code=400, detail=f"{item.line_no}행 입고창고를 선택하세요.")
-            inbound = inbound_by_warehouse.get(item.warehouse_id)
-            if inbound is None:
-                inbound = models.Inbound(
-                    comp_code=comp_code,
-                    inbound_no=allocate_document_no(db, comp_code, "PURCHASE_INBOUND", row.purchase_date),
-                    inbound_date=row.purchase_date,
-                    warehouse_id=item.warehouse_id,
-                    transaction_type="PURCHASE_INBOUND",
-                    memo=f"상품매입 {row.purchase_no}",
-                )
-                db.add(inbound); db.flush(); inbound_by_warehouse[item.warehouse_id] = inbound
-            product = item.product
-            lot = models.Lot(
-                comp_code=comp_code,
-                lot_code=f"L{row.purchase_no[3:]}-{item.line_no:02d}",
-                business_lot_no=None,
-                source_type="DOMESTIC",
-                product_id=item.product_id,
-                warehouse_id=item.warehouse_id,
-                bl_no=item.bl_no,
-                history_no=item.history_no,
-                origin=_product_attribute(product, "PC003", db),
-                est_no=_product_attribute(product, "PC008", db),
-                individual_cost=item.unit_price,
-                status="OPEN", use_yn=True,
-                memo=f"상품매입 {row.purchase_no} {item.line_no}행",
-            )
-            db.add(lot); db.flush()
-            inbound_item = models.InboundItem(
-                inbound_id=inbound.inbound_id, line_no=item.line_no,
-                product_id=item.product_id, lot_id=lot.lot_id,
-                box_qty=item.box_qty, weight=item.weight,
-                individual_cost=item.unit_price, amount=item.supply_amount,
-            )
-            db.add(inbound_item); db.flush()
-            item.lot_id = lot.lot_id; item.inbound_item_id = inbound_item.inbound_item_id
-
-        db.add(models.AccountTransaction(
-            comp_code=comp_code, transaction_no=row.purchase_no,
-            transaction_date=row.purchase_date, account_id=row.account_id,
-            transaction_type="PURCHASE_PAYABLE", original_amount=row.total_amount,
-            memo=f"상품매입 확정 {row.purchase_no}",
-        ))
+        _materialize_purchase(db, row)
         apply_status_transition(row, "CONFIRMED", request.state.user_id)
         db.commit()
     except HTTPException:
@@ -3038,23 +3087,12 @@ def cancel_purchase(comp_code: str, purchase_id: int, request: Request,
     row = _purchase_or_404(db, comp_code, purchase_id); ensure_period_open(db, comp_code, row.purchase_date)
     # 현재 출고 Vertical Slice 전이므로 매입확정이 만든 입고/LOT만 원자적으로 회수한다.
     # 후속 출고 연결 뒤에는 취소출고 원장을 생성하는 방식으로 교체한다.
-    inbound_ids = {item.inbound_item.inbound_id for item in row.items if item.inbound_item}
-    lots = [item.lot for item in row.items if item.lot]
-    for item in row.items:
-        item.inbound_item_id = None; item.lot_id = None
-    db.flush()
-    if inbound_ids:
-        db.query(models.InboundItem).filter(models.InboundItem.inbound_id.in_(inbound_ids)).delete(synchronize_session=False)
-        db.query(models.Inbound).filter(models.Inbound.inbound_id.in_(inbound_ids)).delete(synchronize_session=False)
-    for lot in lots: db.delete(lot)
-    db.query(models.AccountTransaction).filter(
-        models.AccountTransaction.comp_code == comp_code,
-        models.AccountTransaction.transaction_no == row.purchase_no,
-        models.AccountTransaction.transaction_type == "PURCHASE_PAYABLE",
-    ).delete(synchronize_session=False)
-    apply_status_transition(row, "CANCELLED", request.state.user_id)
     try:
+        _dematerialize_purchase(db, row)
+        apply_status_transition(row, "CANCELLED", request.state.user_id)
         db.commit()
+    except HTTPException:
+        db.rollback(); raise
     except IntegrityError:
         db.rollback(); raise HTTPException(status_code=409, detail="후속 입출고에 연결된 매입은 취소할 수 없습니다.")
     db.refresh(row); return _purchase_result(row)
