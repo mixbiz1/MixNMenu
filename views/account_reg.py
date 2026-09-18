@@ -1,5 +1,5 @@
 import webbrowser
-import httpx
+import api_client as httpx
 from concurrent.futures import ThreadPoolExecutor
 from PySide6.QtCore import Qt, QEvent, QTimer
 from PySide6.QtWidgets import (

@@ -1,5 +1,5 @@
 import sys
-import httpx
+import api_client as httpx
 
 from PySide6.QtWidgets import (
     QApplication,
@@ -29,7 +29,7 @@ from app_context import app_context
 # ============================================================
 
 class LoginWorker(QThread):
-    finished = Signal(bool, str, str)
+    finished = Signal(bool, object)
 
     def __init__(self, user_id, password):
         super().__init__()
@@ -58,11 +58,7 @@ class LoginWorker(QThread):
                     self.user_id,
                 )
 
-                self.finished.emit(
-                    True,
-                    self.user_id,
-                    user_name,
-                )
+                self.finished.emit(True, data)
 
             else:
                 try:
@@ -76,18 +72,10 @@ class LoginWorker(QThread):
                         f"(HTTP {response.status_code})"
                     )
 
-                self.finished.emit(
-                    False,
-                    self.user_id,
-                    err_msg,
-                )
+                self.finished.emit(False, {"detail": err_msg})
 
         except Exception as e:
-            self.finished.emit(
-                False,
-                self.user_id,
-                f"서버 연결 실패: {str(e)}",
-            )
+            self.finished.emit(False, {"detail": f"서버 연결 실패: {str(e)}"})
 
 
 # ============================================================
@@ -497,8 +485,7 @@ class LoginDialog(QDialog):
     def on_login_finished(
         self,
         success: bool,
-        user_id: str,
-        result_msg: str,
+        result: object,
     ):
 
         self.btn_confirm.setEnabled(
@@ -506,14 +493,16 @@ class LoginDialog(QDialog):
         )
 
         if success:
-
-            self.user_id = user_id
-            self.user_name = result_msg
+            self.user_id = self.id_input.text().strip()
+            self.user_name = result.get("user_name", self.user_id)
 
             # 현재 로그인 사용자 Context 저장
             app_context.set_user(
                 self.user_id,
                 self.user_name,
+                result.get("access_token"),
+                result.get("is_admin", False),
+                result.get("permissions", {}),
             )
 
             welcome_text = (
@@ -537,7 +526,7 @@ class LoginDialog(QDialog):
             show_custom_message(
                 self,
                 "로그인 실패",
-                result_msg,
+                result.get("detail", "로그인에 실패했습니다."),
                 QMessageBox.Critical,
             )
 

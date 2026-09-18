@@ -47,7 +47,56 @@ class User(Base):
     user_name = Column(String(50), nullable=False)             # 사용자명
     password_hash = Column(String(255), nullable=False)        # 암호화된 비밀번호 (또는 평문 비밀번호)
     use_yn = Column(Boolean, default=True, nullable=False)     # 계정 활성화 여부
+    is_admin = Column(Boolean, default=False, nullable=False)  # 전체 회사/메뉴 권한 관리자
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    company_access = relationship("UserCompanyAccess", back_populates="user", cascade="all, delete-orphan")
+    menu_permissions = relationship("UserMenuPermission", back_populates="user", cascade="all, delete-orphan")
+
+
+class MenuMaster(Base):
+    """API와 Desktop 메뉴가 함께 사용하는 안정적인 권한 코드 Master."""
+    __tablename__ = "tb_menu_master"
+
+    menu_code = Column(String(50), primary_key=True)
+    menu_name = Column(String(100), nullable=False)
+    menu_group = Column(String(50), nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    use_yn = Column(Boolean, default=True, nullable=False)
+
+    user_permissions = relationship("UserMenuPermission", back_populates="menu", cascade="all, delete-orphan")
+
+
+class UserCompanyAccess(Base):
+    """사용자가 선택하고 처리할 수 있는 업무회사."""
+    __tablename__ = "tb_user_company_access"
+    __table_args__ = (
+        UniqueConstraint("user_id", "comp_code", name="UQ_user_company_access"),
+    )
+
+    user_id = Column(String(50), ForeignKey("tb_user.user_id"), primary_key=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), primary_key=True)
+
+    user = relationship("User", back_populates="company_access")
+    company = relationship("Company")
+
+
+class UserMenuPermission(Base):
+    """사용자별 메뉴 조회·등록·수정·삭제 권한."""
+    __tablename__ = "tb_user_menu_permission"
+    __table_args__ = (
+        UniqueConstraint("user_id", "menu_code", name="UQ_user_menu_permission"),
+    )
+
+    user_id = Column(String(50), ForeignKey("tb_user.user_id"), primary_key=True)
+    menu_code = Column(String(50), ForeignKey("tb_menu_master.menu_code"), primary_key=True)
+    can_read = Column(Boolean, default=False, nullable=False)
+    can_create = Column(Boolean, default=False, nullable=False)
+    can_update = Column(Boolean, default=False, nullable=False)
+    can_delete = Column(Boolean, default=False, nullable=False)
+
+    user = relationship("User", back_populates="menu_permissions")
+    menu = relationship("MenuMaster", back_populates="user_permissions")
 
 
 class CodeGroup(Base):

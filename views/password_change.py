@@ -1,4 +1,4 @@
-import httpx
+import api_client as httpx
 
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit, QMessageBox,

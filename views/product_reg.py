@@ -1,5 +1,5 @@
 import math
-import httpx
+import api_client as httpx
 import re
 from concurrent.futures import ThreadPoolExecutor
 

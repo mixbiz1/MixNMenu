@@ -1,7 +1,7 @@
 import sys
 import os
 import traceback
-import httpx
+import api_client as httpx
 import time
 
 from PySide6.QtWidgets import (
@@ -85,8 +85,10 @@ except ImportError:
 
 try:
     from views.user_reg import UserRegWindow
+    from views.user_permission_reg import UserPermissionWindow
 except ImportError:
     from user_reg import UserRegWindow
+    from user_permission_reg import UserPermissionWindow
 
 
 # ============================================================
@@ -742,12 +744,9 @@ class MixNMainWindow(QMainWindow):
         self.action_user_reg.triggered.connect(self.open_user_reg)
         self.menu1_2.addAction(self.action_user_reg)
 
-        self.menu1_2.addAction(
-            QAction(
-                "2.사용자별 프로그램 권한",
-                self,
-            )
-        )
+        self.action_user_permission = QAction("2.사용자별 프로그램 권한", self)
+        self.action_user_permission.triggered.connect(self.open_user_permission)
+        self.menu1_2.addAction(self.action_user_permission)
 
         self.menu1_2.addAction(
             QAction(
@@ -767,90 +766,90 @@ class MixNMainWindow(QMainWindow):
             self.menu1_2
         )
 
-        common_code_action = QAction(
+        self.action_common_code = QAction(
             "2.공통코드입력",
             self,
         )
-        common_code_action.triggered.connect(
+        self.action_common_code.triggered.connect(
             self.open_common_code
         )
         self.menu2.addAction(
-            common_code_action
+            self.action_common_code
         )
 
-        goods_common_code_action = QAction(
+        self.action_goods_common_code = QAction(
             "3.상품공통코드",
             self,
         )
-        goods_common_code_action.triggered.connect(
+        self.action_goods_common_code.triggered.connect(
             self.open_goods_common_code
         )
         self.menu2.addAction(
-            goods_common_code_action
+            self.action_goods_common_code
         )
 
-        product_action = QAction(
+        self.action_product = QAction(
             "4.상품코드입력",
             self,
         )
-        product_action.triggered.connect(
+        self.action_product.triggered.connect(
             self.open_product_reg
         )
         self.menu2.addAction(
-            product_action
+            self.action_product
         )
 
-        expense_code_action = QAction(
+        self.action_expense_code = QAction(
             "5.경비코드입력",
             self,
         )
-        expense_code_action.triggered.connect(
+        self.action_expense_code.triggered.connect(
             self.open_expense_code
         )
         self.menu2.addAction(
-            expense_code_action
+            self.action_expense_code
         )
 
-        account_action = QAction(
+        self.action_account = QAction(
             "6.거래처입력",
             self,
         )
-        account_action.triggered.connect(
+        self.action_account.triggered.connect(
             self.open_account_reg
         )
         self.menu2.addAction(
-            account_action
+            self.action_account
         )
 
-        warehouse_action = QAction(
+        self.action_warehouse = QAction(
             "7.창고입력",
             self,
         )
-        warehouse_action.triggered.connect(
+        self.action_warehouse.triggered.connect(
             self.open_warehouse_reg
         )
         self.menu2.addAction(
-            warehouse_action
+            self.action_warehouse
         )
 
-        lot_action = QAction(
+        self.action_lot = QAction(
             "8.LOT조회/보정",
             self,
         )
-        lot_action.triggered.connect(
+        self.action_lot.triggered.connect(
             self.open_lot_reg
         )
         self.menu2.addAction(
-            lot_action
+            self.action_lot
         )
 
         opening_menu = QMenu("9.초기자료등록", self)
-        opening_inventory_action = QAction("1.최초재고 등록", self)
-        opening_inventory_action.triggered.connect(self.open_opening_inventory_reg)
-        opening_menu.addAction(opening_inventory_action)
-        opening_balance_action = QAction("2.거래처 최초잔액 등록", self)
-        opening_balance_action.triggered.connect(self.open_opening_balance_reg)
-        opening_menu.addAction(opening_balance_action)
+        self.action_opening_inventory = QAction("1.최초재고 등록", self)
+        self.action_opening_inventory.triggered.connect(self.open_opening_inventory_reg)
+        opening_menu.addAction(self.action_opening_inventory)
+        self.action_opening_balance = QAction("2.거래처 최초잔액 등록", self)
+        self.action_opening_balance.triggered.connect(self.open_opening_balance_reg)
+        opening_menu.addAction(self.action_opening_balance)
         self.menu2.addMenu(opening_menu)
 
         # ----------------------------------------------------
@@ -911,6 +910,27 @@ class MixNMainWindow(QMainWindow):
             self.menuBar.addMenu(
                 menu
             )
+
+        self._apply_menu_permissions()
+
+    def _apply_menu_permissions(self):
+        """조회권한 없는 실제 구현 메뉴는 실행 단계에서도 숨긴다."""
+        mapping = {
+            "SYS_COMPANY": self.action_company_reg,
+            "SYS_USER": self.action_user_reg,
+            "SYS_PERMISSION": self.action_user_permission,
+            "MASTER_COMMON": self.action_common_code,
+            "MASTER_GOODS_COMMON": self.action_goods_common_code,
+            "MASTER_PRODUCT": self.action_product,
+            "MASTER_EXPENSE": self.action_expense_code,
+            "MASTER_ACCOUNT": self.action_account,
+            "MASTER_WAREHOUSE": self.action_warehouse,
+            "MASTER_LOT": self.action_lot,
+            "OPENING_INVENTORY": self.action_opening_inventory,
+            "OPENING_BALANCE": self.action_opening_balance,
+        }
+        for code, action in mapping.items():
+            action.setVisible(app_context.can(code, "read"))
 
 
     # ========================================================
@@ -1098,6 +1118,13 @@ class MixNMainWindow(QMainWindow):
             UserRegWindow,
             "사용자등록",
             "사용자관리 → 사용자등록",
+        )
+
+    def open_user_permission(self):
+        self._open_single_mdi(
+            UserPermissionWindow,
+            "사용자별 프로그램 권한",
+            "사용자관리 → 사용자별 프로그램 권한",
         )
 
     def open_postcode_lookup(self):

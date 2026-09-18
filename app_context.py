@@ -18,6 +18,9 @@ class AppContext:
     def __init__(self):
         self._user_id = None
         self._user_name = None
+        self._access_token = None
+        self._is_admin = False
+        self._permissions = {}
 
         self._company_code = None
         self._company_name = None
@@ -26,15 +29,22 @@ class AppContext:
     # 사용자 Context
     # ========================================================
 
-    def set_user(self, user_id: str, user_name: str):
+    def set_user(self, user_id: str, user_name: str, access_token=None,
+                 is_admin=False, permissions=None):
         """현재 로그인 사용자를 설정한다."""
         self._user_id = user_id
         self._user_name = user_name
+        self._access_token = access_token
+        self._is_admin = bool(is_admin)
+        self._permissions = permissions or {}
 
     def clear_user(self):
         """현재 로그인 사용자 정보를 초기화한다."""
         self._user_id = None
         self._user_name = None
+        self._access_token = None
+        self._is_admin = False
+        self._permissions = {}
 
     @property
     def user_id(self):
@@ -47,6 +57,19 @@ class AppContext:
     @property
     def has_user(self):
         return self._user_id is not None
+
+    @property
+    def access_token(self):
+        return self._access_token
+
+    @property
+    def is_admin(self):
+        return self._is_admin
+
+    def can(self, menu_code: str, action: str = "read") -> bool:
+        if self._is_admin:
+            return True
+        return bool(self._permissions.get(menu_code, {}).get(f"can_{action}", False))
 
     # ========================================================
     # 회사 Context

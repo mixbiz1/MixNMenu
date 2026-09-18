@@ -1,6 +1,6 @@
 # MXMN CURRENT STATUS
 
-**Version:** 1.20\
+**Version:** 1.21\
 **Status date:** 2026-09-18\
 **Project:** MXMN\
 **Purpose:** 현재 실제 구현·검증 상태와 다음 작업을 짧게 유지하는 운영
@@ -1042,3 +1042,50 @@ Scale은 호환성을 위해 변경하지 않고 Application Rule로 정수값�
     구현한다. 이후 모든 거래 화면에서 공통으로 권한을 검사하기 위함이다.
 -   상세 잔여 순서는 `docs/10_DEVELOPMENT_ROADMAP.md`의
     `현재 기준 권장 잔여 구현 순서`를 따른다.
+
+------------------------------------------------------------------------
+
+## 32. 사용자·회사·메뉴권한 마감 (2026-09-18)
+
+### 32.1 사용자별 업무회사 접근
+
+-   `tb_user_company_access`의 `(user_id, comp_code)` 복합 PK와 두 FK로
+    사용자별 업무회사를 관리한다.
+-   로그인 후 회사 선택 및 업무회사 변경 목록에는 허용된 회사만 표시한다.
+-   `/companies/{comp_code}/...` API는 화면 선택값과 무관하게 서버에서
+    회사 접근권한을 다시 확인하여 URL 직접변경 우회를 차단한다.
+-   사용 중인 일반 사용자는 업무회사를 최소 1곳 보유해야 한다.
+
+### 32.2 메뉴별 CRUD 및 공통 API 검사
+
+-   `tb_menu_master`, `tb_user_menu_permission`을 추가하고 메뉴별
+    조회·등록·수정·삭제 권한을 저장한다.
+-   `2.코드관리 → 1.사용자관리 → 2.사용자별 프로그램 권한` 화면에서
+    회사 체크와 메뉴 권한을 한 번에 저장한다.
+-   조회권한이 없는 구현 메뉴는 Main Menu에서 숨긴다.
+-   FastAPI 공통 Middleware가 서명 Bearer Token, 활성계정, 회사 접근,
+    URL별 메뉴와 HTTP Method별 CRUD 권한을 검사한다. Desktop의 모든 HTTP
+    호출은 `api_client.py`에서 인증 Header를 공통 전송한다.
+
+### 32.3 잠금·무결성 방지
+
+-   요청 본문의 사용자 ID를 신뢰하지 않고 서명 Token의 로그인 사용자를
+    기준으로 자기 계정 사용중지를 차단한다.
+-   마지막 활성 관리자 사용중지, 관리자 권한 축소, 타 사용자 비밀번호의
+    본인변경 API 호출을 차단한다.
+-   권한 저장 전 회사·메뉴 유효성 및 중복을 검사하고 DB 복합 PK/FK로 한 번
+    더 보장한다. 회사와 메뉴 권한 교체는 단일 Transaction이다.
+-   최초 Migration 시 `admin`/`administrator` 우선, 없으면 최초 활성계정
+    1개를 관리자로 지정한다. 그 밖의 기존 활성계정에도 전체 명시권한을
+    부여하여 기존 사용을 중단시키지 않는다. 이후 신규 사용자는 무권한의
+    일반 사용자이며 관리자가 회사·메뉴 권한을 지정한다.
+
+### 32.4 적용·검증
+
+-   먼저 `python db_user_permission_migrate.py`를 1회 실행한 뒤 FastAPI와
+    Desktop Client를 재시작한다. Migration은 재실행 가능하다.
+-   `MXMN_AUTH_SECRET`은 개발 PC 간 같은 긴 임의 문자열로 `.env`에 지정한다.
+-   Token 위변조·만료, API 권한 Route, 회사코드 추출, 메뉴코드 중복 검증
+    자동 테스트 5건을 통과했다. 전체 Python compile 및 diff 검사도 통과했다.
+-   실제 SQL Server Migration과 Windows 화면·관리자/일반사용자 교차 검증은
+    사용자 개발환경에서 최종 확인한다.

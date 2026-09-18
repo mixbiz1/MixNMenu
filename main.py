@@ -5,14 +5,18 @@ import hmac
 import secrets
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from database import get_db, engine, Base
+from database import get_db, engine, Base, SessionLocal
 from expense_code_defaults import STANDARD_EXPENSE_TREE
+from permissions import (
+    MENU_CODES, company_code_from_path, issue_token, permission_for_request, verify_token,
+)
 import models
 
 
@@ -43,6 +47,9 @@ class LoginResponse(BaseModel):
     status: str
     message: str
     user_name: str
+    access_token: str
+    is_admin: bool
+    permissions: dict
 
 
 class PasswordChangeRequest(BaseModel):
@@ -68,7 +75,20 @@ class UserPasswordResetRequest(BaseModel):
 
 class UserStatusRequest(BaseModel):
     use_yn: bool
-    actor_user_id: str
+    actor_user_id: Optional[str] = None  # 구버전 Client 호환용, 보안판단에는 사용하지 않음
+
+
+class MenuPermissionRequest(BaseModel):
+    menu_code: str
+    can_read: bool = False
+    can_create: bool = False
+    can_update: bool = False
+    can_delete: bool = False
+
+
+class UserAccessRequest(BaseModel):
+    company_codes: list[str]
+    menu_permissions: list[MenuPermissionRequest]
 
 
 PASSWORD_SCHEME = "pbkdf2_sha256"
@@ -103,8 +123,68 @@ def _user_response(user):
         "user_id": user.user_id,
         "user_name": user.user_name,
         "use_yn": bool(user.use_yn),
+        "is_admin": bool(user.is_admin),
         "created_at": user.created_at,
     }
+
+
+def _permission_dict(db: Session, user_id: str):
+    rows = db.query(models.UserMenuPermission).filter(
+        models.UserMenuPermission.user_id == user_id
+    ).all()
+    return {
+        row.menu_code: {
+            "can_read": bool(row.can_read), "can_create": bool(row.can_create),
+            "can_update": bool(row.can_update), "can_delete": bool(row.can_delete),
+        }
+        for row in rows
+    }
+
+
+@app.middleware("http")
+async def enforce_api_permissions(request: Request, call_next):
+    """모든 v1 API에 인증·회사·메뉴 CRUD 권한을 공통 적용한다."""
+    path = request.url.path
+    if not path.startswith("/api/v1/") or path == "/api/v1/auth/login":
+        return await call_next(request)
+    authorization = request.headers.get("Authorization", "")
+    token = authorization[7:] if authorization.startswith("Bearer ") else ""
+    user_id = verify_token(token)
+    if not user_id:
+        return JSONResponse(status_code=401, content={"detail": "로그인이 만료되었거나 인증정보가 없습니다."})
+
+    db = SessionLocal()
+    try:
+        user = db.query(models.User).filter(models.User.user_id == user_id).first()
+        if not user or not user.use_yn:
+            return JSONResponse(status_code=403, content={"detail": "사용할 수 없는 계정입니다."})
+        request.state.user_id = user.user_id
+        request.state.is_admin = bool(user.is_admin)
+
+        comp_code = company_code_from_path(path)
+        if comp_code and not user.is_admin:
+            allowed = db.query(models.UserCompanyAccess).filter(
+                models.UserCompanyAccess.user_id == user.user_id,
+                models.UserCompanyAccess.comp_code == comp_code,
+            ).first()
+            if not allowed:
+                return JSONResponse(status_code=403, content={"detail": "해당 업무회사에 접근할 권한이 없습니다."})
+
+        rule = permission_for_request(request.method, path)
+        # 회사 목록은 로그인 사용자의 선택목록이므로 별도 메뉴권한 없이 허용한다.
+        if rule and not (request.method == "GET" and path == "/api/v1/companies") and not user.is_admin:
+            permission = db.query(models.UserMenuPermission).filter(
+                models.UserMenuPermission.user_id == user.user_id,
+                models.UserMenuPermission.menu_code == rule.menu_code,
+            ).first()
+            if not permission or not bool(getattr(permission, f"can_{rule.action}")):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": f"{rule.menu_code} 메뉴의 {rule.action} 권한이 없습니다."},
+                )
+    finally:
+        db.close()
+    return await call_next(request)
 
 
 @app.get("/api/v1/users")
@@ -179,13 +259,19 @@ def reset_user_password(
 
 @app.put("/api/v1/users/{user_id}/status")
 def update_user_status(
-    user_id: str, data: UserStatusRequest, db: Session = Depends(get_db)
+    user_id: str, data: UserStatusRequest, request: Request, db: Session = Depends(get_db)
 ):
     obj = db.query(models.User).filter(models.User.user_id == user_id).first()
     if not obj:
         raise HTTPException(status_code=404, detail="등록되지 않은 사용자입니다.")
-    if not data.use_yn and user_id == data.actor_user_id:
+    if not data.use_yn and user_id == request.state.user_id:
         raise HTTPException(status_code=400, detail="현재 로그인 사용자는 자기 계정을 사용중지할 수 없습니다.")
+    if not data.use_yn and obj.is_admin:
+        active_admins = db.query(models.User).filter(
+            models.User.is_admin == True, models.User.use_yn == True
+        ).count()
+        if active_admins <= 1:
+            raise HTTPException(status_code=400, detail="마지막 관리자는 사용중지할 수 없습니다.")
     obj.use_yn = data.use_yn
     db.commit()
     db.refresh(obj)
@@ -193,7 +279,9 @@ def update_user_status(
 
 
 @app.put("/api/v1/users/{user_id}/password")
-def change_password(user_id: str, data: PasswordChangeRequest, db: Session = Depends(get_db)):
+def change_password(user_id: str, data: PasswordChangeRequest, request: Request, db: Session = Depends(get_db)):
+    if user_id != request.state.user_id:
+        raise HTTPException(status_code=403, detail="자기 계정의 비밀번호만 변경할 수 있습니다.")
     user = db.query(models.User).filter(models.User.user_id == user_id).first()
     if not user or not user.use_yn:
         raise HTTPException(status_code=404, detail="사용 가능한 사용자 계정이 없습니다.")
@@ -204,6 +292,83 @@ def change_password(user_id: str, data: PasswordChangeRequest, db: Session = Dep
     user.password_hash = _hash_password(data.new_password)
     db.commit()
     return {"message": "비밀번호가 변경되었습니다."}
+
+
+@app.get("/api/v1/users/{user_id}/access")
+def get_user_access(user_id: str, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="등록되지 않은 사용자입니다.")
+    companies = db.query(models.Company).order_by(models.Company.comp_code).all()
+    allowed = {row.comp_code for row in db.query(models.UserCompanyAccess).filter(
+        models.UserCompanyAccess.user_id == user_id
+    ).all()}
+    menus = db.query(models.MenuMaster).filter(models.MenuMaster.use_yn == True).order_by(
+        models.MenuMaster.sort_order, models.MenuMaster.menu_code
+    ).all()
+    assigned = _permission_dict(db, user_id)
+    return {
+        "user_id": user.user_id,
+        "user_name": user.user_name,
+        "is_admin": bool(user.is_admin),
+        "companies": [
+            {"comp_code": row.comp_code, "comp_name": row.comp_name,
+             "allowed": bool(user.is_admin or row.comp_code in allowed)}
+            for row in companies
+        ],
+        "menus": [
+            {"menu_code": row.menu_code, "menu_name": row.menu_name,
+             "menu_group": row.menu_group,
+             **({"can_read": True, "can_create": True, "can_update": True, "can_delete": True}
+                if user.is_admin else assigned.get(row.menu_code, {
+                    "can_read": False, "can_create": False, "can_update": False, "can_delete": False
+                }))}
+            for row in menus
+        ],
+    }
+
+
+@app.put("/api/v1/users/{user_id}/access")
+def replace_user_access(user_id: str, data: UserAccessRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="등록되지 않은 사용자입니다.")
+    if user.is_admin:
+        raise HTTPException(status_code=400, detail="관리자는 전체 회사·메뉴 권한이 고정되어 변경할 수 없습니다.")
+
+    company_codes = list(dict.fromkeys(data.company_codes))
+    menu_codes = [row.menu_code for row in data.menu_permissions]
+    if len(menu_codes) != len(set(menu_codes)):
+        raise HTTPException(status_code=400, detail="중복된 메뉴 권한이 있습니다.")
+    valid_companies = {row[0] for row in db.query(models.Company.comp_code).filter(
+        models.Company.comp_code.in_(company_codes)
+    ).all()} if company_codes else set()
+    if valid_companies != set(company_codes):
+        raise HTTPException(status_code=400, detail="등록되지 않은 회사코드가 포함되어 있습니다.")
+    if not set(menu_codes).issubset(MENU_CODES):
+        raise HTTPException(status_code=400, detail="등록되지 않은 메뉴코드가 포함되어 있습니다.")
+    if user.use_yn and not company_codes:
+        raise HTTPException(status_code=400, detail="사용 중인 일반 사용자는 업무회사를 한 곳 이상 지정해야 합니다.")
+
+    try:
+        db.query(models.UserCompanyAccess).filter(
+            models.UserCompanyAccess.user_id == user_id
+        ).delete(synchronize_session=False)
+        db.query(models.UserMenuPermission).filter(
+            models.UserMenuPermission.user_id == user_id
+        ).delete(synchronize_session=False)
+        db.add_all([models.UserCompanyAccess(user_id=user_id, comp_code=code) for code in company_codes])
+        db.add_all([
+            models.UserMenuPermission(user_id=user_id, menu_code=row.menu_code,
+                can_read=row.can_read, can_create=row.can_create,
+                can_update=row.can_update, can_delete=row.can_delete)
+            for row in data.menu_permissions
+        ])
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="회사 또는 메뉴 권한의 PK/FK·중복 조건을 확인하세요.")
+    return get_user_access(user_id, db)
 
 
 # =============================================================================
@@ -313,6 +478,9 @@ def login(
         status="success",
         message="로그인 성공",
         user_name=user.user_name,
+        access_token=issue_token(user.user_id),
+        is_admin=bool(user.is_admin),
+        permissions=_permission_dict(db, user.user_id),
     )
 
 
@@ -326,15 +494,18 @@ def login(
     response_model=list[CompanySchema],
 )
 def get_companies(
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """등록된 모든 회사를 회사코드 순으로 조회한다."""
 
-    return (
-        db.query(models.Company)
-        .order_by(models.Company.comp_code)
-        .all()
-    )
+    query = db.query(models.Company)
+    if not request.state.is_admin:
+        query = query.join(
+            models.UserCompanyAccess,
+            models.UserCompanyAccess.comp_code == models.Company.comp_code,
+        ).filter(models.UserCompanyAccess.user_id == request.state.user_id)
+    return query.order_by(models.Company.comp_code).all()
 
 
 @app.get(

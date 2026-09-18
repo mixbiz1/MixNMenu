@@ -60,6 +60,10 @@ MixNMenu/
 -   `views/main_dashboard.py`: QUiLoader 의존 제거 후 Pure Python화
 -   `views/password_change.py`: 현재 로그인 사용자 비밀번호 변경 대화상자
 -   `views/user_reg.py`: 사용자 조회·등록·수정·비밀번호 초기화·사용상태 관리
+-   `views/user_permission_reg.py`: 사용자별 업무회사 및 메뉴 CRUD 권한 관리
+-   `permissions.py`: 인증 Token과 API/메뉴 권한코드의 단일 기준
+-   `api_client.py`: Desktop 인증 Header 공통 HTTP Client
+-   `db_user_permission_migrate.py`: 사용자·회사·메뉴권한 비파괴 Migration
 -   `views/expense_code_reg.py`: 손익·경비통계용 계층형 경비코드 입력
 -   `db_expense_code_migrate.py`: `tb_expense_code` 비파괴 Migration
 -   `expense_code_defaults.py`: 시스템 표준 손익·경비코드 트리 정의

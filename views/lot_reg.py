@@ -1,4 +1,4 @@
-import httpx
+import api_client as httpx
 from PySide6.QtCore import QDate, QEvent, QTimer, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDateEdit, QDoubleSpinBox,

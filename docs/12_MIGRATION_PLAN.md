@@ -47,6 +47,14 @@ Multi-Company Vertical Slice가 정상일 때만 Commit한다.
 User/Permission → Common Code → Partner/Customer → Product/LOT/Tax →
 Warehouse 순으로 진행한다.
 
+사용자·권한 Migration은 `db_user_permission_migrate.py`로 실행한다.
+`tb_user.is_admin`, `tb_menu_master`, `tb_user_company_access`,
+`tb_user_menu_permission`을 기존 사용자·회사 자료 삭제 없이 추가한다. 최초
+실행 시 기존 활성 사용자 중 1명을 관리자로 정하고, 모든 기존 활성계정에
+전체 회사·메뉴 명시권한을 부여하여 기존 접근을 유지한다. 재실행은 누락
+메뉴와 관리자 명시 권한만 보충하며 신규 일반계정에 권한을 자동 부여하지 않는다. 실행 후
+FastAPI와 Desktop Client를 함께 재시작한다.
+
 창고 Master 1차 Migration은 `db_warehouse_migrate.py`로 실행하며
 `tb_warehouse`, `tb_company_warehouse`, `tb_warehouse_rate`,
 `tb_warehouse_charge`를 비파괴 방식으로 추가한다. 기존 Table/PK/FK/데이터는

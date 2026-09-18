@@ -1,5 +1,5 @@
 import math
-import httpx
+import api_client as httpx
 
 from PySide6.QtCore import QDate, QEvent, Qt, QTimer
 from PySide6.QtWidgets import (

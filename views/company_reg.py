@@ -1,4 +1,4 @@
-import requests
+import api_client as requests
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
     QTextEdit, QPushButton, QGroupBox, QDialog, QComboBox
