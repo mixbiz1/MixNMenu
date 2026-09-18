@@ -26,6 +26,18 @@ def migrate():
                              created_at, user_id
                 )
             """))
+        # 이전 실행이 비정상 종료되었거나 Column만 수동 추가된 DB도 잠기지 않게 한다.
+        conn.execute(text("""
+            IF NOT EXISTS (SELECT 1 FROM tb_user WHERE is_admin = 1 AND use_yn = 1)
+            BEGIN
+                UPDATE tb_user SET is_admin = 1
+                WHERE user_id = (
+                    SELECT TOP 1 user_id FROM tb_user WHERE use_yn = 1
+                    ORDER BY CASE WHEN LOWER(user_id) IN ('admin', 'administrator') THEN 0 ELSE 1 END,
+                             created_at, user_id
+                )
+            END
+        """))
         conn.execute(text("""
             IF OBJECT_ID('tb_menu_master', 'U') IS NULL
             CREATE TABLE tb_menu_master (
