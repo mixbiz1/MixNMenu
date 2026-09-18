@@ -59,6 +59,22 @@ Snapshot으로 저장한다.
 
 ## 3. TRADE / IMPORT
 
+### 거래 공통기반 1차 (2026-09-18)
+
+- `tb_document_sequence`: `(comp_code, document_type, sequence_date)` UNIQUE,
+  SQL Server `UPDLOCK/HOLDLOCK` 원자발번
+- `tb_accounting_period`: `(comp_code, period_year, period_month)` UNIQUE,
+  `OPEN/CLOSED` 및 마감자·마감일시
+- 전표 Header 공통 상태: `DRAFT → CONFIRMED → CANCELLED`; DRAFT만 수정·삭제
+- 전표 Header 공통 Audit: 작성·수정·확정·취소 사용자/일시
+- `tb_tax_code`: 유효기간을 가진 세금 기준. 거래 Detail은 코드·명칭·세율
+  Snapshot을 보관하여 향후 세율·명칭 변경에도 과거 거래가 바뀌지 않는다.
+- 거래 Detail의 `expense_id`는 활성 상태이며 하위항목이 없는 `INPUT`만 허용한다.
+
+기존 `tb_slip_hdr/dtl`은 초기 참고 구조로 유지하고 이번 Migration에서
+변경하지 않는다. 일반 매입 Vertical Slice에서 신규 거래 Header/Detail을
+위 공통규칙으로 설계한 뒤 검증된 자료만 후속 입고와 연결한다.
+
 -   `tb_import_case`
 -   `tb_import_offer`
 -   `tb_import_offer_item`

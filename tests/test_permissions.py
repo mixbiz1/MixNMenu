@@ -12,6 +12,14 @@ def test_api_route_permission_mapping():
     assert permissions.permission_for_request("PUT", "/api/v1/users/test/password") is None
     assert permissions.permission_for_request("GET", "/api/v1/warehouses/next-code").menu_code == "MASTER_WAREHOUSE"
     assert permissions.permission_for_request("GET", "/api/v1/company").menu_code == "SYS_COMPANY"
+    assert permissions.permission_for_request("GET", "/api/v1/tax-codes").menu_code == "TRADE_COMMON"
+    rule = permissions.permission_for_request(
+        "PUT", "/api/v1/companies/00001/accounting-periods/2026/9"
+    )
+    assert (rule.menu_code, rule.action) == ("TRADE_COMMON", "update")
+    assert permissions.permission_for_request(
+        "GET", "/api/v1/companies/00001/trade-input-options"
+    ).menu_code == "TRADE_COMMON"
 
 
 def test_company_code_from_path():

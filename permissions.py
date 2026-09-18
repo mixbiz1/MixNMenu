@@ -25,6 +25,7 @@ MENU_DEFINITIONS = (
     ("MASTER_LOT", "LOT조회/보정", "코드관리", 170),
     ("OPENING_INVENTORY", "최초재고 등록", "초기자료등록", 180),
     ("OPENING_BALANCE", "거래처 최초잔액 등록", "초기자료등록", 190),
+    ("TRADE_COMMON", "거래 공통설정", "거래관리", 200),
 )
 
 MENU_CODES = {row[0] for row in MENU_DEFINITIONS}
@@ -65,6 +66,8 @@ def permission_for_request(method: str, path: str) -> RoutePermission | None:
         return RoutePermission("MASTER_COMMON", action)
     if relative.startswith("expense-codes"):
         return RoutePermission("MASTER_EXPENSE", action)
+    if relative.startswith("tax-codes"):
+        return RoutePermission("TRADE_COMMON", action)
     if relative.startswith("product-categories") or relative.startswith("products"):
         return RoutePermission("MASTER_PRODUCT", action)
     if relative.startswith("accounts"):
@@ -80,6 +83,8 @@ def permission_for_request(method: str, path: str) -> RoutePermission | None:
             "opening-inventories": "OPENING_INVENTORY",
             "opening-balances": "OPENING_BALANCE",
             "accounts": "MASTER_ACCOUNT",
+            "accounting-periods": "TRADE_COMMON",
+            "trade-input-options": "TRADE_COMMON",
         }.get(resource, "SYS_COMPANY")
         return RoutePermission(code, action)
     if relative in {"company", "companies"}:

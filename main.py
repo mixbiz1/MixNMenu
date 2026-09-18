@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING
 import hashlib
 import hmac
@@ -2587,3 +2587,130 @@ def link_account_to_company(comp_code:str,account_id:int,data:CompanyAccountSche
 @app.put("/api/v1/companies/{comp_code}/accounts/{account_id}", response_model=CompanyAccountResponse)
 def update_company_account(comp_code:str,account_id:int,data:CompanyAccountSchema,db:Session=Depends(get_db)):
     return link_account_to_company(comp_code,account_id,data,db)
+
+
+# =============================================================================
+# Trade common foundation API
+# =============================================================================
+
+class AccountingPeriodUpdate(BaseModel):
+    period_status: str = Field(pattern=r"^(OPEN|CLOSED)$")
+
+
+def _period_response(row):
+    return {
+        "accounting_period_id": row.accounting_period_id,
+        "comp_code": row.comp_code,
+        "period_year": row.period_year,
+        "period_month": row.period_month,
+        "period_status": row.period_status,
+        "closed_by": row.closed_by,
+        "closed_at": row.closed_at,
+        "created_by": row.created_by,
+        "created_at": row.created_at,
+        "updated_by": row.updated_by,
+        "updated_at": row.updated_at,
+    }
+
+
+@app.get("/api/v1/tax-codes")
+def get_tax_codes(
+    transaction_date: Optional[date] = None,
+    include_inactive: bool = False,
+    db: Session = Depends(get_db),
+):
+    target_date = transaction_date or date.today()
+    query = db.query(models.TaxCode)
+    if not include_inactive:
+        query = query.filter(
+            models.TaxCode.use_yn == True,
+            models.TaxCode.valid_from <= target_date,
+            (models.TaxCode.valid_to == None) | (models.TaxCode.valid_to >= target_date),
+        )
+    return query.order_by(models.TaxCode.sort_order, models.TaxCode.tax_code).all()
+
+
+@app.get("/api/v1/companies/{comp_code}/accounting-periods")
+def get_accounting_periods(comp_code: str, db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    rows = db.query(models.AccountingPeriod).filter(
+        models.AccountingPeriod.comp_code == comp_code
+    ).order_by(
+        models.AccountingPeriod.period_year.desc(),
+        models.AccountingPeriod.period_month.desc(),
+    ).all()
+    return [_period_response(row) for row in rows]
+
+
+@app.put("/api/v1/companies/{comp_code}/accounting-periods/{period_year}/{period_month}")
+def set_accounting_period(
+    comp_code: str,
+    period_year: int,
+    period_month: int,
+    data: AccountingPeriodUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    _get_company_or_404(comp_code, db)
+    if period_year < 2000 or period_year > 2100 or period_month < 1 or period_month > 12:
+        raise HTTPException(status_code=400, detail="올바른 회계연월을 입력하세요.")
+    row = db.query(models.AccountingPeriod).filter(
+        models.AccountingPeriod.comp_code == comp_code,
+        models.AccountingPeriod.period_year == period_year,
+        models.AccountingPeriod.period_month == period_month,
+    ).first()
+    now = datetime.now(timezone.utc)
+    if not row:
+        row = models.AccountingPeriod(
+            comp_code=comp_code,
+            period_year=period_year,
+            period_month=period_month,
+            period_status="OPEN",
+            created_by=request.state.user_id,
+            updated_by=request.state.user_id,
+        )
+        db.add(row)
+    row.period_status = data.period_status
+    row.updated_by = request.state.user_id
+    row.updated_at = now
+    if data.period_status == "CLOSED":
+        row.closed_by = request.state.user_id
+        row.closed_at = now
+    else:
+        row.closed_by = None
+        row.closed_at = None
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="회계기간 중복 또는 사용자·회사 연결을 확인하세요.")
+    db.refresh(row)
+    return _period_response(row)
+
+
+@app.get("/api/v1/companies/{comp_code}/trade-input-options")
+def get_trade_input_options(comp_code: str, transaction_date: date, db: Session = Depends(get_db)):
+    """거래 Detail에서 허용되는 세금코드와 최하위 INPUT 경비코드만 반환한다."""
+    _get_company_or_404(comp_code, db)
+    taxes = db.query(models.TaxCode).filter(
+        models.TaxCode.use_yn == True,
+        models.TaxCode.valid_from <= transaction_date,
+        (models.TaxCode.valid_to == None) | (models.TaxCode.valid_to >= transaction_date),
+    ).order_by(models.TaxCode.sort_order).all()
+    # Self alias 없이도 안정적으로 동작하도록 활성 부모 ID 집합을 먼저 구한다.
+    parent_ids = {row[0] for row in db.query(models.ExpenseCode.parent_expense_id).filter(
+        models.ExpenseCode.parent_expense_id.isnot(None),
+        models.ExpenseCode.use_yn == True,
+    ).distinct().all()}
+    expenses = db.query(models.ExpenseCode).filter(
+        models.ExpenseCode.node_type == "INPUT",
+        models.ExpenseCode.use_yn == True,
+    ).order_by(models.ExpenseCode.expense_code).all()
+    return {
+        "tax_codes": taxes,
+        "expense_codes": [
+            {"expense_id": row.expense_id, "expense_code": row.expense_code,
+             "expense_name": row.expense_name, "statement_section": row.statement_section}
+            for row in expenses if row.expense_id not in parent_ids
+        ],
+    }

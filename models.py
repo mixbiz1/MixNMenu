@@ -215,6 +215,59 @@ class ExpenseCode(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class DocumentSequence(Base):
+    """회사·전표종류·업무일자별 원자적 전표번호 순번."""
+    __tablename__ = "tb_document_sequence"
+    __table_args__ = (
+        UniqueConstraint(
+            "comp_code", "document_type", "sequence_date",
+            name="UQ_document_sequence_scope",
+        ),
+    )
+
+    document_sequence_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False)
+    document_type = Column(String(30), nullable=False)
+    sequence_date = Column(Date, nullable=False)
+    last_number = Column(Integer, default=0, nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class AccountingPeriod(Base):
+    """회사별 회계기간. CLOSED 기간의 거래 원문은 어떤 동작도 허용하지 않는다."""
+    __tablename__ = "tb_accounting_period"
+    __table_args__ = (
+        UniqueConstraint("comp_code", "period_year", "period_month", name="UQ_accounting_period"),
+    )
+
+    accounting_period_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False, index=True)
+    period_year = Column(Integer, nullable=False)
+    period_month = Column(Integer, nullable=False)
+    period_status = Column(String(20), default="OPEN", nullable=False)  # OPEN / CLOSED
+    closed_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=True)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class TaxCode(Base):
+    """거래시점에 코드·명칭·세율을 Detail로 Snapshot하는 세금 기준정보."""
+    __tablename__ = "tb_tax_code"
+
+    tax_code = Column(String(20), primary_key=True)
+    tax_name = Column(String(100), nullable=False)
+    tax_kind = Column(String(20), nullable=False)  # TAXABLE / ZERO / EXEMPT
+    tax_rate = Column(Numeric(5, 2), nullable=False)
+    valid_from = Column(Date, nullable=False)
+    valid_to = Column(Date, nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    use_yn = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class Product(Base):
     """
     품목(수입육류) 정보 테이블

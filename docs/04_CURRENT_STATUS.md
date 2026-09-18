@@ -1,10 +1,41 @@
 # MXMN CURRENT STATUS
 
-**Version:** 1.21\
+**Version:** 1.22\
 **Status date:** 2026-09-18\
 **Project:** MXMN\
 **Purpose:** 현재 실제 구현·검증 상태와 다음 작업을 짧게 유지하는 운영
 문서
+
+## 0. 2026-09-18 거래 공통기반 Vertical Slice 1차
+
+후속 일반 매입→입고→LOT→재고조회에 필요한 공통기반만 먼저 구현하였다.
+
+- `tb_document_sequence`: 회사+전표종류+업무일자별 순번. SQL Server
+  `UPDLOCK, HOLDLOCK`으로 동시발번을 직렬화하며 실제 저장 Transaction
+  안에서만 번호를 확정한다.
+- 전표번호 형식: `{종류 2자리}-{YYYYMMDD}-{4자리 순번}`. 매입은
+  `PU-20260918-0001`, 매입입고는 `PI-20260918-0001` 형식이다.
+- `tb_accounting_period`: 회사별 연월 `OPEN/CLOSED`. 미등록 기간은 OPEN이며,
+  CLOSED 기간은 신규·수정·확정·취소를 모두 차단한다.
+- 전표 상태: `DRAFT → CONFIRMED → CANCELLED` 단방향. DRAFT만 원문
+  수정·삭제할 수 있고 확정 후에는 변경하지 않는다.
+- Audit 공통필드: `created_by/at`, `updated_by/at`, `confirmed_by/at`,
+  `cancelled_by/at`. 후속 거래 Header Migration에 동일하게 적용한다.
+- `tb_tax_code`: `VAT10`, `ZERO`, `EXEMPT` 기준정보. 실제 거래 Detail에는
+  코드·명칭·세율을 Snapshot으로 저장한다.
+- 거래용 경비코드는 사용 중인 최하위 `INPUT`만 API에서 반환하고 저장 때도
+  같은 규칙으로 재검증한다.
+- 신규 API는 `TRADE_COMMON` 메뉴 CRUD 권한 및 회사 접근권한을 공통 적용한다.
+
+이번 단계에서는 용역코드·금융계좌·결제수단 UI/CRUD를 만들지 않았다.
+용역코드는 용역매출, 금융계좌·결제수단은 수금·지급 Allocation 단계에서
+실제 사용 전표와 함께 Vertical Slice로 구현한다. 거래 공통설정 화면도
+일반 매입 화면에서 회계기간 통제가 실제 연결된 뒤 추가한다.
+
+실행 Migration: `python db_trade_common_migrate.py`
+
+자동검증: 기존 회사·사용자·거래처·상품·창고·LOT·입고·경비코드 건수 보존,
+신규 3개 테이블 및 기본 세금코드 확인, Python 문법 및 pytest 수행.
 
 ------------------------------------------------------------------------
 
