@@ -1,5 +1,8 @@
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_CEILING
+import hashlib
+import hmac
+import secrets
 from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, status
@@ -47,16 +50,158 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(min_length=4, max_length=100)
 
 
+class UserCreateRequest(BaseModel):
+    user_id: str = Field(min_length=2, max_length=50, pattern=r"^[A-Za-z0-9._-]+$")
+    user_name: str = Field(min_length=1, max_length=50)
+    initial_password: str = Field(min_length=4, max_length=100)
+    use_yn: bool = True
+
+
+class UserUpdateRequest(BaseModel):
+    user_name: str = Field(min_length=1, max_length=50)
+    new_password: Optional[str] = Field(default=None, min_length=4, max_length=100)
+
+
+class UserPasswordResetRequest(BaseModel):
+    new_password: str = Field(min_length=4, max_length=100)
+
+
+class UserStatusRequest(BaseModel):
+    use_yn: bool
+    actor_user_id: str
+
+
+PASSWORD_SCHEME = "pbkdf2_sha256"
+PASSWORD_ITERATIONS = 260000
+
+
+def _hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode("utf-8"), salt.encode("ascii"), PASSWORD_ITERATIONS
+    ).hex()
+    return f"{PASSWORD_SCHEME}${PASSWORD_ITERATIONS}${salt}${digest}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    """신규 Hash와 기존 평문 비밀번호를 함께 검증하여 무중단 전환한다."""
+    if not stored.startswith(f"{PASSWORD_SCHEME}$"):
+        return hmac.compare_digest(stored, password)
+    try:
+        _, iterations, salt, expected = stored.split("$", 3)
+        actual = hashlib.pbkdf2_hmac(
+            "sha256", password.encode("utf-8"), salt.encode("ascii"), int(iterations)
+        ).hex()
+        return hmac.compare_digest(expected, actual)
+    except (TypeError, ValueError):
+        return False
+
+
+def _user_response(user):
+    """비밀번호를 제외한 사용자 관리용 응답만 반환한다."""
+    return {
+        "user_id": user.user_id,
+        "user_name": user.user_name,
+        "use_yn": bool(user.use_yn),
+        "created_at": user.created_at,
+    }
+
+
+@app.get("/api/v1/users")
+def get_users(
+    include_inactive: bool = True,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(models.User)
+    if not include_inactive:
+        query = query.filter(models.User.use_yn == True)
+    keyword = (search or "").strip()
+    if keyword:
+        pattern = f"%{keyword}%"
+        query = query.filter(
+            (models.User.user_id.like(pattern)) | (models.User.user_name.like(pattern))
+        )
+    return [_user_response(row) for row in query.order_by(models.User.user_id).all()]
+
+
+@app.post("/api/v1/users", status_code=status.HTTP_201_CREATED)
+def create_user(data: UserCreateRequest, db: Session = Depends(get_db)):
+    user_id = data.user_id.strip()
+    user_name = data.user_name.strip()
+    if not user_name:
+        raise HTTPException(status_code=400, detail="사용자명을 입력하세요.")
+    if db.query(models.User).filter(models.User.user_id == user_id).first():
+        raise HTTPException(status_code=409, detail="이미 등록된 사용자 ID입니다.")
+    obj = models.User(
+        user_id=user_id,
+        user_name=user_name,
+        password_hash=_hash_password(data.initial_password),
+        use_yn=data.use_yn,
+    )
+    db.add(obj)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="이미 등록된 사용자 ID입니다.")
+    db.refresh(obj)
+    return _user_response(obj)
+
+
+@app.put("/api/v1/users/{user_id}")
+def update_user(user_id: str, data: UserUpdateRequest, db: Session = Depends(get_db)):
+    obj = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="등록되지 않은 사용자입니다.")
+    name = data.user_name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="사용자명을 입력하세요.")
+    obj.user_name = name
+    if data.new_password:
+        obj.password_hash = _hash_password(data.new_password)
+    db.commit()
+    db.refresh(obj)
+    return _user_response(obj)
+
+
+@app.put("/api/v1/users/{user_id}/reset-password")
+def reset_user_password(
+    user_id: str, data: UserPasswordResetRequest, db: Session = Depends(get_db)
+):
+    obj = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="등록되지 않은 사용자입니다.")
+    obj.password_hash = _hash_password(data.new_password)
+    db.commit()
+    return {"message": "사용자 비밀번호가 초기화되었습니다."}
+
+
+@app.put("/api/v1/users/{user_id}/status")
+def update_user_status(
+    user_id: str, data: UserStatusRequest, db: Session = Depends(get_db)
+):
+    obj = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if not obj:
+        raise HTTPException(status_code=404, detail="등록되지 않은 사용자입니다.")
+    if not data.use_yn and user_id == data.actor_user_id:
+        raise HTTPException(status_code=400, detail="현재 로그인 사용자는 자기 계정을 사용중지할 수 없습니다.")
+    obj.use_yn = data.use_yn
+    db.commit()
+    db.refresh(obj)
+    return _user_response(obj)
+
+
 @app.put("/api/v1/users/{user_id}/password")
 def change_password(user_id: str, data: PasswordChangeRequest, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.user_id == user_id).first()
     if not user or not user.use_yn:
         raise HTTPException(status_code=404, detail="사용 가능한 사용자 계정이 없습니다.")
-    if user.password_hash != data.current_password:
+    if not _verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="현재 비밀번호가 일치하지 않습니다.")
     if data.new_password == data.current_password:
         raise HTTPException(status_code=400, detail="새 비밀번호는 현재 비밀번호와 다르게 입력해 주세요.")
-    user.password_hash = data.new_password
+    user.password_hash = _hash_password(data.new_password)
     db.commit()
     return {"message": "비밀번호가 변경되었습니다."}
 
@@ -153,11 +298,16 @@ def login(
             detail="비활성화된 계정입니다.",
         )
 
-    if user.password_hash != req.password:
+    if not _verify_password(req.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="암호가 일치하지 않습니다.",
         )
+
+    # 기존 평문 저장 계정은 정상 로그인 시 안전한 Hash로 자동 전환한다.
+    if not user.password_hash.startswith(f"{PASSWORD_SCHEME}$"):
+        user.password_hash = _hash_password(req.password)
+        db.commit()
 
     return LoginResponse(
         status="success",

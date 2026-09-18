@@ -83,6 +83,11 @@ try:
 except ImportError:
     from password_change import PasswordChangeDialog
 
+try:
+    from views.user_reg import UserRegWindow
+except ImportError:
+    from user_reg import UserRegWindow
+
 
 # ============================================================
 # 1. 프로젝트 루트 및 views 폴더 경로 설정
@@ -733,12 +738,9 @@ class MixNMainWindow(QMainWindow):
             self,
         )
 
-        self.menu1_2.addAction(
-            QAction(
-                "1.사용자등록",
-                self,
-            )
-        )
+        self.action_user_reg = QAction("1.사용자등록", self)
+        self.action_user_reg.triggered.connect(self.open_user_reg)
+        self.menu1_2.addAction(self.action_user_reg)
 
         self.menu1_2.addAction(
             QAction(
@@ -1089,6 +1091,14 @@ class MixNMainWindow(QMainWindow):
         dialog = PasswordChangeDialog(self)
         if dialog.exec() == QDialog.Accepted:
             self.set_work_status("비밀번호가 변경되었습니다.")
+
+    def open_user_reg(self):
+        """사용자 등록·수정 화면을 MDI에 1개만 연다."""
+        self._open_single_mdi(
+            UserRegWindow,
+            "사용자등록",
+            "사용자관리 → 사용자등록",
+        )
 
     def open_postcode_lookup(self):
         """행정안전부 도로명주소 안내시스템의 우편번호 조회를 연다."""

@@ -59,6 +59,7 @@ MixNMenu/
 -   `views/table_utils.py`: 조회목록 정렬·실제값 비교·가변 열 너비 공통 유틸
 -   `views/main_dashboard.py`: QUiLoader 의존 제거 후 Pure Python화
 -   `views/password_change.py`: 현재 로그인 사용자 비밀번호 변경 대화상자
+-   `views/user_reg.py`: 사용자 조회·등록·수정·비밀번호 초기화·사용상태 관리
 -   `views/expense_code_reg.py`: 손익·경비통계용 계층형 경비코드 입력
 -   `db_expense_code_migrate.py`: `tb_expense_code` 비파괴 Migration
 -   `expense_code_defaults.py`: 시스템 표준 손익·경비코드 트리 정의
