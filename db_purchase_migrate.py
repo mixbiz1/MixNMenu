@@ -50,6 +50,14 @@ def migrate():
         BEGIN
           IF COL_LENGTH('dbo.tb_purchase','total_discount_amount') IS NULL
             ALTER TABLE dbo.tb_purchase ADD total_discount_amount NUMERIC(18,0) NOT NULL CONSTRAINT DF_purchase_discount DEFAULT 0 WITH VALUES;
+        END
+        """))
+        # SQL Server는 한 배치를 실행하기 전에 전체 열 참조를 먼저 해석한다.
+        # 새 컬럼을 사용하는 제약조건은 컬럼 추가와 반드시 별도 배치로 실행한다.
+        conn.execute(text("""
+        IF OBJECT_ID('dbo.tb_purchase', 'U') IS NOT NULL
+           AND COL_LENGTH('dbo.tb_purchase','total_discount_amount') IS NOT NULL
+        BEGIN
           IF EXISTS(SELECT 1 FROM sys.check_constraints WHERE name='CK_purchase_totals')
             ALTER TABLE dbo.tb_purchase DROP CONSTRAINT CK_purchase_totals;
           ALTER TABLE dbo.tb_purchase ADD CONSTRAINT CK_purchase_totals
@@ -97,7 +105,13 @@ def migrate():
             ALTER TABLE dbo.tb_purchase_item ADD discount_amount NUMERIC(18,0) NOT NULL CONSTRAINT DF_purchase_item_discount DEFAULT 0 WITH VALUES;
 
           ALTER TABLE dbo.tb_purchase_item ALTER COLUMN expense_id INT NULL;
+        END
+        """))
 
+        # 위에서 추가한 창고/LOT/입고 컬럼은 다음 배치부터 안전하게 참조한다.
+        conn.execute(text("""
+        IF OBJECT_ID('dbo.tb_purchase_item', 'U') IS NOT NULL
+        BEGIN
           IF NOT EXISTS(SELECT 1 FROM sys.foreign_keys WHERE name='FK_purchase_item_warehouse')
             ALTER TABLE dbo.tb_purchase_item ADD CONSTRAINT FK_purchase_item_warehouse FOREIGN KEY(warehouse_id) REFERENCES dbo.tb_warehouse(warehouse_id);
           IF NOT EXISTS(SELECT 1 FROM sys.foreign_keys WHERE name='FK_purchase_item_lot')
@@ -106,7 +120,14 @@ def migrate():
             ALTER TABLE dbo.tb_purchase_item ADD CONSTRAINT FK_purchase_item_inbound FOREIGN KEY(inbound_item_id) REFERENCES dbo.tb_inbound_item(inbound_item_id);
           IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name='IX_purchase_item_history' AND object_id=OBJECT_ID('dbo.tb_purchase_item'))
             CREATE INDEX IX_purchase_item_history ON dbo.tb_purchase_item(history_no);
+        END
+        """))
 
+        # discount_amount를 사용하는 계산 제약조건도 컬럼 추가와 별도 배치다.
+        conn.execute(text("""
+        IF OBJECT_ID('dbo.tb_purchase_item', 'U') IS NOT NULL
+           AND COL_LENGTH('dbo.tb_purchase_item','discount_amount') IS NOT NULL
+        BEGIN
           IF EXISTS(SELECT 1 FROM sys.check_constraints WHERE name='CK_purchase_item_values')
             ALTER TABLE dbo.tb_purchase_item DROP CONSTRAINT CK_purchase_item_values;
           ALTER TABLE dbo.tb_purchase_item ADD CONSTRAINT CK_purchase_item_values
