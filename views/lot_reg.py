@@ -1,3 +1,4 @@
+from api_config import API_BASE_URL
 import api_client as httpx
 from PySide6.QtCore import QDate, QEvent, QTimer, Qt
 from PySide6.QtWidgets import (
@@ -10,7 +11,6 @@ from PySide6.QtWidgets import (
 from app_context import app_context
 from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
 
-API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 
 
 class ReadableCheckBox(QCheckBox):

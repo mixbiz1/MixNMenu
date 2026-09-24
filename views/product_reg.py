@@ -1,3 +1,4 @@
+from api_config import API_BASE_URL
 import math
 import api_client as httpx
 import re
@@ -13,9 +14,9 @@ from PySide6.QtWidgets import (
 )
 
 try:
-    from views.common_code_reg import API_BASE_URL, ReadableCheckBox
+    from views.common_code_reg import ReadableCheckBox
 except ImportError:
-    from common_code_reg import API_BASE_URL, ReadableCheckBox
+    from common_code_reg import ReadableCheckBox
 
 try:
     from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update

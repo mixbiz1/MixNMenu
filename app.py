@@ -1,3 +1,4 @@
+from api_config import API_BASE_URL
 import sys
 import api_client as httpx
 
@@ -45,7 +46,7 @@ class LoginWorker(QThread):
             }
 
             response = httpx.post(
-                "http://127.0.0.1:8000/api/v1/auth/login",
+                f"{API_BASE_URL}/auth/login",
                 json=payload,
                 timeout=15.0,
             )
@@ -692,7 +693,7 @@ class CompanySelectDialog(QDialog):
         try:
 
             response = httpx.get(
-                "http://127.0.0.1:8000/api/v1/companies",
+                f"{API_BASE_URL}/companies",
                 timeout=10.0,
             )
 

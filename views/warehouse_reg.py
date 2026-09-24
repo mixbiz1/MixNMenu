@@ -1,3 +1,4 @@
+from api_config import API_BASE_URL
 import webbrowser
 import api_client as httpx
 from PySide6.QtCore import QDate, QEvent, QTimer, Qt
@@ -11,7 +12,6 @@ from PySide6.QtWidgets import (
 from app_context import app_context
 from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
 
-API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 CALC_UNITS = (("KG당", "KG"), ("BOX당", "BOX"), ("KG·일당", "KG_DAY"), ("건당 정액", "FIXED"))
 DEFAULT_CHARGES = (("보관비", "KG_DAY"), ("입출고비", "KG"), ("상하차비", "BOX"), ("계근비", "BOX"))
 

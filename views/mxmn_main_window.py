@@ -1,3 +1,4 @@
+from api_config import API_BASE_URL
 import sys
 import os
 import traceback
@@ -330,7 +331,7 @@ class CompanySwitchDialog(QDialog):
 
     def _load_companies(self):
         try:
-            response = httpx.get("http://127.0.0.1:8000/api/v1/companies", timeout=10.0)
+            response = httpx.get(f"{API_BASE_URL}/companies", timeout=10.0)
             if response.status_code != 200:
                 raise RuntimeError(f"회사 목록 조회 실패 (HTTP {response.status_code})")
 

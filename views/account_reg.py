@@ -1,3 +1,4 @@
+from api_config import API_BASE_URL
 import webbrowser
 import api_client as httpx
 from concurrent.futures import ThreadPoolExecutor
@@ -10,7 +11,6 @@ from PySide6.QtWidgets import (
 from app_context import app_context
 from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
 
-API_BASE_URL="http://127.0.0.1:8000/api/v1"
 
 class ReadableCheckBox(QCheckBox):
     """Light/Dark Mode에서 상태가 즉시 구분되는 MXMN 공통 체크박스."""

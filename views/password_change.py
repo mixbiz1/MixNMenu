@@ -1,3 +1,4 @@
+from api_config import API_BASE_URL
 import api_client as httpx
 
 from PySide6.QtWidgets import (
@@ -8,7 +9,6 @@ from PySide6.QtWidgets import (
 from app_context import app_context
 
 
-API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 
 
 class PasswordChangeDialog(QDialog):

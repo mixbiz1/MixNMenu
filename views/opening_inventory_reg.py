@@ -1,3 +1,4 @@
+from api_config import API_BASE_URL
 import math
 import api_client as httpx
 
@@ -12,7 +13,6 @@ from PySide6.QtWidgets import (
 from app_context import app_context
 from views.table_utils import ListTableItem, begin_list_update, configure_list_table, end_list_update
 
-API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 COLUMNS = [
     "상품 *", "구분 *", "LOT번호", "공급자 LOT(포장표기)", "BL번호", "컨테이너",
     "이력번호", "생산일 *", "자동 소비기한", "BOX *", "KG *",

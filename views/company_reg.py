@@ -1,3 +1,4 @@
+from api_config import API_BASE_URL
 import api_client as requests
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
@@ -6,7 +7,6 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QFont, QPalette, QColor
 
-API_BASE_URL = "http://127.0.0.1:8000"
 
 
 class CustomMessageBox(QDialog):
@@ -244,7 +244,7 @@ class CompanyRegWidget(QWidget):
 
     def load_company_list(self, select_code=None):
         try:
-            res = requests.get(f"{API_BASE_URL}/api/v1/companies", timeout=3)
+            res = requests.get(f"{API_BASE_URL}/companies", timeout=3)
             if res.status_code != 200:
                 CustomMessageBox("조회 실패", f"회사 목록 조회 실패:\n{res.text}", self).exec()
                 return
@@ -282,7 +282,7 @@ class CompanyRegWidget(QWidget):
 
     def load_company(self, comp_code):
         try:
-            res = requests.get(f"{API_BASE_URL}/api/v1/companies/{comp_code}", timeout=3)
+            res = requests.get(f"{API_BASE_URL}/companies/{comp_code}", timeout=3)
             if res.status_code == 200:
                 self.is_new_mode = False
                 self.txt_comp_code.setReadOnly(True)
@@ -333,11 +333,11 @@ class CompanyRegWidget(QWidget):
         try:
             if self.is_new_mode:
                 res = requests.post(
-                    f"{API_BASE_URL}/api/v1/companies", json=payload, timeout=3
+                    f"{API_BASE_URL}/companies", json=payload, timeout=3
                 )
             else:
                 res = requests.put(
-                    f"{API_BASE_URL}/api/v1/companies/{payload['comp_code']}",
+                    f"{API_BASE_URL}/companies/{payload['comp_code']}",
                     json=payload,
                     timeout=3,
                 )

@@ -1,3 +1,4 @@
+from api_config import API_BASE_URL
 """레거시 국내입고 흐름을 반영한 상품매입 입력·조회 화면."""
 
 from decimal import Decimal, ROUND_CEILING
@@ -9,7 +10,6 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDateEdi
     QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
 from app_context import app_context
 
-API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 COLUMNS = ["상품코드/상품명 *", "입고창고 *", "BOX *", "평균중량", "중량(KG) *", "단가 *",
            "세액", "공급가액", "합계금액", "할인(+)/할증(-)", "이력번호", "BL번호",
            "LOT 결과", "메모", "과세"]
