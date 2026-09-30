@@ -1,4 +1,4 @@
-"""Common immutable audit-history helpers for MXMN business transactions."""
+"""Common immutable audit-history model and helpers for MXMN transactions."""
 
 from __future__ import annotations
 
@@ -7,7 +7,31 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 
-import models
+from sqlalchemy import BigInteger, Column, DateTime, String, Text
+from sqlalchemy.sql import func
+
+from database import Base
+
+
+class AuditEvent(Base):
+    """Append-only business audit event. Application code never updates/deletes rows."""
+
+    __tablename__ = "tb_audit_event"
+
+    audit_event_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    comp_code = Column(String(20), nullable=False, index=True)
+    user_id = Column(String(50), nullable=False)
+    menu_code = Column(String(50), nullable=False)
+    action = Column(String(30), nullable=False)
+    entity_type = Column(String(50), nullable=False)
+    entity_id = Column(String(100), nullable=False)
+    source = Column(String(200), nullable=False)
+    before_json = Column(Text, nullable=True)
+    after_json = Column(Text, nullable=True)
+    reason = Column(String(1000), nullable=True)
+    related_entity_type = Column(String(50), nullable=True)
+    related_entity_id = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 def _json_default(value: Any):
@@ -40,7 +64,7 @@ def record_audit_event(
     related_entity_type: Optional[str] = None,
     related_entity_id: Optional[str] = None,
 ):
-    event = models.AuditEvent(
+    event = AuditEvent(
         comp_code=comp_code,
         user_id=user_id,
         menu_code=menu_code,
