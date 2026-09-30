@@ -7,8 +7,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import BigInteger, Column, DateTime, String, Text
-from sqlalchemy.sql import func
+from sqlalchemy import BigInteger, Integer, Column, DateTime, Unicode, UnicodeText, Index, text
+
+from sqlalchemy.dialects.mssql import DATETIME2, NVARCHAR
 
 from database import Base
 
@@ -18,20 +19,25 @@ class AuditEvent(Base):
 
     __tablename__ = "tb_audit_event"
 
-    audit_event_id = Column(BigInteger, primary_key=True, autoincrement=True)
-    comp_code = Column(String(20), nullable=False, index=True)
-    user_id = Column(String(50), nullable=False)
-    menu_code = Column(String(50), nullable=False)
-    action = Column(String(30), nullable=False)
-    entity_type = Column(String(50), nullable=False)
-    entity_id = Column(String(100), nullable=False)
-    source = Column(String(200), nullable=False)
-    before_json = Column(Text, nullable=True)
-    after_json = Column(Text, nullable=True)
-    reason = Column(String(1000), nullable=True)
-    related_entity_type = Column(String(50), nullable=True)
-    related_entity_id = Column(String(100), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    __table_args__ = (
+        Index("IX_tb_audit_event_entity", "comp_code", "entity_type", "entity_id", "audit_event_id"),
+        Index("IX_tb_audit_event_created", "comp_code", "created_at", "audit_event_id"),
+    )
+
+    audit_event_id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    comp_code = Column(Unicode(20), nullable=False)
+    user_id = Column(Unicode(50), nullable=False)
+    menu_code = Column(Unicode(50), nullable=False)
+    action = Column(Unicode(30), nullable=False)
+    entity_type = Column(Unicode(50), nullable=False)
+    entity_id = Column(Unicode(100), nullable=False)
+    source = Column(Unicode(200), nullable=False)
+    before_json = Column(UnicodeText().with_variant(NVARCHAR(None), "mssql"), nullable=True)
+    after_json = Column(UnicodeText().with_variant(NVARCHAR(None), "mssql"), nullable=True)
+    reason = Column(Unicode(1000), nullable=True)
+    related_entity_type = Column(Unicode(50), nullable=True)
+    related_entity_id = Column(Unicode(100), nullable=True)
+    created_at = Column(DateTime().with_variant(DATETIME2(), "mssql"), server_default=text("SYSUTCDATETIME()"), nullable=False)
 
 
 def _json_default(value: Any):

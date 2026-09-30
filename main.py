@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db, engine, Base, SessionLocal
+from audit_service import AuditEvent, record_audit_event
 from expense_code_defaults import STANDARD_EXPENSE_TREE
 from permissions import (
     MENU_CODES, company_code_from_path, issue_token, permission_for_request, verify_token,
@@ -2754,7 +2755,13 @@ class PurchaseInput(BaseModel):
     account_id: int
     memo: Optional[str] = Field(default=None, max_length=1000)
     finalize: bool = False
+    audit_reason: Optional[str] = Field(default=None, max_length=1000)
     items: list[PurchaseItemInput] = Field(min_length=1)
+
+
+class PurchaseCancelInput(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
 
 
 def _purchase_supplier(db: Session, comp_code: str, account_id: int):
@@ -2853,6 +2860,29 @@ def _purchase_result(row):
             "memo": item.memo,
         } for item in sorted(row.items, key=lambda value: value.line_no)],
     }
+
+
+def _purchase_snapshot(db: Session, row):
+    """Flush and reload links so rematerialization never snapshots stale ORM relations."""
+    db.flush()
+    db.refresh(row)
+    db.expire(row, ["items", "account"])
+    result = _purchase_result(row)
+    def columns(value):
+        return {column.key: getattr(value, column.key) for column in value.__table__.columns}
+    inbound_ids = {item.inbound_item.inbound_id for item in row.items if item.inbound_item}
+    result["related_transactions"] = {
+        "inbounds": [columns(db.get(models.Inbound, key)) for key in sorted(inbound_ids)],
+        "inbound_items": [columns(item.inbound_item) for item in row.items if item.inbound_item],
+        "lots": [columns(item.lot) for item in row.items if item.lot],
+        "payables": [columns(value) for value in db.query(models.AccountTransaction).filter(
+            models.AccountTransaction.comp_code == row.comp_code,
+            models.AccountTransaction.transaction_no == row.purchase_no,
+            models.AccountTransaction.transaction_type == "PURCHASE_PAYABLE",
+        ).order_by(models.AccountTransaction.account_transaction_id).all()],
+    }
+    return result
+
 
 
 def _purchase_or_404(db: Session, comp_code: str, purchase_id: int):
@@ -3000,6 +3030,17 @@ def get_purchases(comp_code: str, db: Session = Depends(get_db)):
     return [_purchase_result(row) for row in rows]
 
 
+@app.get("/api/v1/companies/{comp_code}/purchases/{purchase_id}/history")
+def get_purchase_history(comp_code: str, purchase_id: int, db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    rows = db.query(AuditEvent).filter(
+        AuditEvent.comp_code == comp_code, AuditEvent.entity_type == "PURCHASE",
+        AuditEvent.entity_id == str(purchase_id),
+    ).order_by(AuditEvent.audit_event_id).all()
+    return [{column.key: getattr(row, column.key) for column in AuditEvent.__table__.columns}
+            for row in rows]
+
+
 @app.post("/api/v1/companies/{comp_code}/purchases", status_code=status.HTTP_201_CREATED)
 def create_purchase(comp_code: str, data: PurchaseInput, request: Request,
                     db: Session = Depends(get_db)):
@@ -3017,14 +3058,31 @@ def create_purchase(comp_code: str, data: PurchaseInput, request: Request,
     db.add(row)
     try:
         db.flush()
+        created = _purchase_snapshot(db, row)
+        record_audit_event(
+            db, comp_code=comp_code, user_id=request.state.user_id, menu_code="PURCHASE_GENERAL",
+            action="CREATE", entity_type="PURCHASE", entity_id=row.purchase_id,
+            source=f"{request.method} {request.url.path}", after=created, reason=data.audit_reason,
+        )
         if data.finalize:
             _materialize_purchase(db, row)
             apply_status_transition(row, "CONFIRMED", request.state.user_id)
+        db.flush()
+        after = _purchase_snapshot(db, row)
+        if data.finalize:
+            record_audit_event(
+                db, comp_code=comp_code, user_id=request.state.user_id, menu_code="PURCHASE_GENERAL",
+                action="CONFIRM", entity_type="PURCHASE", entity_id=row.purchase_id,
+                source=f"{request.method} {request.url.path}", before=created, after=after,
+                reason=data.audit_reason,
+            )
         db.commit()
     except HTTPException:
         db.rollback(); raise
     except IntegrityError:
         db.rollback(); raise HTTPException(status_code=409, detail="전표번호·Detail 순번 또는 참조자료 중복/연결을 확인하세요.")
+    except Exception:
+        db.rollback(); raise
     db.refresh(row); return _purchase_result(row)
 
 
@@ -3041,6 +3099,7 @@ def update_purchase(comp_code: str, purchase_id: int, data: PurchaseInput,
     totals = summarize_purchase(prepared)
     was_confirmed = row.document_status == "CONFIRMED"
     old_purchase_no = row.purchase_no
+    before = _purchase_snapshot(db, row)
     try:
         if was_confirmed:
             _dematerialize_purchase(db, row, old_purchase_no)
@@ -3052,10 +3111,27 @@ def update_purchase(comp_code: str, purchase_id: int, data: PurchaseInput,
         row.items.clear(); db.flush()
         row.items.extend(models.PurchaseItem(**item) for item in prepared)
         db.flush()
+        updated_draft = _purchase_snapshot(db, row) if not was_confirmed else None
         if data.finalize or was_confirmed:
             _materialize_purchase(db, row)
             if not was_confirmed:
                 apply_status_transition(row, "CONFIRMED", request.state.user_id)
+        db.flush()
+        after = _purchase_snapshot(db, row)
+        record_audit_event(
+            db, comp_code=comp_code, user_id=request.state.user_id, menu_code="PURCHASE_GENERAL",
+            action="UPDATE", entity_type="PURCHASE", entity_id=row.purchase_id,
+            source=f"{request.method} {request.url.path}",
+            before=before, after=after if was_confirmed else updated_draft, reason=data.audit_reason,
+            related_entity_type="PURCHASE", related_entity_id=row.purchase_id,
+        )
+        if data.finalize and not was_confirmed:
+            record_audit_event(
+                db, comp_code=comp_code, user_id=request.state.user_id, menu_code="PURCHASE_GENERAL",
+                action="CONFIRM", entity_type="PURCHASE", entity_id=row.purchase_id,
+                source=f"{request.method} {request.url.path}",
+                before=updated_draft, after=after, reason=data.audit_reason,
+            )
         db.commit()
     except HTTPException:
         db.rollback(); raise
@@ -3064,14 +3140,29 @@ def update_purchase(comp_code: str, purchase_id: int, data: PurchaseInput,
         detail = ("후속 입출고에 연결된 매입은 수정할 수 없습니다."
                   if was_confirmed else "Detail 순번 또는 참조자료 연결을 확인하세요.")
         raise HTTPException(status_code=409, detail=detail)
+    except Exception:
+        db.rollback(); raise
     db.refresh(row); return _purchase_result(row)
 
 
 @app.delete("/api/v1/companies/{comp_code}/purchases/{purchase_id}")
-def delete_purchase(comp_code: str, purchase_id: int, db: Session = Depends(get_db)):
+def delete_purchase(comp_code: str, purchase_id: int, request: Request, db: Session = Depends(get_db)):
     row = _purchase_or_404(db, comp_code, purchase_id); ensure_draft(row)
     ensure_period_open(db, comp_code, row.purchase_date)
-    db.delete(row); db.commit(); return {"message": "작성 중인 일반 매입전표가 삭제되었습니다."}
+    before = _purchase_snapshot(db, row)
+    record_audit_event(
+        db, comp_code=comp_code, user_id=request.state.user_id, menu_code="PURCHASE_GENERAL",
+        action="DELETE", entity_type="PURCHASE", entity_id=row.purchase_id,
+        source=f"{request.method} {request.url.path}", before=before,
+    )
+    try:
+        db.delete(row); db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="연결된 자료가 있는 매입전표는 삭제할 수 없습니다.")
+    except Exception:
+        db.rollback(); raise
+    return {"message": "작성 중인 일반 매입전표가 삭제되었습니다."}
 
 
 @app.post("/api/v1/companies/{comp_code}/purchases/{purchase_id}/confirm")
@@ -3079,31 +3170,59 @@ def confirm_purchase(comp_code: str, purchase_id: int, request: Request,
                      db: Session = Depends(get_db)):
     row = _purchase_or_404(db, comp_code, purchase_id); ensure_period_open(db, comp_code, row.purchase_date)
     ensure_draft(row)
+    before = _purchase_snapshot(db, row)
     try:
         _materialize_purchase(db, row)
         apply_status_transition(row, "CONFIRMED", request.state.user_id)
+        db.flush()
+        after = _purchase_snapshot(db, row)
+        record_audit_event(
+            db, comp_code=comp_code, user_id=request.state.user_id, menu_code="PURCHASE_GENERAL",
+            action="CONFIRM", entity_type="PURCHASE", entity_id=row.purchase_id,
+            source=f"{request.method} {request.url.path}",
+            before=before, after=after,
+        )
         db.commit()
     except HTTPException:
         db.rollback(); raise
     except IntegrityError:
         db.rollback(); raise HTTPException(status_code=409, detail="이미 확정되었거나 LOT·입고·미지급 원장 연결이 중복되었습니다.")
+    except Exception:
+        db.rollback(); raise
     db.refresh(row); return _purchase_result(row)
 
 
 @app.post("/api/v1/companies/{comp_code}/purchases/{purchase_id}/cancel")
-def cancel_purchase(comp_code: str, purchase_id: int, request: Request,
+def cancel_purchase(comp_code: str, purchase_id: int, data: PurchaseCancelInput, request: Request,
                     db: Session = Depends(get_db)):
     row = _purchase_or_404(db, comp_code, purchase_id); ensure_period_open(db, comp_code, row.purchase_date)
+    reason = data.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="취소 사유를 입력하세요.")
+    if row.document_status != "CONFIRMED":
+        raise HTTPException(status_code=409, detail="확정된 매입전표만 취소할 수 있습니다.")
     # 현재 출고 Vertical Slice 전이므로 매입확정이 만든 입고/LOT만 원자적으로 회수한다.
     # 후속 출고 연결 뒤에는 취소출고 원장을 생성하는 방식으로 교체한다.
+    before = _purchase_snapshot(db, row)
     try:
         _dematerialize_purchase(db, row)
         apply_status_transition(row, "CANCELLED", request.state.user_id)
+        db.flush()
+        after = _purchase_snapshot(db, row)
+        record_audit_event(
+            db, comp_code=comp_code, user_id=request.state.user_id, menu_code="PURCHASE_GENERAL",
+            action="CANCEL", entity_type="PURCHASE", entity_id=row.purchase_id,
+            source=f"{request.method} {request.url.path}",
+            before=before, after=after, reason=reason,
+            related_entity_type="PURCHASE", related_entity_id=row.purchase_id,
+        )
         db.commit()
     except HTTPException:
         db.rollback(); raise
     except IntegrityError:
         db.rollback(); raise HTTPException(status_code=409, detail="후속 입출고에 연결된 매입은 취소할 수 없습니다.")
+    except Exception:
+        db.rollback(); raise
     db.refresh(row); return _purchase_result(row)
 
 

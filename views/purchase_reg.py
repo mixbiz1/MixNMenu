@@ -7,7 +7,7 @@ from PySide6.QtCore import QDate, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDateEdit,
     QDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
+    QInputDialog, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget)
 from app_context import app_context
 
 COLUMNS = ["상품코드/상품명 *", "입고창고 *", "BOX *", "평균중량", "중량(KG) *", "단가 *",
@@ -256,6 +256,12 @@ class PurchaseRegWindow(QWidget):
         if QMessageBox.question(self,"상품매입 저장",f"입력한 상품매입을 {verb}하시겠습니까?\n저장과 동시에 LOT와 재고가 반영됩니다.") != QMessageBox.Yes: return
         payload={"purchase_date":self.purchase_date.date().toString("yyyy-MM-dd"),"account_id":self._supplier["account_id"],
             "memo":self.memo.toPlainText().strip() or None,"finalize":True,"items":items}
+        if self.current_id:
+            reason, accepted = QInputDialog.getText(self, "수정 사유", "수정 사유 (선택, 최대 1,000자)")
+            if not accepted: return
+            if len(reason.strip()) > 1000:
+                QMessageBox.warning(self, "수정 사유", "수정 사유는 최대 1,000자입니다."); return
+            payload["audit_reason"] = reason.strip() or None
         try:
             base=f"{API_BASE_URL}/companies/{app_context.company_code}/purchases"
             response=httpx.put(f"{base}/{self.current_id}",json=payload,timeout=30) if self.current_id else httpx.post(base,json=payload,timeout=30)
@@ -308,8 +314,13 @@ class PurchaseRegWindow(QWidget):
     def cancel_document(self):
         if not self.current_id: return
         if QMessageBox.question(self,"전표 취소","입고·LOT·미지급 원거래를 함께 회수하고 취소하시겠습니까?") != QMessageBox.Yes: return
+        reason, accepted = QInputDialog.getText(self, "전표 취소", "취소 사유를 입력하세요 (최대 1,000자).")
+        if not accepted: return
+        reason = reason.strip()
+        if not reason or len(reason) > 1000:
+            QMessageBox.warning(self, "취소 사유", "취소 사유를 1~1,000자로 입력하세요."); return
         try:
-            response=httpx.post(f"{API_BASE_URL}/companies/{app_context.company_code}/purchases/{self.current_id}/cancel",timeout=25)
+            response=httpx.post(f"{API_BASE_URL}/companies/{app_context.company_code}/purchases/{self.current_id}/cancel",json={"reason": reason},timeout=25)
             response.raise_for_status(); self.load_all(); self.new_document(keep_date=True)
         except Exception as exc: QMessageBox.critical(self,"취소 오류",self._error_text(exc))
 

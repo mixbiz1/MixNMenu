@@ -6,6 +6,29 @@
 **Purpose:** 현재 실제 구현·검증 상태와 다음 작업을 짧게 유지하는 운영
 문서
 
+## 0. 2026-09-30 상품매입 Audit/History — 코드·자동검증 완료, 중앙검증 대기
+
+`work/purchase-audit-20260930`, HEAD `168609d`에서 공통 Audit를 상품매입
+CREATE/UPDATE/CONFIRM/CANCEL/DELETE(DRAFT)에 연결했다. 저장 즉시 확정과
+수정 시 최초 확정도 각 Action의 전후 Snapshot을 기록한다. 기존 Header Audit와
+입고·LOT·미지급 생성/회수 Transaction을 유지한다.
+
+- 취소 사유 필수, 수정 사유 선택. GUI는 해당 입력만 추가.
+- Snapshot은 저장값과 입고/LOT/PURCHASE_PAYABLE 파생자료를 보존.
+- 회사·인증 사용자·메뉴·실제 API source·UTC 일시 기록.
+- 삭제된 DRAFT를 포함한 읽기 전용 전표 history API 추가.
+- 모델을 기존 Audit Migration의 Unicode/UTC/인덱스에 맞춤. 추가 Migration 실행 없음.
+- 격리 API/ORM 및 오프스크린 GUI 자동테스트: 전체 **38 passed**.
+- 중앙 Schema/API/실제 사용자 GUI 및 중앙 Audit 기록 검증은 아직 미완료.
+- commit/push/main merge 없음. 서버에 변경 미반영.
+
+상세 인수인계: `docs/11_MXMN_PURCHASE_AUDIT_WORK_HANDOFF_20260930.md`.
+
+아래 9/18 기록은 당시 구현 경과이다. 현재 상품매입은 저장/확정 시 입고·LOT·
+미지급 원거래를 만들고, 후속 연결이 없을 때 확정 수정/취소에서 파생자료를
+회수한다. 과거의 “확정 수정 금지”, “입고/LOT/미지급 미생성” 설명을 현재 동작으로
+해석하지 않는다. 후속 출고 도입 시 원거래 보존·취소/정정 역거래로 발전시킨다.
+
 ## 0. 2026-09-18 상품매입 업무 보정
 
 실제 국내입고 레거시 화면과 사용자 검증을 반영하여 일반 매입 1차를
