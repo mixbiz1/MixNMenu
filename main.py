@@ -3393,6 +3393,26 @@ def create_sale(comp_code:str,data:SaleInput,request:Request,db:Session=Depends(
     except IntegrityError: db.rollback(); raise HTTPException(status_code=409,detail="매출전표·출고·미수금 원거래 연결을 확인하세요.")
     db.refresh(row); return _sale_result(row)
 
+@app.get("/api/v1/companies/{comp_code}/sales/lot-availability")
+def get_sale_lot_availability(comp_code: str, editing_sale_id: Optional[int] = None,
+                              db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    restored = {}
+    if editing_sale_id is not None:
+        sale = _sale_or_404(db, comp_code, editing_sale_id)
+        if sale.document_status == "CONFIRMED":
+            for item in sale.items:
+                box, weight = restored.get(item.lot_id, (0, Decimal(0)))
+                restored[item.lot_id] = (box + item.box_qty, weight + Decimal(item.weight))
+    result = []
+    for lot in db.query(models.Lot).filter(models.Lot.comp_code == comp_code).all():
+        box, weight = _lot_available(db, comp_code, lot.lot_id)
+        old_box, old_weight = restored.get(lot.lot_id, (0, Decimal(0)))
+        result.append({**_lot_result(lot), "available_box_qty": box,
+                       "available_weight": weight, "editing_box_qty": old_box,
+                       "editing_weight": old_weight})
+    return result
+
 @app.get("/api/v1/companies/{comp_code}/sales")
 def get_sales(comp_code:str,db:Session=Depends(get_db)):
     _get_company_or_404(comp_code,db); return [_sale_result(x) for x in db.query(models.Sale).filter(models.Sale.comp_code==comp_code).order_by(models.Sale.sale_date.desc(),models.Sale.sale_id.desc()).all()]
@@ -3421,7 +3441,7 @@ def update_sale(comp_code:str,sale_id:int,data:SaleInput,request:Request,db:Sess
         if row.sale_date!=data.sale_date: row.sale_no=allocate_document_no(db,comp_code,"SALE",data.sale_date)
         row.sale_date=data.sale_date; row.account_id=data.account_id; row.memo=data.memo; row.inventory_exception_yn=negative; row.inventory_exception_reason=reason; row.updated_by=request.state.user_id; row.updated_at=datetime.now(timezone.utc)
         for k,v in totals.items(): setattr(row,k,v)
-        row.items.clear(); db.flush(); row.items.extend(models.SaleItem(**x) for x in prepared); db.flush(); _materialize_sale(db,row); apply_status_transition(row,"CONFIRMED",request.state.user_id); db.flush(); after=_sale_snapshot(db,row); record_audit_event(db,comp_code=comp_code,user_id=request.state.user_id,menu_code="SALES_GENERAL",action="UPDATE",entity_type="SALE",entity_id=row.sale_id,source=f"{request.method} {request.url.path}",before=before,after=after,reason=data.audit_reason,related_entity_type="SALE",related_entity_id=row.sale_id); db.commit()
+        row.items.clear(); db.flush(); row.items.extend(models.SaleItem(**x) for x in prepared); db.flush(); _materialize_sale(db,row); db.flush(); after=_sale_snapshot(db,row); record_audit_event(db,comp_code=comp_code,user_id=request.state.user_id,menu_code="SALES_GENERAL",action="UPDATE",entity_type="SALE",entity_id=row.sale_id,source=f"{request.method} {request.url.path}",before=before,after=after,reason=data.audit_reason,related_entity_type="SALE",related_entity_id=row.sale_id); db.commit()
     except HTTPException: db.rollback(); raise
     except IntegrityError: db.rollback(); raise HTTPException(status_code=409,detail="후속 거래가 연결된 매출은 수정할 수 없습니다.")
     db.refresh(row); return _sale_result(row)
