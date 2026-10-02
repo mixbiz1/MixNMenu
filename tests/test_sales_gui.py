@@ -4,8 +4,11 @@ from decimal import Decimal
 from unittest.mock import Mock
 import pytest
 from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from test_sales_outbound import api, payload, URL
 from views.sale_reg import CancelReasonDialog, SaleRegWindow
+from views.purchase_reg import LookupDialog
 
 
 def test_availability_current_edit_and_cancel(api):
@@ -51,17 +54,17 @@ def gui(monkeypatch):
 def enter(window,row,box,kg,price=2000):
     physical_row=row*2
     window.select_lot(row,window.lots[0])
-    for col,value in [(3,box),(4,kg),(6,price)]: window.table.cellWidget(physical_row,col).setText(str(value))
+    for col,value in [(3,box),(4,kg),(7,price)]: window.table.cellWidget(physical_row,col).setText(str(value))
 
 
 def test_gui_same_lot_negative_reason_and_row_delete(gui):
     window,_=gui; enter(window,0,6,'60'); window.add_row(); enter(window,1,5,'41')
-    assert window.table.item(1,3).text()=='10 → -1 BOX'
-    assert window.table.item(3,4).text()=='100.00 → -1.00 KG'
+    assert window.table.item(1,3).text()=='10 → -1'
+    assert window.table.item(3,4).text()=='100.00 → -1.00'
     assert '마이너스' in window.warning.text()
     with pytest.raises(ValueError,match='사유'): window.payload()
     window.reason.setText('선출고'); assert window.payload()['inventory_exception_reason']=='선출고'
-    window.table.setCurrentCell(0,3); window.remove_row(); assert window.table.item(1,3).text()=='10 → 5 BOX'
+    window.table.setCurrentCell(0,3); window.remove_row(); assert window.table.item(1,3).text()=='10 → 5'
     assert window.current_receivable.text()=='현미수금 300'
 
 
@@ -80,16 +83,16 @@ def test_gui_multiple_lots_allow_blank_box_in_one_row(gui):
     window.lots.append(lot_b)
     window.add_row()
     window.select_lot(1,lot_b)
-    for col,value in [(3,'1'),(4,'22.00'),(6,'2000')]:
+    for col,value in [(3,'1'),(4,'22.00'),(7,'2000')]:
         window.table.cellWidget(2,col).setText(value)
     items=window.payload()['items']
     assert [item['lot_id'] for item in items]==[1,2]
     assert [item['box_qty'] for item in items]==[0,1]
     assert [item['weight'] for item in items]==['21.00','22.00']
-    assert window.table.item(1,3).text()=='10 → 10 BOX'
-    assert window.table.item(1,4).text()=='100.00 → 79.00 KG'
-    assert window.table.item(3,3).text()=='5 → 4 BOX'
-    assert window.table.item(3,4).text()=='30.00 → 8.00 KG'
+    assert window.table.item(1,3).text()=='10 → 10'
+    assert window.table.item(1,4).text()=='100.00 → 79.00'
+    assert window.table.item(3,3).text()=='5 → 4'
+    assert window.table.item(3,4).text()=='30.00 → 8.00'
 
 
 def test_gui_invalid_box_text_is_rejected_as_input_error(gui):
@@ -104,10 +107,13 @@ def test_gui_load_edit_save_cancel(gui,monkeypatch):
     sale={'sale_id':2,'sale_no':'SA-2','sale_date':'2026-10-02','account_id':1,'account_name':'거래처','document_status':'CONFIRMED','memo':'원메모','inventory_exception_reason':'기존사유','items':[dict(line_no=1,product_id=1,lot_id=1,box_qty=2,weight='20',unit_price=2000,discount_amount=0,memo='행메모')]}
     lot.update(available_box_qty=8,available_weight='80',editing_box_qty=2,editing_weight='20')
     window.load_sale(sale)
-    assert window.table.item(1,3).text()=='8 → 8 BOX'
-    assert window.table.item(1,4).text()=='80.00 → 80.00 KG'
-    enter(window,0,3,'30'); assert window.table.item(1,3).text()=='8 → 7 BOX'
-    assert window.table.item(1,4).text()=='80.00 → 70.00 KG'
+    assert window.table.item(1,3).text()=='8 → 8'
+    assert window.table.item(1,4).text()=='80.00 → 80.00'
+    assert window.table.item(0,5).text()=='10.00'
+    assert window.table.item(1,5).text()=='10.00 → 10.00'
+    enter(window,0,3,'30'); assert window.table.item(1,3).text()=='8 → 7'
+    assert window.table.item(1,4).text()=='80.00 → 70.00'
+    assert window.table.item(1,5).text()=='10.00 → 10.00'
     assert window.payload()['memo']=='원메모' and window.payload()['items'][0]['memo']=='행메모'
     response=Mock(); response.json.return_value=sale
     put=Mock(return_value=response); post=Mock(return_value=response)
@@ -130,14 +136,33 @@ def test_gui_two_level_stock_projection_and_average_weight(gui):
     window,lot=gui
     window.lots[0].update(available_box_qty=100,available_weight='2064.00')
     enter(window,0,'1','20.00')
-    assert window.table.item(1,3).text()=='100 → 99 BOX'
-    assert window.table.item(1,4).text()=='2,064.00 → 2,044.00 KG'
-    assert window.table.item(1,5).text()=='평균 20.64 → 20.65 KG/BOX'
+    assert window.table.item(0,5).text()=='20.00'
+    assert window.table.item(1,3).text()=='100 → 99'
+    assert window.table.item(1,4).text()=='2,064.00 → 2,044.00'
+    assert window.table.item(1,5).text()=='20.64 → 20.65'
     enter(window,0,'0','15.00')
-    assert window.table.item(1,3).text()=='100 → 100 BOX'
-    assert window.table.item(1,4).text()=='2,064.00 → 2,049.00 KG'
-    assert window.table.item(1,5).text()=='평균 20.64 → 20.49 KG/BOX'
-    assert window.table.columnWidth(1)>=280
+    assert window.table.item(0,5).text()=='—'
+    assert window.table.item(1,3).text()=='100 → 100'
+    assert window.table.item(1,4).text()=='2,064.00 → 2,049.00'
+    assert window.table.item(1,5).text()=='20.64 → 20.49'
+    assert window.table.columnWidth(1)>=400
+
+
+def test_inventory_lookup_uses_arrow_keys_and_enter(gui):
+    rows = [{'lot_code':'L1','product_name':'상품 1'},
+            {'lot_code':'L2','product_name':'상품 2'}]
+    dialog = LookupDialog(gui[0], '재고조회', '', [('LOT','lot_code'),('상품','product_name')], lambda _: rows)
+    dialog.show()
+    dialog.table.setFocus()
+    assert dialog.table.currentRow()==0
+    QTest.keyClick(dialog.table, Qt.Key_Down)
+    assert dialog.table.currentRow()==1
+    QTest.keyClick(dialog.table, Qt.Key_Up)
+    assert dialog.table.currentRow()==0
+    QTest.keyClick(dialog.table, Qt.Key_Down)
+    QTest.keyClick(dialog.table, Qt.Key_Return)
+    assert dialog.result()==QDialog.Accepted
+    assert dialog.selected['lot_code']=='L2'
 
 
 def test_cancel_reason_dialog_blank_multiline_and_limit(gui,monkeypatch):
@@ -189,7 +214,7 @@ def test_gui_date_list_header_and_memo(gui):
     window.today_table.selectRow(0)
     assert window.sale_id==2 and window.document_no.text()=='SA-2'
     assert window.customer_edit.text()=='거래처 (A)' and window.memo.toPlainText()=='전표 메모'
-    window.memo.setPlainText('변경된 메모'); window.table.cellWidget(0,10).setText('상세 메모')
+    window.memo.setPlainText('변경된 메모'); window.table.cellWidget(0,11).setText('상세 메모')
     assert window.payload()['memo']=='변경된 메모' and window.payload()['items'][0]['memo']=='상세 메모'
     assert 'BOX 2 / 중량 20.00 KG / 매출액 40,000' in window.total_label.text()
 
@@ -212,18 +237,18 @@ def test_profit_rounding_zero_revenue_and_loss(gui):
     assert window.profit_values(Decimal('1.25'),6001,5001)==(7502,6252,1250,Decimal('16.66'))
     assert window.profit_values(Decimal('10.00'),0,1000)==(0,10000,-10000,None)
     enter(window,0,1,'10.00',6000)
-    assert window.table.item(0,5).text()=='1,000'
-    assert window.table.item(0,7).text()=='60,000'
-    assert window.table.item(0,8).text()=='50,000'
-    assert window.table.item(0,9).text()=='83.33%'
+    assert window.table.item(0,6).text()=='1,000'
+    assert window.table.item(0,8).text()=='60,000'
+    assert window.table.item(0,9).text()=='50,000'
+    assert window.table.item(0,10).text()=='83.33%'
     assert '매출원가 10,000 / 매출이익 50,000' in window.total_label.text()
     enter(window,0,1,'10.00',900)
-    assert window.table.item(0,8).text()=='-1,000'
-    assert window.table.item(0,9).text()=='-11.11%'
-    assert window.table.item(0,8).foreground().color().name()=='#b71c1c'
+    assert window.table.item(0,9).text()=='-1,000'
+    assert window.table.item(0,10).text()=='-11.11%'
+    assert window.table.item(0,9).foreground().color().name()=='#b71c1c'
     assert window.payload()['items'][0]['unit_price']==900
     lot.pop('individual_cost'); window.refresh_inventory()
-    assert window.table.item(0,5).text()=='미확인'
+    assert window.table.item(0,6).text()=='미확인'
     assert '매출원가 미확인' in window.total_label.text()
 
 

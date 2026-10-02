@@ -13,9 +13,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QDateEdit, QDialog, QFormLayou
     QTextEdit, QVBoxLayout, QWidget)
 from views.purchase_reg import LookupDialog, PurchaseRegWindow, _number, _won
 
-COLUMNS = ['LOT *', '상품명', '창고', '출고 BOX *', '출고 KG *', '개별원가',
-           '판매단가 *', '매출금액', '매출이익', '이익률(%)', '메모']
-LOT, PRODUCT, WAREHOUSE, BOX, KG, COST, PRICE, AMOUNT, PROFIT, MARGIN, MEMO = range(len(COLUMNS))
+COLUMNS = ['LOT *', '상품명', '창고', 'BOX 출고/잔량', 'KG 출고/잔량',
+           '평균중량(KG/BOX) 출고/잔량', '개별원가', '판매단가 *', '매출금액', '매출이익', '이익률(%)', '메모']
+LOT, PRODUCT, WAREHOUSE, BOX, KG, AVG, COST, PRICE, AMOUNT, PROFIT, MARGIN, MEMO = range(len(COLUMNS))
 
 
 class CancelReasonDialog(QDialog):
@@ -135,8 +135,10 @@ class SaleRegWindow(QWidget):
         buttons.addStretch(); root.addLayout(buttons)
         self.table = QTableWidget(0, len(COLUMNS)); self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems); self.table.setAlternatingRowColors(True)
-        for col, width in enumerate((150, 280, 100, 80, 110, 180, 160, 100, 100, 70, 120)):
+        for col, width in enumerate((150, 400, 100, 90, 110, 145, 100, 110, 110, 110, 85, 150)):
             self.table.setColumnWidth(col, width)
+        self.table.setMinimumWidth(1200)
+        self.table.setColumnWidth(PRODUCT, 400)
         self.table.horizontalHeader().setSectionResizeMode(PRODUCT, QHeaderView.Stretch)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         root.addWidget(self.table, 1)
@@ -227,7 +229,7 @@ class SaleRegWindow(QWidget):
                 result.append({**value, 'box_display':f"{value['available_box_qty']:,}",
                                'kg_display':f"{Decimal(str(value['available_weight'])):,.2f}"})
             return result
-        dialog = LookupDialog(self, 'LOT 조회', editor.text(), [('LOT', 'lot_code'), ('상품', 'product_name'),
+        dialog = LookupDialog(self, '재고조회', editor.text(), [('LOT', 'lot_code'), ('상품', 'product_name'),
                               ('창고', 'warehouse_name'), ('가용 BOX', 'box_display'), ('가용 KG', 'kg_display'), ('개별원가', 'individual_cost')], fetch)
         if dialog.exec() == QDialog.Accepted and dialog.selected:
             self.select_lot(row, dialog.selected); self._focus_cell(row, BOX)
@@ -255,13 +257,13 @@ class SaleRegWindow(QWidget):
         editor = QLineEdit(); editor.setPlaceholderText('LOT·상품명 입력 후 Enter')
         editor.returnPressed.connect(lambda e=editor: self.lookup_lot(e))
         editor.textEdited.connect(lambda _, e=editor: self._clear_lot(e)); self.table.setCellWidget(row, LOT, editor)
-        for col in (PRODUCT, WAREHOUSE, COST, AMOUNT, PROFIT, MARGIN):
+        for col in (PRODUCT, WAREHOUSE, AVG, COST, AMOUNT, PROFIT, MARGIN):
             item = QTableWidgetItem(''); item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             self.table.setItem(row, col, item)
         for col, key, default in ((BOX, 'box_qty', ''), (KG, 'weight', '0.00'), (PRICE, 'unit_price', ''), (MEMO, 'memo', '')):
             field = QLineEdit(str(value.get(key) or default)); self.table.setCellWidget(row, col, field)
             field.textChanged.connect(self.recalculate)
-        summary = QTableWidgetItem('현재 재고  →  출고 후 예상 잔량')
+        summary = QTableWidgetItem('현재 → 잔량')
         summary.setTextAlignment(Qt.AlignCenter)
         summary.setFlags(summary.flags() & ~Qt.ItemIsEditable)
         summary.setBackground(QColor('#eef3f8'))
@@ -399,6 +401,7 @@ class SaleRegWindow(QWidget):
                 box = int(self._text(row, BOX) or 0); kg = Decimal(self._text(row, KG) or 0); price = int(self._text(row, PRICE) or 0)
                 if not kg.is_finite(): raise ValueError()
                 revenue = _won(kg * price); boxes += box; weight += kg; revenue_total += revenue
+                self.table.item(row, AVG).setText(f'{kg / box:.2f}' if box else '—')
                 self.table.item(row, AMOUNT).setText(f'{revenue:,}')
                 if lot:
                     totals[lot['lot_id']][0] += box; totals[lot['lot_id']][1] += kg
@@ -415,6 +418,7 @@ class SaleRegWindow(QWidget):
                     self.table.item(row, COST).setToolTip('LOT Master 개별원가 (원/KG)')
             except Exception:
                 invalid = True
+                self.table.item(row, AVG).setText('입력 확인')
                 for col in (AMOUNT, PROFIT, MARGIN): self.table.item(row, col).setText('입력 확인')
             for col in (PROFIT, MARGIN):
                 self.table.item(row, col).setData(Qt.ForegroundRole, QColor('#b71c1c') if loss else None)
@@ -436,10 +440,9 @@ class SaleRegWindow(QWidget):
                 after_avg = (after_kg / after_box) if after_box else None
                 bottom = row + 1
                 for col, text in (
-                    (BOX, f'{available_box:,} → {after_box:,} BOX'),
-                    (KG, f'{available_kg:,.2f} → {after_kg:,.2f} KG'),
-                    (COST, f'평균 {current_avg:.2f} → {after_avg:.2f} KG/BOX' if current_avg is not None and after_avg is not None else f'평균 {current_avg:.2f} → — KG/BOX' if current_avg is not None else '평균 — → — KG/BOX'),
-                    (PRICE, f'LOT 개별원가 {int(lot["individual_cost"]):,}원/KG' if lot.get('individual_cost') is not None else 'LOT 개별원가 미확인')):
+                    (BOX, f'{available_box:,} → {after_box:,}'),
+                    (KG, f'{available_kg:,.2f} → {after_kg:,.2f}'),
+                    (AVG, f'{current_avg:.2f} → {after_avg:.2f}' if current_avg is not None and after_avg is not None else f'{current_avg:.2f} → —' if current_avg is not None else '— → —')):
                     self.table.item(bottom, col).setText(text)
                 for col in (AMOUNT, PROFIT, MARGIN, MEMO): self.table.item(bottom, col).setText('')
                 is_negative = after_box < 0 or after_kg < 0
@@ -447,13 +450,13 @@ class SaleRegWindow(QWidget):
             else:
                 for col in range(BOX, len(COLUMNS)): self.table.item(row + 1, col).setText('')
                 for col in (PRODUCT, WAREHOUSE): self.table.item(row, col).setText('')
-            for col in (PRODUCT, WAREHOUSE, COST, AMOUNT, PROFIT, MARGIN):
+            for col in (PRODUCT, WAREHOUSE, AVG, COST, AMOUNT, PROFIT, MARGIN):
                 item = self.table.item(row, col)
                 item.setData(Qt.BackgroundRole, QColor('#ffebee') if is_negative else None)
             for col in (BOX, KG):
                 self.table.cellWidget(row, col).setStyleSheet(
                     'background:#ffebee;color:#b71c1c;' if is_negative else '')
-            for col in (BOX, KG, COST, PRICE):
+            for col in (BOX, KG, AVG):
                 item = self.table.item(row + 1, col)
                 item.setBackground(QColor('#ffebee') if is_negative else QColor('#eef3f8'))
                 item.setForeground(QColor('#b71c1c') if is_negative else QColor('#202124'))
