@@ -60,3 +60,71 @@ def test_sale_outbound_blocks_purchase_rematerialization(api):
         lot=db.get(models.Lot,1); purchase=models.Purchase(comp_code='00001',purchase_no='P1',purchase_date=date(2026,10,2),account_id=1,document_status='CONFIRMED',created_by='tester',updated_by='tester'); item=models.PurchaseItem(line_no=1,product_id=1,warehouse_id=1,lot_id=lot.lot_id,box_qty=1,weight=1,unit_price=1,supply_amount=1,tax_code_snapshot='EXEMPT',tax_name_snapshot='면세',tax_rate_snapshot=0,tax_amount=0,discount_amount=0,total_amount=1); purchase.items=[item]; db.add(purchase); db.commit()
         with pytest.raises(Exception) as exc: main._guard_purchase_dematerialization(db,purchase)
         assert getattr(exc.value,'status_code',None)==409
+
+
+def test_reported_sale_post_with_real_document_type_validation(api,monkeypatch):
+    """실제 발번 함수의 prefix 검사를 유지하고 SQL Server sequence SQL만 대체한다."""
+    from types import SimpleNamespace
+    from trade_common import allocate_document_no as real_allocate
+    client,factory=api
+    with factory() as db:
+        db.get(models.Account,1).account_code='00002'
+        db.get(models.Lot,1).lot_code='L20260917-001-01'
+        detail=db.query(models.InboundItem).one(); detail.box_qty=100; detail.weight=Decimal('21.55'); db.commit()
+    counters=defaultdict(int); kinds=[]
+    class SequenceOnlyDb:
+        def execute(self,statement,params):
+            assert 'UPDLOCK, HOLDLOCK' in str(statement)
+            kinds.append(params['document_type']); counters[params['document_type']]+=1
+            return SimpleNamespace(scalar_one=lambda:counters[params['document_type']])
+    monkeypatch.setattr(main,'allocate_document_no',lambda db,co,kind,day:real_allocate(SequenceOnlyDb(),co,kind,day))
+    data=payload(1,'10.00'); data['items'][0]['unit_price']=6000
+    response=client.post(URL,json=data)
+    assert response.status_code==201,response.text
+    assert response.json()['document_status']=='CONFIRMED' and response.json()['total_amount']==60000
+    assert kinds==['SALE','OUTBOUND']
+    with factory() as db:
+        assert main._lot_available(db,'00001',1)==(99,Decimal('11.55'))
+        assert db.query(models.Sale).count()==1 and db.query(models.SaleItem).count()==1
+        assert db.query(models.Outbound).one().outbound_no=='OU-20261002-0001'
+        assert db.query(models.OutboundItem).one().weight==Decimal('10.00')
+        assert db.query(models.AccountTransaction).one().original_amount==60000
+        assert [x.action for x in db.query(AuditEvent).order_by(AuditEvent.audit_event_id)]==['CREATE','CONFIRM']
+    sale_id=response.json()['sale_id']
+    assert client.put(f'{URL}/{sale_id}',json=data).status_code==200
+    assert client.post(f'{URL}/{sale_id}/cancel',json={'reason':'회귀검증'}).status_code==200
+
+
+def test_actual_account_master_contact_and_lot_cost_api(api):
+    client,factory=api
+    with factory() as db:
+        account=db.get(models.Account,1); account.phone='02-1234'; account.fax='02-5678'; account.tax_email='sales@example.com'
+        db.get(models.Lot,1).individual_cost=Decimal('1200.01'); db.commit()
+    contact=client.get('/api/v1/accounts/1').json()
+    assert (contact['phone'],contact['fax'],contact['tax_email'])==('02-1234','02-5678','sales@example.com')
+    assert client.get(URL+'/lot-availability').json()[0]['individual_cost']==1201
+
+
+def test_original_unsupported_outbound_kind_reproduces_500_atomically(api,monkeypatch):
+    """수정 전 실제 발번 경로의 500과 전체 transaction 회수를 재현한다."""
+    from trade_common import allocate_document_no as real_allocate
+    client,factory=api
+    old_allocator=main.allocate_document_no
+    def emulate_original(db,co,kind,day):
+        if kind=='OUTBOUND': return real_allocate(db,co,'SALES_OUTBOUND',day)
+        return old_allocator(db,co,kind,day)
+    monkeypatch.setattr(main,'allocate_document_no',emulate_original)
+    assert client.post(URL,json=payload(1,'10.00')).status_code==500
+    with factory() as db:
+        for model in (models.Sale,models.SaleItem,models.Outbound,models.OutboundItem,models.AccountTransaction,AuditEvent):
+            assert db.query(model).count()==0
+
+
+def test_sales_migration_contains_every_insert_model_column():
+    import re
+    from pathlib import Path
+    ddl=(Path(__file__).resolve().parents[1]/'db_sales_migrate.py').read_text(encoding="utf-8")
+    for model in (models.Sale,models.SaleItem,models.Outbound,models.OutboundItem):
+        body=ddl.split(f'CREATE TABLE dbo.{model.__tablename__} (',1)[1].split(';',1)[0]
+        for column in model.__table__.columns:
+            assert re.search(r'\b'+re.escape(column.name)+r'\s+(?:INT|VARCHAR|NVARCHAR|DATE|DATETIMEOFFSET|NUMERIC|BIT)\b',body),f'{model.__tablename__}.{column.name}'

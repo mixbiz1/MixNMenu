@@ -3368,7 +3368,7 @@ def _materialize_sale(db,row):
         warehouse_id=item.lot.warehouse_id
         outbound=by_warehouse.get(warehouse_id)
         if not outbound:
-            outbound=models.Outbound(comp_code=row.comp_code,outbound_no=allocate_document_no(db,row.comp_code,"SALES_OUTBOUND",row.sale_date),outbound_date=row.sale_date,warehouse_id=warehouse_id,transaction_type="SALES_OUTBOUND",memo=f"일반매출 {row.sale_no}")
+            outbound=models.Outbound(comp_code=row.comp_code,outbound_no=allocate_document_no(db,row.comp_code,"OUTBOUND",row.sale_date),outbound_date=row.sale_date,warehouse_id=warehouse_id,transaction_type="SALES_OUTBOUND",memo=f"일반매출 {row.sale_no}")
             db.add(outbound); db.flush(); by_warehouse[warehouse_id]=outbound
         db.add(models.OutboundItem(outbound_id=outbound.outbound_id,sale_item_id=item.sale_item_id,line_no=item.line_no,product_id=item.product_id,lot_id=item.lot_id,box_qty=item.box_qty,weight=item.weight,amount=item.supply_amount))
     db.add(models.AccountTransaction(comp_code=row.comp_code,transaction_no=row.sale_no,transaction_date=row.sale_date,account_id=row.account_id,transaction_type="SALES_RECEIVABLE",original_amount=row.total_amount,memo=f"일반매출 {row.sale_no}"))
