@@ -3296,7 +3296,7 @@ def get_purchase_payable_summary(comp_code: str, account_id: int, transaction_da
 # =============================================================================
 class SaleItemInput(BaseModel):
     line_no: int = Field(ge=1); product_id: int; lot_id: int; box_qty: int = Field(ge=0)
-    weight: Decimal = Field(gt=0, decimal_places=2); unit_price: int = Field(ge=0)
+    weight: Decimal = Field(ge=0, decimal_places=2); unit_price: int = Field(ge=0)
     supply_amount: Optional[int] = Field(default=None, ge=0); tax_amount: Optional[int] = Field(default=None, ge=0)
     discount_amount: int = 0; total_amount: Optional[int] = Field(default=None, ge=0); memo: Optional[str] = Field(default=None, max_length=500)
 
@@ -3322,6 +3322,7 @@ def _lot_available(db, comp_code, lot_id):
     return sum((int(x.box_qty) for x in inbound), 0) - sum((int(x.box_qty) for x in outbound), 0), sum((Decimal(x.weight) for x in inbound), Decimal(0)) - sum((Decimal(x.weight) for x in outbound), Decimal(0))
 
 def _prepare_sale_lines(db, comp_code, sale_date, items, inventory_exception_reason=None):
+    from sales_inventory import project_lot_stock
     if len({x.line_no for x in items}) != len(items): raise HTTPException(status_code=400, detail="전표 내 Detail 순번은 중복될 수 없습니다.")
     prepared=[]
     for item in items:
@@ -3331,6 +3332,7 @@ def _prepare_sale_lines(db, comp_code, sale_date, items, inventory_exception_rea
         product=db.query(models.Product).filter(models.Product.product_id==item.product_id,models.Product.use_yn==True).first()
         if not product: raise HTTPException(status_code=400, detail=f"{item.line_no}행 상품은 사용 중인 상품이 아닙니다.")
         box=validate_box_qty(item.box_qty); weight=Decimal(item.weight)
+        if box == 0 and weight == 0: raise HTTPException(status_code=400, detail=f"{item.line_no}행은 BOX 또는 중량 중 하나 이상을 입력하세요.")
         tax_code="VAT10" if str(product.tax_type) in {"1","VAT10"} else "EXEMPT"; tax=db.query(models.TaxCode).filter(models.TaxCode.tax_code==tax_code).first()
         if not tax: raise HTTPException(status_code=400, detail=f"{item.line_no}행 세금코드가 없습니다.")
         snapshot=tax_snapshot(tax,sale_date); calculated=calculate_purchase_line(weight,item.unit_price,snapshot["tax_rate_snapshot"],item.discount_amount)
@@ -3341,7 +3343,8 @@ def _prepare_sale_lines(db, comp_code, sale_date, items, inventory_exception_rea
         available_box,available_weight=_lot_available(db,comp_code,lot_id)
         issued_box=sum(x["box_qty"] for x in prepared if x["lot_id"]==lot_id)
         issued_weight=sum((x["weight"] for x in prepared if x["lot_id"]==lot_id),Decimal(0))
-        if issued_box>available_box or issued_weight>available_weight: negative_lots.append(lot_id)
+        projected_box,projected_weight=project_lot_stock(available_box,available_weight,issued_box,issued_weight)
+        if projected_box < 0 or projected_weight < 0: negative_lots.append(lot_id)
     reason=(inventory_exception_reason or "").strip()
     if negative_lots and not reason: raise HTTPException(status_code=409,detail="마이너스 재고 출고는 예외사유/비고를 입력해야 저장할 수 있습니다.")
     return prepared, bool(negative_lots), reason or None
@@ -3415,7 +3418,7 @@ def get_sale_lot_availability(comp_code: str, editing_sale_id: Optional[int] = N
 
 @app.get("/api/v1/companies/{comp_code}/sales")
 def get_sales(comp_code:str,db:Session=Depends(get_db)):
-    _get_company_or_404(comp_code,db); return [_sale_result(x) for x in db.query(models.Sale).filter(models.Sale.comp_code==comp_code).order_by(models.Sale.sale_date.desc(),models.Sale.sale_id.desc()).all()]
+    _get_company_or_404(comp_code,db); return [_sale_result(x) for x in db.query(models.Sale).filter(models.Sale.comp_code==comp_code,models.Sale.document_status!="CANCELLED").order_by(models.Sale.sale_date.desc(),models.Sale.sale_id.desc()).all()]
 
 @app.get("/api/v1/companies/{comp_code}/sales/{sale_id}/history")
 def get_sale_history(comp_code:str,sale_id:int,db:Session=Depends(get_db)):

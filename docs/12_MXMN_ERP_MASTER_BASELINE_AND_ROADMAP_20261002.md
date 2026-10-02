@@ -7,7 +7,7 @@
 
 실제 개발 중심과 업무 원본은 **MXMN ERP / `mixbiz1/MixNMenu` 하나**이다. `MXMN_FinSales`는 삭제하지 않고 계산·화면·PDF·회귀검증 참고용으로 보존한다. 독립 신규개발을 재개하지 않는다. Financing은 ERP Master와 거래에 Contract/Calculation/Settlement 계층을 추가한다.
 
-현재 ERP는 회사/거래처/상품/창고/LOT/기초자료/사용자·권한, 거래 공통기반 및 상품매입의 `Purchase → Inbound → LOT → Purchase Payable`를 구현했다. 상품매입 상세 Audit 기록과 조회 API도 main에 있다. **일반매출·실제 출고·수금/지급·Financing 계약/계산/정산은 아직 구현된 업무 흐름이 아니다.** 화면 메뉴, DB 설계안, 옛 Slip 모델이 존재한다는 이유로 완료로 판정하지 않는다.
+2026-10-02 기준 main `4f7b0b6`에서 일반매출/실제 출고는 구현 및 중앙 DB 실거래 검증까지 완료되었다. 매출 저장 즉시 확정, Sale/Outbound/재고/SALES_RECEIVABLE/Audit, 확정전표 수정·취소를 지원한다. 상세 완료상태와 다음 단계는 `docs/04_CURRENT_STATUS.md` §33 및 `docs/10_DEVELOPMENT_ROADMAP.md`를 기준으로 한다. 입금/출금, Financing 계약/계산/정산은 아직 구현하지 않았다. 아래 조사 기준 SHA와 당시 Gap Analysis/단계별 추정은 이 문서 작성 시점의 역사적 기준이며, 일반매출 완료 여부와 다음 Vertical Slice 순서는 위 최신 상태 기록으로 갱신한다.
 
 Audit는 “구현 없음”도 “전체 마감”도 아니다. 코드/테스트 적용은 완료했고 중앙 SQL Server와 실제 사용자 GUI 검증은 남았다. GUI에는 Audit 이력 조회 화면이 없다. 사용자 보고의 `38 passed`는 DEV의 실행 결과이며 이번 Work가 재실행한 결과가 아니다.
 

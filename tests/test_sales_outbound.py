@@ -41,6 +41,87 @@ def test_sale_saves_confirmed_outbound_receivable_and_audit(api):
         assert db.query(models.AccountTransaction).one().transaction_type=='SALES_RECEIVABLE'
         assert main._lot_available(db,'00001',1)==(8,Decimal('80.00'))
         assert [x.action for x in db.scalars(select(AuditEvent).order_by(AuditEvent.audit_event_id))]==['CREATE','CONFIRM']
+
+
+def test_sale_api_accepts_weight_only_line_in_multi_lot_sale(api):
+    client,factory=api
+    with factory() as db:
+        lot=models.Lot(comp_code='00001',lot_code='L2',source_type='DOMESTIC',product_id=1,
+                       warehouse_id=1,individual_cost=1200,status='OPEN',use_yn=True)
+        db.add(lot); db.flush()
+        inbound=models.Inbound(comp_code='00001',inbound_no='I2',inbound_date=date(2026,10,2),
+                               warehouse_id=1,transaction_type='PURCHASE_INBOUND')
+        db.add(inbound); db.flush()
+        db.add(models.InboundItem(inbound_id=inbound.inbound_id,line_no=1,product_id=1,
+                                  lot_id=lot.lot_id,box_qty=5,weight=Decimal('30.00'),
+                                  individual_cost=1200,amount=36000))
+        db.commit(); lot_id=lot.lot_id
+    data=payload(0,'21.00')
+    data['items'].append({'line_no':2,'product_id':1,'lot_id':lot_id,
+                          'box_qty':1,'weight':'22.00','unit_price':2000})
+    response=client.post(URL,json=data)
+    assert response.status_code==201,response.text
+    assert [item['box_qty'] for item in response.json()['items']]==[0,1]
+    with factory() as db:
+        assert main._lot_available(db,'00001',1)==(10,Decimal('79.00'))
+        assert main._lot_available(db,'00001',lot_id)==(4,Decimal('8.00'))
+        assert [item.box_qty for item in db.query(models.OutboundItem).order_by(models.OutboundItem.line_no)]==[0,1]
+
+
+@pytest.mark.parametrize(('box_qty','weight','expected_box','expected_weight'),[
+    (1,'20.00',99,Decimal('2044.00')),
+    (0,'15.00',100,Decimal('2049.00')),
+])
+def test_box_and_weight_stock_are_independent_and_cancel_restores(api,box_qty,weight,expected_box,expected_weight):
+    client,factory=api
+    with factory() as db:
+        inbound=db.query(models.InboundItem).one()
+        inbound.box_qty=100; inbound.weight=Decimal('2064.00'); db.commit()
+    endpoint=URL+'/lot-availability'
+    before=client.get(endpoint).json()[0]
+    assert (before['available_box_qty'],Decimal(str(before['available_weight'])))==(100,Decimal('2064.00'))
+    response=client.post(URL,json=payload(box_qty,weight))
+    assert response.status_code==201,response.text
+    sale_id=response.json()['sale_id']
+    availability=client.get(endpoint).json()[0]
+    assert (availability['available_box_qty'],Decimal(str(availability['available_weight'])))==(expected_box,expected_weight)
+    with factory() as db:
+        item=db.query(models.OutboundItem).one()
+        assert (item.box_qty,item.weight)==(box_qty,Decimal(weight))
+        assert main._lot_available(db,'00001',1)==(expected_box,expected_weight)
+    canceled=client.post(f'{URL}/{sale_id}/cancel',json={'reason':'재고복원 회귀검증'})
+    assert canceled.status_code==200,canceled.text
+    restored=client.get(endpoint).json()[0]
+    assert (restored['available_box_qty'],Decimal(str(restored['available_weight'])))==(100,Decimal('2064.00'))
+    with factory() as db:
+        assert db.query(models.OutboundItem).count()==0
+        assert db.get(models.Sale,sale_id).document_status=='CANCELLED'
+        assert main._lot_available(db,'00001',1)==(100,Decimal('2064.00'))
+        assert db.query(models.AccountTransaction).filter(
+            models.AccountTransaction.transaction_type=='SALES_RECEIVABLE').count()==0
+        actions=[x.action for x in db.query(AuditEvent).filter(
+            AuditEvent.entity_type=='SALE',AuditEvent.entity_id==str(sale_id)
+        ).order_by(AuditEvent.audit_event_id)]
+        assert actions[-1]=='CANCEL'
+
+
+def test_projection_math_keeps_box_and_kg_independent():
+    from sales_inventory import project_lot_stock
+    assert project_lot_stock(100,Decimal('2064.00'),1,Decimal('20.00'))==(99,Decimal('2044.00'))
+    assert (Decimal('2044.00')/Decimal(99)).quantize(Decimal('0.01'))==Decimal('20.65')
+    assert project_lot_stock(100,Decimal('2064.00'),0,Decimal('15.00'))==(100,Decimal('2049.00'))
+    assert (Decimal('2049.00')/Decimal(100)).quantize(Decimal('0.01'))==Decimal('20.49')
+
+
+def test_box_only_outbound_is_valid_but_zero_movement_is_rejected(api):
+    client,factory=api
+    assert client.post(URL,json=payload(0,'0.00')).status_code==400
+    response=client.post(URL,json=payload(1,'0.00'))
+    assert response.status_code==201,response.text
+    with factory() as db:
+        assert main._lot_available(db,'00001',1)==(9,Decimal('100.00'))
+        item=db.query(models.OutboundItem).one()
+        assert (item.box_qty,item.weight)==(1,Decimal('0.00'))
 def test_sale_blocks_box_and_weight_overissue(api):
     client,_=api; assert client.post(URL,json=payload(11,'20.00')).status_code==409; assert client.post(URL,json=payload(2,'100.01')).status_code==409
 def test_negative_inventory_exception_reason_allows_box_kg_and_audit(api):
@@ -54,6 +135,43 @@ def test_partial_multiple_lot_outbound_and_cancel_recovery(api):
     client,factory=api; key=client.post(URL,json=payload()).json()['sale_id']; assert client.post(URL,json=payload(3,'30.00')).status_code==201
     assert client.post(f'{URL}/{key}/cancel',json={'reason':'정정'}).status_code==200
     with factory() as db: assert db.query(models.Outbound).count()==1 and db.query(models.AccountTransaction).count()==1 and main._lot_available(db,'00001',1)==(7,Decimal('70.00'))
+
+
+def test_cancel_sale_restores_all_derived_data_and_hides_daily_list_but_keeps_audit(api):
+    client,factory=api
+    created=client.post(URL,json=payload(2,'20.00'))
+    assert created.status_code==201,created.text
+    sale_id=created.json()['sale_id']
+    assert len(client.get(URL).json())==1
+    canceled=client.post(f'{URL}/{sale_id}/cancel',json={'reason':'거래처 요청 취소'})
+    assert canceled.status_code==200,canceled.text
+    assert canceled.json()['document_status']=='CANCELLED'
+    with factory() as db:
+        sale=db.get(models.Sale,sale_id)
+        assert sale.document_status=='CANCELLED'
+        assert db.query(models.Outbound).count()==0
+        assert db.query(models.OutboundItem).count()==0
+        assert db.query(models.AccountTransaction).filter(
+            models.AccountTransaction.transaction_type=='SALES_RECEIVABLE').count()==0
+        assert main._lot_available(db,'00001',1)==(10,Decimal('100.00'))
+        cancel_event=db.query(AuditEvent).filter(
+            AuditEvent.entity_type=='SALE',AuditEvent.entity_id==str(sale_id),
+            AuditEvent.action=='CANCEL').one()
+        before=json.loads(cancel_event.before_json)
+        after=json.loads(cancel_event.after_json)
+        assert len(before['related_transactions']['outbounds'])==1
+        assert len(before['related_transactions']['outbound_items'])==1
+        assert len(before['related_transactions']['receivables'])==1
+        assert after['document_status']=='CANCELLED'
+        assert after['related_transactions']=={'outbounds':[],'outbound_items':[],'receivables':[]}
+        assert cancel_event.reason=='거래처 요청 취소'
+    summary=client.get('/api/v1/companies/00001/sales-receivable-summary',
+                       params={'account_id':1,'transaction_date':'2026-10-02'}).json()
+    assert summary['today_sales']==0 and summary['current_receivable']==0
+    assert client.get(URL).json()==[]
+    history=client.get(f'{URL}/{sale_id}/history')
+    assert history.status_code==200
+    assert [event['action'] for event in history.json()]==['CREATE','CONFIRM','CANCEL']
 def test_sale_outbound_blocks_purchase_rematerialization(api):
     client,factory=api; client.post(URL,json=payload())
     with factory() as db:

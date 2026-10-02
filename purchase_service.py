@@ -14,7 +14,7 @@ def calculate_purchase_line(weight, unit_price, tax_rate, discount_amount=0) -> 
     price_value = Decimal(str(unit_price))
     rate_value = Decimal(str(tax_rate))
     discount_value = Decimal(str(discount_amount))
-    if weight_value <= 0 or price_value < 0 or rate_value < 0:
+    if weight_value < 0 or price_value < 0 or rate_value < 0:
         raise HTTPException(status_code=400, detail="중량·단가·세율을 확인하세요.")
     if weight_value != Decimal(str(weight)):
         raise HTTPException(status_code=400, detail="중량은 소수점 둘째 자리까지만 입력할 수 있습니다.")

@@ -1,7 +1,7 @@
 # MXMN CURRENT STATUS
 
-**Version:** 1.26\
-**Status date:** 2026-09-18\
+**Version:** 1.27\
+**Status date:** 2026-10-02\
 **Project:** MXMN\
 **Purpose:** 현재 실제 구현·검증 상태와 다음 작업을 짧게 유지하는 운영
 문서
@@ -1212,3 +1212,40 @@ Scale은 호환성을 위해 변경하지 않고 Application Rule로 정수값�
     자동 테스트 5건을 통과했다. 전체 Python compile 및 diff 검사도 통과했다.
 -   실제 SQL Server Migration과 Windows 화면·관리자/일반사용자 교차 검증은
     사용자 개발환경에서 최종 확인한다.
+
+
+------------------------------------------------------------------------
+
+## 33. 일반매출·출고 최종 마감 (2026-10-02)
+
+### 33.1 완료 기능 및 업무규칙
+
+- 매출 저장 즉시 `CONFIRMED` 되며 `Sale / SaleItem → Outbound / OutboundItem → LOT 재고차감 → SALES_RECEIVABLE → Audit`를 원자적으로 생성한다. 별도 확정 단계는 없다.
+- LOT 가용 BOX/KG는 `InboundItem 합계 - OutboundItem 합계`로 계산한다. LOT Master에 현재고 숫자를 따로 저장하지 않는다. 부분출고와 같은 LOT 여러 행을 합산한 예상재고를 지원한다.
+- 마이너스 BOX/KG 재고도 허용한다. 음수 예상 시 표시하고 `inventory_exception_reason`을 필수로 받는다.
+- LOT `individual_cost`, 판매단가, 매출금액, 매출원가, 매출이익, 이익률을 보여준다. 손실판매도 허용하며 화면에서 구분한다.
+- 매출처 Master의 전화번호, FAX, `tax_email`을 표시한다.
+- 미수 Summary, 확정전표 조회·수정·취소, 취소사유 Audit 기록을 지원한다. 확정전표 수정/취소에서는 파생 Outbound와 미수 거래를 원자적으로 회수하고 재구성하거나 복원한다.
+- Purchase Guard는 실제 OutboundItem이 사용한 LOT의 원매입 수정·취소를 차단한다. Audit History는 기존 구조를 유지한다.
+
+### 33.2 중앙 DB 업무 검증
+
+`MXMN-SERVER\SQLEXPRESS / mxmn_dev`에서 실제 신규·수정·취소를 검증했다. 전표 `SA-20261002-0001`은 신규 매출 60,000원, 수정 후 매출 56,000원/원가 48,000원/이익 8,000원/이익률 14.29%를 확인했다. 이후 취소하여 LOT 재고를 100 BOX / 21.55 KG로, 미수를 0원으로 복원했다.
+
+### 33.3 기술 점검사항
+
+읽기 전용 Schema 점검에서 다음 `created_at` 차이를 확인했다. DB는 `NOT NULL`이나 SQLAlchemy Model은 NULL 허용이다. 이번 실제 업무 흐름은 정상 동작했으며 이번 마감에서 DB/Model은 변경하지 않았다.
+
+- `tb_outbound.created_at`
+- `tb_account_transaction.created_at`
+- `tb_lot.created_at`
+
+정합성 점검이 필요한 기술부채로 추적한다.
+
+### 33.4 다음 Vertical Slice: 입금·출금 관리
+
+- 매입은 `PURCHASE_PAYABLE`, 매출은 `SALES_RECEIVABLE`, 실제 자금 이동은 각각 `PAYMENT`, `RECEIPT`로 관리한다.
+- 실물 이동과 자금 이동의 발생시점은 독립적이다. 특정 매입과 PAYMENT, 특정 매출과 RECEIPT를 무조건 1:1로 연결하지 않는다.
+- 선입금·선지급·후수금·후지급을 허용하고 거래처 기준 원장에서 누적·상계하며 잔액을 관리한다.
+- 향후 Summary는 매입 `전미지급금 + 현매입액 - 당일출금액 = 현미지급금`, 매출 `전미수금 + 현매출액 - 당일수금액 = 현미수금`으로 실제 PAYMENT/RECEIPT 거래와 연결한다.
+- 이번 일반매출 마감에는 입금·출금 기능을 포함하지 않는다. 상세 순서와 원칙은 `docs/10_DEVELOPMENT_ROADMAP.md`를 따른다.

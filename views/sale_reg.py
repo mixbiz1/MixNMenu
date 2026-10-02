@@ -4,16 +4,79 @@ from decimal import Decimal, ROUND_CEILING
 import api_client as httpx
 from api_config import API_BASE_URL
 from app_context import app_context
-from PySide6.QtCore import QDate, Qt
+from sales_inventory import project_lot_stock
+from PySide6.QtCore import QDate, QEvent, Qt
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QDateEdit, QDialog, QFormLayout,
-    QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
-    QMessageBox, QPushButton, QTableWidget, QTableWidgetItem, QTextEdit,
-    QVBoxLayout, QWidget)
+    QDialogButtonBox, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QMessageBox, QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem,
+    QTextEdit, QVBoxLayout, QWidget)
 from views.purchase_reg import LookupDialog, PurchaseRegWindow, _number, _won
 
-COLUMNS = ['LOT *', '상품', '창고', '가용 BOX', '가용 KG', '출고 BOX *',
-           '출고 중량(KG) *', '개별원가', '판매단가 *', '매출금액', '매출이익', '이익률(%)', '출고 후 BOX', '출고 후 KG', '메모']
+COLUMNS = ['LOT *', '상품명', '창고', '출고 BOX *', '출고 KG *', '개별원가',
+           '판매단가 *', '매출금액', '매출이익', '이익률(%)', '메모']
+LOT, PRODUCT, WAREHOUSE, BOX, KG, COST, PRICE, AMOUNT, PROFIT, MARGIN, MEMO = range(len(COLUMNS))
+
+
+class CancelReasonDialog(QDialog):
+    """전표 취소사유를 여러 줄로 입력받는 대화상자."""
+
+    MAX_LENGTH = 1000
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('전표 취소 사유')
+        self.resize(560, 280)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel('취소 사유를 입력하세요. (최대 1,000자)'))
+        self.editor = QPlainTextEdit()
+        self.editor.setPlaceholderText('취소 사유를 입력하세요.')
+        self.editor.setMinimumHeight(140)
+        layout.addWidget(self.editor)
+        self.editor.installEventFilter(self)
+        self.character_count = QLabel('0 / 1000')
+        self.character_count.setAlignment(Qt.AlignRight)
+        layout.addWidget(self.character_count)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText('확인')
+        buttons.button(QDialogButtonBox.Cancel).setText('취소')
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.editor.textChanged.connect(self._update_character_count)
+
+    def eventFilter(self, watched, event):
+        if (watched is self.editor and event.type() == QEvent.KeyPress
+                and event.key() in (Qt.Key_Return, Qt.Key_Enter)
+                and event.modifiers() & Qt.ControlModifier):
+            self.accept()
+            return True
+        return super().eventFilter(watched, event)
+
+    def _update_character_count(self):
+        text = self.editor.toPlainText()
+        if len(text) > self.MAX_LENGTH:
+            cursor = self.editor.textCursor()
+            position = min(cursor.position(), self.MAX_LENGTH)
+            self.editor.blockSignals(True)
+            self.editor.setPlainText(text[:self.MAX_LENGTH])
+            cursor = self.editor.textCursor()
+            cursor.setPosition(position)
+            self.editor.setTextCursor(cursor)
+            self.editor.blockSignals(False)
+            text = text[:self.MAX_LENGTH]
+        self.character_count.setText(f'{len(text)} / {self.MAX_LENGTH}')
+
+    @property
+    def reason(self):
+        return self.editor.toPlainText().strip()
+
+    def accept(self):
+        if not self.reason:
+            QMessageBox.warning(self, '취소 사유', '취소 사유를 입력하세요.')
+            self.editor.setFocus()
+            return
+        super().accept()
 
 
 class SaleRegWindow(QWidget):
@@ -72,10 +135,9 @@ class SaleRegWindow(QWidget):
         buttons.addStretch(); root.addLayout(buttons)
         self.table = QTableWidget(0, len(COLUMNS)); self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems); self.table.setAlternatingRowColors(True)
-        for col, width in enumerate((170, 220, 135, 75, 90, 75, 110, 85, 85, 100, 100, 80, 95, 95, 120)):
+        for col, width in enumerate((150, 280, 100, 80, 110, 180, 160, 100, 100, 70, 120)):
             self.table.setColumnWidth(col, width)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(14, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(PRODUCT, QHeaderView.Stretch)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         root.addWidget(self.table, 1)
         totals = QHBoxLayout(); totals.addStretch(); self.total_label = QLabel()
@@ -168,41 +230,58 @@ class SaleRegWindow(QWidget):
         dialog = LookupDialog(self, 'LOT 조회', editor.text(), [('LOT', 'lot_code'), ('상품', 'product_name'),
                               ('창고', 'warehouse_name'), ('가용 BOX', 'box_display'), ('가용 KG', 'kg_display'), ('개별원가', 'individual_cost')], fetch)
         if dialog.exec() == QDialog.Accepted and dialog.selected:
-            self.select_lot(row, dialog.selected); self._focus_cell(row, 5)
+            self.select_lot(row, dialog.selected); self._focus_cell(row, BOX)
 
     def _editor_row(self, editor):
-        return next((r for r in range(self.table.rowCount()) if self.table.cellWidget(r, 0) is editor), -1)
+        return next((r for r in range(0, self.table.rowCount(), 2) if self.table.cellWidget(r, LOT) is editor), -1)
 
     def select_lot(self, row, lot):
-        editor = self.table.cellWidget(row, 0); editor.setProperty('selected', lot); editor.setText(lot['lot_code'])
+        if self.table.cellWidget(row, LOT) is None:
+            row *= 2
+        editor = self.table.cellWidget(row, LOT); editor.setProperty('selected', lot); editor.setText(lot['lot_code'])
         self.fill_lot(row)
 
     def fill_lot(self, row):
-        lot = self.table.cellWidget(row, 0).property('selected') or {}
-        self.table.item(row, 1).setText(lot.get('product_name', ''))
-        self.table.item(row, 2).setText(lot.get('warehouse_name', ''))
+        lot = self.table.cellWidget(row, LOT).property('selected') or {}
+        self.table.item(row, PRODUCT).setText(lot.get('product_name', ''))
+        self.table.item(row, PRODUCT).setToolTip(lot.get('product_name', ''))
+        self.table.item(row, WAREHOUSE).setText(lot.get('warehouse_name', ''))
         self.recalculate()
 
     def add_row(self, value=None):
         value = value if isinstance(value, dict) else {}
         was_loading = self.loading; self.loading = True
-        row = self.table.rowCount(); self.table.insertRow(row)
+        row = self.table.rowCount(); self.table.insertRow(row); self.table.insertRow(row + 1)
         editor = QLineEdit(); editor.setPlaceholderText('LOT·상품명 입력 후 Enter')
         editor.returnPressed.connect(lambda e=editor: self.lookup_lot(e))
-        editor.textEdited.connect(lambda _, e=editor: self._clear_lot(e)); self.table.setCellWidget(row, 0, editor)
-        for col in (1, 2, 3, 4, 7, 9, 10, 11, 12, 13):
+        editor.textEdited.connect(lambda _, e=editor: self._clear_lot(e)); self.table.setCellWidget(row, LOT, editor)
+        for col in (PRODUCT, WAREHOUSE, COST, AMOUNT, PROFIT, MARGIN):
             item = QTableWidgetItem(''); item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             self.table.setItem(row, col, item)
-        for col, key, default in ((5, 'box_qty', ''), (6, 'weight', '0.00'), (8, 'unit_price', ''), (14, 'memo', '')):
+        for col, key, default in ((BOX, 'box_qty', ''), (KG, 'weight', '0.00'), (PRICE, 'unit_price', ''), (MEMO, 'memo', '')):
             field = QLineEdit(str(value.get(key) or default)); self.table.setCellWidget(row, col, field)
             field.textChanged.connect(self.recalculate)
+        summary = QTableWidgetItem('현재 재고  →  출고 후 예상 잔량')
+        summary.setTextAlignment(Qt.AlignCenter)
+        summary.setFlags(summary.flags() & ~Qt.ItemIsEditable)
+        summary.setBackground(QColor('#eef3f8'))
+        self.table.setItem(row + 1, LOT, summary)
+        self.table.setSpan(row + 1, LOT, 1, 3)
+        for col in range(3, len(COLUMNS)):
+            item = QTableWidgetItem('')
+            item.setTextAlignment(Qt.AlignCenter)
+            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+            item.setBackground(QColor('#eef3f8'))
+            self.table.setItem(row + 1, col, item)
+        self.table.setRowHeight(row, 31); self.table.setRowHeight(row + 1, 27)
         self.line_extras.append({'discount_amount': value.get('discount_amount', 0),
                                  'tax_rate': Decimal('0.10') if value.get('tax_amount', 0) else Decimal(0)})
         if value.get('lot_id'):
             lot = next((x for x in self.lots if x['lot_id'] == value['lot_id']), None)
             if lot is None: raise ValueError('전표 LOT를 조회할 수 없습니다.')
             editor.setProperty('selected', lot); editor.setText(lot['lot_code'])
-            self.table.item(row, 1).setText(lot['product_name']); self.table.item(row, 2).setText(lot['warehouse_name'])
+            self.table.item(row, PRODUCT).setText(lot['product_name']); self.table.item(row, WAREHOUSE).setText(lot['warehouse_name'])
+            self.table.item(row, PRODUCT).setToolTip(lot['product_name'])
         self._wire_enter(editor); self.loading = was_loading; self.recalculate()
 
     def _clear_lot(self, editor):
@@ -212,15 +291,15 @@ class SaleRegWindow(QWidget):
 
     def _wire_enter(self, lot_editor):
         row = self._editor_row(lot_editor)
-        for index, col in enumerate((5, 6, 8, 14)):
+        for index, col in enumerate((BOX, KG, PRICE, MEMO)):
             def advance(i=index, editor=lot_editor):
                 r = self._editor_row(editor)
                 if r < 0: return
                 self._format_row(r)
-                if i < 3: self._focus_cell(r, (5, 6, 8, 14)[i+1])
+                if i < 3: self._focus_cell(r, (BOX, KG, PRICE, MEMO)[i+1])
                 else:
-                    if r == self.table.rowCount()-1: self.add_row()
-                    self._focus_cell(r+1, 0)
+                    if r == self.table.rowCount()-2: self.add_row()
+                    self._focus_cell(r+2, LOT)
             self.table.cellWidget(row, col).returnPressed.connect(advance)
 
     def _focus_cell(self, row, col):
@@ -229,8 +308,8 @@ class SaleRegWindow(QWidget):
 
     def _format_row(self, row):
         try:
-            for col in (5, 8): self.table.cellWidget(row, col).setText(f"{int(self._text(row, col) or 0):,}")
-            self.table.cellWidget(row, 6).setText(f"{Decimal(self._text(row, 6) or 0):,.2f}")
+            for col in (BOX, PRICE): self.table.cellWidget(row, col).setText(f"{int(self._text(row, col) or 0):,}")
+            self.table.cellWidget(row, KG).setText(f"{Decimal(self._text(row, KG) or 0):,.2f}")
         except Exception: pass
 
     def _text(self, row, col):
@@ -238,14 +317,17 @@ class SaleRegWindow(QWidget):
 
     def payload(self):
         items = []
-        for row in range(self.table.rowCount()):
-            lot_editor = self.table.cellWidget(row, 0); lot = lot_editor.property('selected')
-            if not lot and not lot_editor.text().strip() and not any(self._text(row, c) for c in (5, 8, 14)) and Decimal(self._text(row, 6) or 0) == 0: continue
-            if not lot: raise ValueError(f'{row+1}행 LOT를 조회하여 선택하세요.')
-            box = int(self._text(row, 5)); weight = Decimal(self._text(row, 6)); price = int(self._text(row, 8))
-            if box < 0 or not weight.is_finite() or weight <= 0 or weight.as_tuple().exponent < -2 or price < 0:
-                raise ValueError(f'{row+1}행 BOX 정수·KG 소수점 2자리·단가 원 단위를 확인하세요.')
-            items.append({'discount_amount':self.line_extras[row]['discount_amount'], 'memo':self.table.cellWidget(row, 14).text().strip() or None,
+        for row in range(0, self.table.rowCount(), 2):
+            lot_editor = self.table.cellWidget(row, LOT); lot = lot_editor.property('selected')
+            if not lot and not lot_editor.text().strip() and not any(self._text(row, c) for c in (BOX, PRICE, MEMO)) and Decimal(self._text(row, KG) or 0) == 0: continue
+            if not lot: raise ValueError(f'{row//2+1}행 LOT를 조회하여 선택하세요.')
+            box_text = self._text(row, BOX)
+            try: box = int(box_text) if box_text else 0
+            except (TypeError, ValueError): raise ValueError(f'{row//2+1}행 BOX는 0 이상의 정수로 입력하세요.') from None
+            weight = Decimal(self._text(row, KG)); price = int(self._text(row, PRICE))
+            if box < 0 or not weight.is_finite() or weight < 0 or weight.as_tuple().exponent < -2 or (box == 0 and weight == 0) or price < 0:
+                raise ValueError(f'{row//2+1}행 BOX/KG 재고수량·단가를 확인하세요. BOX와 KG는 하나 이상 양수여야 합니다.')
+            items.append({'discount_amount':self.line_extras[row // 2]['discount_amount'], 'memo':self.table.cellWidget(row, MEMO).text().strip() or None,
                           'line_no':len(items)+1, 'product_id':lot['product_id'], 'lot_id':lot['lot_id'],
                           'box_qty':box, 'weight':str(weight), 'unit_price':price})
         if not items or not self.customer: raise ValueError('매출처와 출고 행을 입력하세요.')
@@ -267,11 +349,9 @@ class SaleRegWindow(QWidget):
     def cancel(self):
         if not self.sale_id or not self.btn_cancel.isEnabled(): return
         if QMessageBox.question(self, '전표 취소', '출고·재고·미수 원거래를 함께 회수하고 취소하시겠습니까?') != QMessageBox.Yes: return
-        reason, ok = QInputDialog.getText(self, '전표 취소', '취소 사유를 입력하세요 (최대 1,000자).')
-        if not ok: return
-        reason = reason.strip()
-        if not reason or len(reason) > 1000:
-            QMessageBox.warning(self, '취소 사유', '취소 사유를 1~1,000자로 입력하세요.'); return
+        reason_dialog = CancelReasonDialog(self)
+        if reason_dialog.exec() != QDialog.Accepted: return
+        reason = reason_dialog.reason
         try:
             httpx.post(f'{API_BASE_URL}/companies/{app_context.company_code}/sales/{self.sale_id}/cancel', json={'reason':reason}, timeout=20).raise_for_status()
             self.new_sale(keep_date=True); self.query_sales()
@@ -311,54 +391,72 @@ class SaleRegWindow(QWidget):
         totals = defaultdict(lambda: [0, Decimal(0)]); invalid = False
         boxes = 0; weight = Decimal(0); revenue_total = 0; cost_total = 0; missing_cost = False
         current = {x['lot_id']:x for x in self.lots}
-        for row in range(self.table.rowCount()):
-            selected = self.table.cellWidget(row, 0).property('selected')
+        for row in range(0, self.table.rowCount(), 2):
+            selected = self.table.cellWidget(row, LOT).property('selected')
             lot = current.get(selected['lot_id']) if selected else None
             loss = False
             try:
-                box = int(self._text(row, 5) or 0); kg = Decimal(self._text(row, 6) or 0); price = int(self._text(row, 8) or 0)
+                box = int(self._text(row, BOX) or 0); kg = Decimal(self._text(row, KG) or 0); price = int(self._text(row, PRICE) or 0)
                 if not kg.is_finite(): raise ValueError()
                 revenue = _won(kg * price); boxes += box; weight += kg; revenue_total += revenue
-                self.table.item(row, 9).setText(f'{revenue:,}')
+                self.table.item(row, AMOUNT).setText(f'{revenue:,}')
                 if lot:
                     totals[lot['lot_id']][0] += box; totals[lot['lot_id']][1] += kg
                 raw_cost = lot.get('individual_cost') if lot else None
                 if raw_cost is None:
-                    for col in (7, 10, 11): self.table.item(row, col).setText('미확인' if lot else '')
+                    for col in (COST, PROFIT, MARGIN): self.table.item(row, col).setText('미확인' if lot else '')
                     if lot: missing_cost = True
                 else:
                     cost = _won(raw_cost)
                     revenue, expense, profit, margin = self.profit_values(kg, price, cost)
                     cost_total += expense; loss = profit < 0
-                    for col, text in ((7, f'{cost:,}'), (10, f'{profit:,}'), (11, f'{margin:.2f}%' if margin is not None else '—')):
+                    for col, text in ((COST, f'{cost:,}'), (PROFIT, f'{profit:,}'), (MARGIN, f'{margin:.2f}%' if margin is not None else '—')):
                         self.table.item(row, col).setText(text)
-                    self.table.item(row, 7).setToolTip('LOT Master 개별원가 (원/KG)')
+                    self.table.item(row, COST).setToolTip('LOT Master 개별원가 (원/KG)')
             except Exception:
                 invalid = True
-                for col in (9, 10, 11): self.table.item(row, col).setText('입력 확인')
-            for col in (10, 11):
+                for col in (AMOUNT, PROFIT, MARGIN): self.table.item(row, col).setText('입력 확인')
+            for col in (PROFIT, MARGIN):
                 self.table.item(row, col).setData(Qt.ForegroundRole, QColor('#b71c1c') if loss else None)
                 self.table.item(row, col).setData(Qt.BackgroundRole, QColor('#fff3e0') if loss else None)
                 self.table.item(row, col).setToolTip('손실거래' if loss else '')
         negative = []
-        for row in range(self.table.rowCount()):
-            selected = self.table.cellWidget(row, 0).property('selected')
+        for row in range(0, self.table.rowCount(), 2):
+            selected = self.table.cellWidget(row, LOT).property('selected')
             lot = current.get(selected['lot_id']) if selected else None
             is_negative = False
             if lot:
-                box = lot['available_box_qty']; kg = Decimal(str(lot['available_weight'])); issued = totals[lot['lot_id']]
-                after_box = box + lot['editing_box_qty'] - issued[0]
-                after_kg = kg + Decimal(str(lot['editing_weight'])) - issued[1]
-                for col, text in ((3, f'{box:,}'), (4, f'{kg:,.2f}'), (12, f'{after_box:,}'), (13, f'{after_kg:,.2f}')):
-                    self.table.item(row, col).setText(text)
+                available_box = int(lot['available_box_qty'])
+                available_kg = Decimal(str(lot['available_weight']))
+                issued = totals[lot['lot_id']]
+                after_box, after_kg = project_lot_stock(
+                    available_box, available_kg, issued[0], issued[1],
+                    lot.get('editing_box_qty', 0), lot.get('editing_weight', 0))
+                current_avg = (available_kg / available_box) if available_box else None
+                after_avg = (after_kg / after_box) if after_box else None
+                bottom = row + 1
+                for col, text in (
+                    (BOX, f'{available_box:,} → {after_box:,} BOX'),
+                    (KG, f'{available_kg:,.2f} → {after_kg:,.2f} KG'),
+                    (COST, f'평균 {current_avg:.2f} → {after_avg:.2f} KG/BOX' if current_avg is not None and after_avg is not None else f'평균 {current_avg:.2f} → — KG/BOX' if current_avg is not None else '평균 — → — KG/BOX'),
+                    (PRICE, f'LOT 개별원가 {int(lot["individual_cost"]):,}원/KG' if lot.get('individual_cost') is not None else 'LOT 개별원가 미확인')):
+                    self.table.item(bottom, col).setText(text)
+                for col in (AMOUNT, PROFIT, MARGIN, MEMO): self.table.item(bottom, col).setText('')
                 is_negative = after_box < 0 or after_kg < 0
                 if is_negative: negative.append(lot['lot_code'])
             else:
-                for col in (3, 4, 12, 13): self.table.item(row, col).setText('')
-            for col in (1, 2, 3, 4, 12, 13):
+                for col in range(BOX, len(COLUMNS)): self.table.item(row + 1, col).setText('')
+                for col in (PRODUCT, WAREHOUSE): self.table.item(row, col).setText('')
+            for col in (PRODUCT, WAREHOUSE, COST, AMOUNT, PROFIT, MARGIN):
                 item = self.table.item(row, col)
                 item.setData(Qt.BackgroundRole, QColor('#ffebee') if is_negative else None)
-                item.setData(Qt.ForegroundRole, QColor('#b71c1c') if is_negative and col in (12, 13) else None)
+            for col in (BOX, KG):
+                self.table.cellWidget(row, col).setStyleSheet(
+                    'background:#ffebee;color:#b71c1c;' if is_negative else '')
+            for col in (BOX, KG, COST, PRICE):
+                item = self.table.item(row + 1, col)
+                item.setBackground(QColor('#ffebee') if is_negative else QColor('#eef3f8'))
+                item.setForeground(QColor('#b71c1c') if is_negative else QColor('#202124'))
         cost_text = '미확인' if missing_cost else f'{cost_total:,}'
         profit_text = '미확인' if missing_cost else f'{revenue_total-cost_total:,}'
         self.total_label.setText(f'합계  BOX {boxes:,} / 중량 {weight:,.2f} KG / 매출액 {revenue_total:,} / 매출원가 {cost_text} / 매출이익 {profit_text}')
@@ -368,7 +466,7 @@ class SaleRegWindow(QWidget):
         self.warning.setText(message); self.warning.setVisible(bool(message))
         self.exception_panel.setVisible(bool(negative) or bool(self.reason.text().strip()))
         self.reason.setEnabled(bool(negative) or bool(self.reason.text().strip()))
-        self.table.setToolTip('수정 예상재고 = 현재 가용 + 기존 전표 출고 − 동일 LOT 입력량 합계' if self.sale_id else '예상재고 = 현재 가용 − 동일 LOT 입력량 합계')
+        self.table.setToolTip('예상잔량 = 현재 가용 + 수정 전표의 기존 출고 − 현재 입력된 동일 LOT 출고량 합계. BOX와 KG는 각각 독립 계산됩니다.')
         return bool(negative)
 
     def load_all(self):
@@ -380,7 +478,8 @@ class SaleRegWindow(QWidget):
 
     def refresh_today(self):
         day = self.date.date().toString('yyyy-MM-dd')
-        rows = [x for x in self.saved if str(x['sale_date']) == day and x['document_status'] != 'CANCELLED']
+        rows = [x for x in self.saved if str(x['sale_date']) == day
+                and str(x.get('document_status') or '').strip().upper() != 'CANCELLED']
         self.today_table.blockSignals(True)
         try:
             self.today_table.setRowCount(0)
@@ -430,9 +529,12 @@ class SaleRegWindow(QWidget):
         self.today_table.clearSelection(); self.refresh_today(); self.recalculate(); self.refresh_summary(); self.customer_edit.setFocus()
 
     def remove_row(self):
-        rows = {x.row() for x in self.table.selectedIndexes()}
-        if not rows and self.table.currentRow() >= 0: rows.add(self.table.currentRow())
-        for row in sorted(rows, reverse=True): self.table.removeRow(row); self.line_extras.pop(row)
+        rows = {x.row() // 2 for x in self.table.selectedIndexes()}
+        if not rows and self.table.currentRow() >= 0: rows.add(self.table.currentRow() // 2)
+        for logical_row in sorted(rows, reverse=True):
+            row = logical_row * 2
+            self.table.removeRow(row + 1); self.table.removeRow(row)
+            self.line_extras.pop(logical_row)
         if not self.table.rowCount(): self.add_row()
         self.recalculate()
 
