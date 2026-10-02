@@ -2961,6 +2961,13 @@ def _guard_purchase_dematerialization(db: Session, row, transaction_no: Optional
                 status_code=409,
                 detail="후속 입고·출고 등 LOT 연결자료가 있는 매입은 수정 또는 취소할 수 없습니다.",
             )
+        if db.query(models.OutboundItem.outbound_item_id).filter(
+            models.OutboundItem.lot_id.in_(lot_ids)
+        ).first():
+            raise HTTPException(
+                status_code=409,
+                detail="실제 출고된 LOT가 있는 매입은 수정 또는 취소할 수 없습니다.",
+            )
 
     payable_ids = [value[0] for value in db.query(models.AccountTransaction.account_transaction_id).filter(
         models.AccountTransaction.comp_code == row.comp_code,
@@ -3283,6 +3290,154 @@ def get_purchase_payable_summary(comp_code: str, account_id: int, transaction_da
     return {"previous_payable": int(previous),
             "today_payment": int(sum((Decimal(row.original_amount) for row in today_payment), Decimal(0)))}
 
+
+# =============================================================================
+# General sales / outbound Vertical Slice
+# =============================================================================
+class SaleItemInput(BaseModel):
+    line_no: int = Field(ge=1); product_id: int; lot_id: int; box_qty: int = Field(ge=0)
+    weight: Decimal = Field(gt=0, decimal_places=2); unit_price: int = Field(ge=0)
+    supply_amount: Optional[int] = Field(default=None, ge=0); tax_amount: Optional[int] = Field(default=None, ge=0)
+    discount_amount: int = 0; total_amount: Optional[int] = Field(default=None, ge=0); memo: Optional[str] = Field(default=None, max_length=500)
+
+class SaleInput(BaseModel):
+    sale_date: date; account_id: int; memo: Optional[str] = Field(default=None, max_length=1000)
+    inventory_exception_reason: Optional[str] = Field(default=None, max_length=1000)
+    audit_reason: Optional[str] = Field(default=None, max_length=1000); items: list[SaleItemInput] = Field(min_length=1)
+
+class SaleCancelInput(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+def _sale_customer(db, comp_code, account_id):
+    row = (db.query(models.CompanyAccount, models.Account).join(models.Account)
+           .filter(models.CompanyAccount.comp_code == comp_code, models.CompanyAccount.account_id == account_id,
+                   models.CompanyAccount.use_yn == True, models.CompanyAccount.trade_stop_yn == False,
+                   models.CompanyAccount.sales_yn == True, models.Account.use_yn == True).first())
+    if not row: raise HTTPException(status_code=400, detail="현재 회사에서 사용 중인 매출거래처만 선택할 수 있습니다.")
+    return row
+
+def _lot_available(db, comp_code, lot_id):
+    inbound = db.query(models.InboundItem).join(models.Inbound).filter(models.Inbound.comp_code == comp_code, models.InboundItem.lot_id == lot_id).all()
+    outbound = db.query(models.OutboundItem).join(models.Outbound).filter(models.Outbound.comp_code == comp_code, models.OutboundItem.lot_id == lot_id).all()
+    return sum((int(x.box_qty) for x in inbound), 0) - sum((int(x.box_qty) for x in outbound), 0), sum((Decimal(x.weight) for x in inbound), Decimal(0)) - sum((Decimal(x.weight) for x in outbound), Decimal(0))
+
+def _prepare_sale_lines(db, comp_code, sale_date, items, inventory_exception_reason=None):
+    if len({x.line_no for x in items}) != len(items): raise HTTPException(status_code=400, detail="전표 내 Detail 순번은 중복될 수 없습니다.")
+    prepared=[]
+    for item in items:
+        lot = db.query(models.Lot).filter(models.Lot.lot_id == item.lot_id, models.Lot.comp_code == comp_code, models.Lot.use_yn == True).first()
+        if not lot: raise HTTPException(status_code=400, detail=f"{item.line_no}행 LOT는 현재 회사에서 사용 중인 LOT가 아닙니다.")
+        if lot.product_id != item.product_id: raise HTTPException(status_code=400, detail=f"{item.line_no}행 상품과 LOT의 상품이 일치하지 않습니다.")
+        product=db.query(models.Product).filter(models.Product.product_id==item.product_id,models.Product.use_yn==True).first()
+        if not product: raise HTTPException(status_code=400, detail=f"{item.line_no}행 상품은 사용 중인 상품이 아닙니다.")
+        box=validate_box_qty(item.box_qty); weight=Decimal(item.weight)
+        tax_code="VAT10" if str(product.tax_type) in {"1","VAT10"} else "EXEMPT"; tax=db.query(models.TaxCode).filter(models.TaxCode.tax_code==tax_code).first()
+        if not tax: raise HTTPException(status_code=400, detail=f"{item.line_no}행 세금코드가 없습니다.")
+        snapshot=tax_snapshot(tax,sale_date); calculated=calculate_purchase_line(weight,item.unit_price,snapshot["tax_rate_snapshot"],item.discount_amount)
+        validate_client_amounts(calculated,item.model_dump())
+        prepared.append({"line_no":item.line_no,"product_id":item.product_id,"lot_id":lot.lot_id,"box_qty":box,"weight":weight,"unit_price":item.unit_price,**snapshot,**calculated,"memo":item.memo})
+    negative_lots=[]
+    for lot_id in {x["lot_id"] for x in prepared}:
+        available_box,available_weight=_lot_available(db,comp_code,lot_id)
+        issued_box=sum(x["box_qty"] for x in prepared if x["lot_id"]==lot_id)
+        issued_weight=sum((x["weight"] for x in prepared if x["lot_id"]==lot_id),Decimal(0))
+        if issued_box>available_box or issued_weight>available_weight: negative_lots.append(lot_id)
+    reason=(inventory_exception_reason or "").strip()
+    if negative_lots and not reason: raise HTTPException(status_code=409,detail="마이너스 재고 출고는 예외사유/비고를 입력해야 저장할 수 있습니다.")
+    return prepared, bool(negative_lots), reason or None
+
+def _sale_result(row):
+    return {"sale_id":row.sale_id,"sale_no":row.sale_no,"sale_date":row.sale_date,"account_id":row.account_id,"account_code":row.account.account_code if row.account else None,"account_name":row.account.account_name if row.account else None,"document_status":row.document_status,"total_box_qty":row.total_box_qty,"total_weight":row.total_weight,"total_supply_amount":row.total_supply_amount,"total_tax_amount":row.total_tax_amount,"total_discount_amount":row.total_discount_amount,"total_amount":row.total_amount,"memo":row.memo,"inventory_exception_yn":row.inventory_exception_yn,"inventory_exception_reason":row.inventory_exception_reason,"items":[{"sale_item_id":x.sale_item_id,"line_no":x.line_no,"product_id":x.product_id,"product_code":x.product.product_code if x.product else None,"product_name":x.product.product_name if x.product else None,"lot_id":x.lot_id,"lot_code":x.lot.lot_code if x.lot else None,"warehouse_id":x.lot.warehouse_id if x.lot else None,"box_qty":x.box_qty,"weight":x.weight,"unit_price":x.unit_price,"supply_amount":x.supply_amount,"tax_amount":x.tax_amount,"discount_amount":x.discount_amount,"total_amount":x.total_amount,"memo":x.memo} for x in sorted(row.items,key=lambda v:v.line_no)]}
+
+def _sale_snapshot(db,row):
+    db.flush(); db.refresh(row); db.expire(row,["items","account"]); result=_sale_result(row); ids=[x.sale_item_id for x in row.items]
+    def columns(value): return {c.key:getattr(value,c.key) for c in value.__table__.columns}
+    outbound_items=db.query(models.OutboundItem).filter(models.OutboundItem.sale_item_id.in_(ids)).all() if ids else []
+    outbound_ids={x.outbound_id for x in outbound_items}
+    result["related_transactions"]={"outbounds":[columns(db.get(models.Outbound,x)) for x in sorted(outbound_ids)],"outbound_items":[columns(x) for x in outbound_items],"receivables":[columns(x) for x in db.query(models.AccountTransaction).filter(models.AccountTransaction.comp_code==row.comp_code,models.AccountTransaction.transaction_no==row.sale_no,models.AccountTransaction.transaction_type=="SALES_RECEIVABLE").all()]}
+    return result
+
+def _sale_or_404(db,comp_code,sale_id):
+    row=db.query(models.Sale).filter(models.Sale.sale_id==sale_id,models.Sale.comp_code==comp_code).first()
+    if not row: raise HTTPException(status_code=404,detail="일반 매출전표가 없습니다.")
+    return row
+
+def _materialize_sale(db,row):
+    by_warehouse={}
+    for item in sorted(row.items,key=lambda v:v.line_no):
+        warehouse_id=item.lot.warehouse_id
+        outbound=by_warehouse.get(warehouse_id)
+        if not outbound:
+            outbound=models.Outbound(comp_code=row.comp_code,outbound_no=allocate_document_no(db,row.comp_code,"SALES_OUTBOUND",row.sale_date),outbound_date=row.sale_date,warehouse_id=warehouse_id,transaction_type="SALES_OUTBOUND",memo=f"일반매출 {row.sale_no}")
+            db.add(outbound); db.flush(); by_warehouse[warehouse_id]=outbound
+        db.add(models.OutboundItem(outbound_id=outbound.outbound_id,sale_item_id=item.sale_item_id,line_no=item.line_no,product_id=item.product_id,lot_id=item.lot_id,box_qty=item.box_qty,weight=item.weight,amount=item.supply_amount))
+    db.add(models.AccountTransaction(comp_code=row.comp_code,transaction_no=row.sale_no,transaction_date=row.sale_date,account_id=row.account_id,transaction_type="SALES_RECEIVABLE",original_amount=row.total_amount,memo=f"일반매출 {row.sale_no}"))
+
+def _guard_sale_dematerialization(db,row,transaction_no=None):
+    payable_ids=[x[0] for x in db.query(models.AccountTransaction.account_transaction_id).filter(models.AccountTransaction.comp_code==row.comp_code,models.AccountTransaction.transaction_no==(transaction_no or row.sale_no),models.AccountTransaction.transaction_type=="SALES_RECEIVABLE").all()]
+    if payable_ids and db.query(models.AccountTransactionAllocation).filter(or_(models.AccountTransactionAllocation.source_transaction_id.in_(payable_ids),models.AccountTransactionAllocation.settlement_transaction_id.in_(payable_ids))).first(): raise HTTPException(status_code=409,detail="수금이 배분된 미수금 원거래가 있는 매출은 수정 또는 취소할 수 없습니다.")
+
+def _dematerialize_sale(db,row,transaction_no=None):
+    _guard_sale_dematerialization(db,row,transaction_no); ids=[x.sale_item_id for x in row.items]
+    outbound_ids=[x[0] for x in db.query(models.OutboundItem.outbound_id).filter(models.OutboundItem.sale_item_id.in_(ids)).all()] if ids else []
+    if outbound_ids: db.query(models.OutboundItem).filter(models.OutboundItem.outbound_id.in_(outbound_ids)).delete(synchronize_session=False); db.query(models.Outbound).filter(models.Outbound.outbound_id.in_(outbound_ids)).delete(synchronize_session=False)
+    db.query(models.AccountTransaction).filter(models.AccountTransaction.comp_code==row.comp_code,models.AccountTransaction.transaction_no==(transaction_no or row.sale_no),models.AccountTransaction.transaction_type=="SALES_RECEIVABLE").delete(synchronize_session=False)
+
+@app.post("/api/v1/companies/{comp_code}/sales",status_code=status.HTTP_201_CREATED)
+def create_sale(comp_code:str,data:SaleInput,request:Request,db:Session=Depends(get_db)):
+    _get_company_or_404(comp_code,db); _sale_customer(db,comp_code,data.account_id); ensure_period_open(db,comp_code,data.sale_date); prepared,negative,reason=_prepare_sale_lines(db,comp_code,data.sale_date,data.items,data.inventory_exception_reason); totals=summarize_purchase(prepared)
+    row=models.Sale(comp_code=comp_code,sale_no=allocate_document_no(db,comp_code,"SALE",data.sale_date),sale_date=data.sale_date,account_id=data.account_id,memo=data.memo,inventory_exception_yn=negative,inventory_exception_reason=reason,document_status="DRAFT",created_by=request.state.user_id,updated_by=request.state.user_id,**totals); row.items=[models.SaleItem(**x) for x in prepared]; db.add(row)
+    try:
+        db.flush(); created=_sale_snapshot(db,row); record_audit_event(db,comp_code=comp_code,user_id=request.state.user_id,menu_code="SALES_GENERAL",action="CREATE",entity_type="SALE",entity_id=row.sale_id,source=f"{request.method} {request.url.path}",after=created,reason=data.audit_reason); _materialize_sale(db,row); apply_status_transition(row,"CONFIRMED",request.state.user_id); db.flush(); after=_sale_snapshot(db,row); record_audit_event(db,comp_code=comp_code,user_id=request.state.user_id,menu_code="SALES_GENERAL",action="CONFIRM",entity_type="SALE",entity_id=row.sale_id,source=f"{request.method} {request.url.path}",before=created,after=after,reason=data.audit_reason); db.commit()
+    except HTTPException: db.rollback(); raise
+    except IntegrityError: db.rollback(); raise HTTPException(status_code=409,detail="매출전표·출고·미수금 원거래 연결을 확인하세요.")
+    db.refresh(row); return _sale_result(row)
+
+@app.get("/api/v1/companies/{comp_code}/sales")
+def get_sales(comp_code:str,db:Session=Depends(get_db)):
+    _get_company_or_404(comp_code,db); return [_sale_result(x) for x in db.query(models.Sale).filter(models.Sale.comp_code==comp_code).order_by(models.Sale.sale_date.desc(),models.Sale.sale_id.desc()).all()]
+
+@app.get("/api/v1/companies/{comp_code}/sales/{sale_id}/history")
+def get_sale_history(comp_code:str,sale_id:int,db:Session=Depends(get_db)):
+    _get_company_or_404(comp_code,db); return [{c.key:getattr(x,c.key) for c in AuditEvent.__table__.columns} for x in db.query(AuditEvent).filter(AuditEvent.comp_code==comp_code,AuditEvent.entity_type=="SALE",AuditEvent.entity_id==str(sale_id)).order_by(AuditEvent.audit_event_id).all()]
+
+@app.get("/api/v1/companies/{comp_code}/sales-receivable-summary")
+def get_sales_receivable_summary(comp_code:str,account_id:int,transaction_date:date,db:Session=Depends(get_db)):
+    _get_company_or_404(comp_code,db); _sale_customer(db,comp_code,account_id)
+    rows=db.query(models.AccountTransaction).filter(models.AccountTransaction.comp_code==comp_code,models.AccountTransaction.account_id==account_id).all()
+    def amount(row): return Decimal(row.original_amount) if row.transaction_type in {"OPENING_RECEIVABLE","SALES_RECEIVABLE"} else -Decimal(row.original_amount) if row.transaction_type=="RECEIPT" else Decimal(0)
+    previous=sum((amount(x) for x in rows if x.transaction_date < transaction_date),Decimal(0))
+    today_sales=sum((Decimal(x.original_amount) for x in rows if x.transaction_date==transaction_date and x.transaction_type=="SALES_RECEIVABLE"),Decimal(0))
+    today_receipt=sum((Decimal(x.original_amount) for x in rows if x.transaction_date==transaction_date and x.transaction_type=="RECEIPT"),Decimal(0))
+    return {"previous_receivable":int(previous),"today_sales":int(today_sales),"today_receipt":int(today_receipt),"current_receivable":int(previous+today_sales-today_receipt)}
+
+@app.put("/api/v1/companies/{comp_code}/sales/{sale_id}")
+def update_sale(comp_code:str,sale_id:int,data:SaleInput,request:Request,db:Session=Depends(get_db)):
+    row=_sale_or_404(db,comp_code,sale_id)
+    if row.document_status=="CANCELLED": raise HTTPException(status_code=400,detail="취소된 일반매출전표는 수정할 수 없습니다.")
+    ensure_period_open(db,comp_code,row.sale_date); ensure_period_open(db,comp_code,data.sale_date); _sale_customer(db,comp_code,data.account_id); before=_sale_snapshot(db,row); old_no=row.sale_no
+    try:
+        _dematerialize_sale(db,row,old_no); prepared,negative,reason=_prepare_sale_lines(db,comp_code,data.sale_date,data.items,data.inventory_exception_reason); totals=summarize_purchase(prepared)
+        if row.sale_date!=data.sale_date: row.sale_no=allocate_document_no(db,comp_code,"SALE",data.sale_date)
+        row.sale_date=data.sale_date; row.account_id=data.account_id; row.memo=data.memo; row.inventory_exception_yn=negative; row.inventory_exception_reason=reason; row.updated_by=request.state.user_id; row.updated_at=datetime.now(timezone.utc)
+        for k,v in totals.items(): setattr(row,k,v)
+        row.items.clear(); db.flush(); row.items.extend(models.SaleItem(**x) for x in prepared); db.flush(); _materialize_sale(db,row); apply_status_transition(row,"CONFIRMED",request.state.user_id); db.flush(); after=_sale_snapshot(db,row); record_audit_event(db,comp_code=comp_code,user_id=request.state.user_id,menu_code="SALES_GENERAL",action="UPDATE",entity_type="SALE",entity_id=row.sale_id,source=f"{request.method} {request.url.path}",before=before,after=after,reason=data.audit_reason,related_entity_type="SALE",related_entity_id=row.sale_id); db.commit()
+    except HTTPException: db.rollback(); raise
+    except IntegrityError: db.rollback(); raise HTTPException(status_code=409,detail="후속 거래가 연결된 매출은 수정할 수 없습니다.")
+    db.refresh(row); return _sale_result(row)
+
+@app.post("/api/v1/companies/{comp_code}/sales/{sale_id}/cancel")
+def cancel_sale(comp_code:str,sale_id:int,data:SaleCancelInput,request:Request,db:Session=Depends(get_db)):
+    row=_sale_or_404(db,comp_code,sale_id); ensure_period_open(db,comp_code,row.sale_date)
+    if row.document_status!="CONFIRMED": raise HTTPException(status_code=409,detail="확정된 매출전표만 취소할 수 있습니다.")
+    reason=data.reason.strip()
+    if not reason: raise HTTPException(status_code=422,detail="취소 사유를 입력하세요.")
+    before=_sale_snapshot(db,row)
+    try:
+        _dematerialize_sale(db,row); apply_status_transition(row,"CANCELLED",request.state.user_id); db.flush(); after=_sale_snapshot(db,row); record_audit_event(db,comp_code=comp_code,user_id=request.state.user_id,menu_code="SALES_GENERAL",action="CANCEL",entity_type="SALE",entity_id=row.sale_id,source=f"{request.method} {request.url.path}",before=before,after=after,reason=reason,related_entity_type="SALE",related_entity_id=row.sale_id); db.commit()
+    except HTTPException: db.rollback(); raise
+    except IntegrityError: db.rollback(); raise HTTPException(status_code=409,detail="후속 거래가 연결된 매출은 취소할 수 없습니다.")
+    db.refresh(row); return _sale_result(row)
 
 @app.get("/api/v1/companies/{comp_code}/meatwatch/bl-lookup")
 def lookup_meatwatch_bl(comp_code: str, history_no: str, db: Session = Depends(get_db)):
