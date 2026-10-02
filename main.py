@@ -11,7 +11,7 @@ import httpx as external_httpx
 from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -2945,8 +2945,43 @@ def _materialize_purchase(db: Session, row):
     ))
 
 
+def _guard_purchase_dematerialization(db: Session, row, transaction_no: Optional[str] = None):
+    """매입 확정이 만든 자료에 후속 거래가 연결되지 않았는지 확인한다."""
+    owned_inbound_item_ids = {item.inbound_item_id for item in row.items if item.inbound_item_id}
+    lot_ids = {item.lot_id for item in row.items if item.lot_id}
+    purchase_no = transaction_no or row.purchase_no
+
+    if lot_ids:
+        downstream_lot_link = db.query(models.InboundItem.inbound_item_id).filter(
+            models.InboundItem.lot_id.in_(lot_ids),
+            ~models.InboundItem.inbound_item_id.in_(owned_inbound_item_ids),
+        ).first()
+        if downstream_lot_link:
+            raise HTTPException(
+                status_code=409,
+                detail="후속 입고·출고 등 LOT 연결자료가 있는 매입은 수정 또는 취소할 수 없습니다.",
+            )
+
+    payable_ids = [value[0] for value in db.query(models.AccountTransaction.account_transaction_id).filter(
+        models.AccountTransaction.comp_code == row.comp_code,
+        models.AccountTransaction.transaction_no == purchase_no,
+        models.AccountTransaction.transaction_type == "PURCHASE_PAYABLE",
+    ).all()]
+    if payable_ids and db.query(models.AccountTransactionAllocation.allocation_id).filter(
+        or_(
+            models.AccountTransactionAllocation.source_transaction_id.in_(payable_ids),
+            models.AccountTransactionAllocation.settlement_transaction_id.in_(payable_ids),
+        )
+    ).first():
+        raise HTTPException(
+            status_code=409,
+            detail="지급이 배분된 미지급 원거래가 있는 매입은 수정 또는 취소할 수 없습니다.",
+        )
+
+
 def _dematerialize_purchase(db: Session, row, transaction_no: Optional[str] = None):
-    """수정·취소 전에 이 매입이 만든 파생자료만 회수한다."""
+    """수정·취소 전에 Guard를 통과한 이 매입의 파생자료만 회수한다."""
+    _guard_purchase_dematerialization(db, row, transaction_no)
     inbound_ids = {item.inbound_item.inbound_id for item in row.items if item.inbound_item}
     lots = [item.lot for item in row.items if item.lot]
     for item in row.items:

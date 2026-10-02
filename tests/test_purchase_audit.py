@@ -217,6 +217,33 @@ def test_downstream_fk_blocks_dematerialization_with_no_audit(api, operation):
         assert db.query(models.AccountTransaction).one().original_amount==10250
 
 
+@pytest.mark.parametrize('operation', ['update', 'cancel'])
+def test_payable_allocation_blocks_dematerialization_with_no_audit(api, operation):
+    client, factory = api
+    key = client.post(URL, json=payload(True)).json()['purchase_id']
+    with factory() as db:
+        payable = db.query(models.AccountTransaction).one()
+        payment = models.AccountTransaction(
+            comp_code='00001', transaction_no='PAY-001', transaction_date=date(2026, 9, 30),
+            account_id=1, transaction_type='PAYMENT', original_amount=1000,
+        )
+        db.add(payment); db.flush()
+        db.add(models.AccountTransactionAllocation(
+            source_transaction_id=payable.account_transaction_id,
+            settlement_transaction_id=payment.account_transaction_id,
+            allocated_amount=1000,
+        ))
+        db.commit()
+    response = (client.put(f'{URL}/{key}', json=payload(True, 2000)) if operation == 'update'
+                else client.post(f'{URL}/{key}/cancel', json={'reason': '지급 연결 시험'}))
+    assert response.status_code == 409, response.text
+    assert len(events(factory)) == 2
+    assert client.get(URL).json()[0]['total_amount'] == 10250
+    with factory() as db:
+        assert db.query(models.AccountTransaction).count() == 2
+        assert db.query(models.AccountTransactionAllocation).count() == 1
+
+
 def test_audit_model_matches_migration_sqlserver_types_and_indexes():
     from sqlalchemy.dialects import mssql
     table=AuditEvent.__table__
