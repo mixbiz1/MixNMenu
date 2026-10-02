@@ -16,7 +16,12 @@ def check_schema(connection):
             problems.append(f'{column.name}: missing'); continue
         expected_type = column.type.compile(dialect=connection.dialect).upper()
         actual_type = found['type'].compile(dialect=connection.dialect).upper()
-        if expected_type != actual_type:
+
+        # SQL Server inspector may append column COLLATE information to string
+        # types. Collation is not part of this verifier's structural type check.
+        actual_type_normalized = actual_type.split(' COLLATE ', 1)[0]
+
+        if expected_type != actual_type_normalized:
             problems.append(f'{column.name}: model={expected_type}, DB={actual_type}')
         if column.nullable != found['nullable']:
             problems.append(f'{column.name}: nullable differs')
