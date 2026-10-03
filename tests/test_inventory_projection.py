@@ -132,12 +132,18 @@ def test_warehouse_and_product_groupings_reconcile_to_lot_projection(inventory_d
         detail = main.get_inventory_projection("00001", *params, "LOT", db)
         warehouse = main.get_inventory_projection("00001", *params, "WAREHOUSE", db)
         product = main.get_inventory_projection("00001", *params, "PRODUCT", db)
+        assert detail["group_by"] == "LOT" and len(detail["rows"]) == 2
+        assert warehouse["group_by"] == "WAREHOUSE" and len(warehouse["rows"]) == 1
+        assert product["group_by"] == "PRODUCT" and len(product["rows"]) == 1
         assert warehouse["rows"][0]["source_lot_count"] == 2
         assert product["rows"][0]["source_lot_count"] == 2
+        assert warehouse["rows"][0]["warehouse_name"] == "창고"
+        assert product["rows"][0]["product_name"] == "상품"
         for key in ("beginning_box_qty", "inbound_box_qty", "outbound_box_qty", "current_box_qty",
                     "beginning_weight", "inbound_weight", "outbound_weight", "current_weight", "inventory_amount"):
             assert warehouse["summary"][key] == detail["summary"][key] == product["summary"][key]
             assert warehouse["rows"][0][key] == product["rows"][0][key]
+            assert warehouse["rows"][0][key] == sum(row[key] for row in detail["rows"])
 
 
 def test_current_average_weight_uses_remaining_box_and_weight_independently(inventory_db):

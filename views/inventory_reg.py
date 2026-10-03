@@ -294,7 +294,6 @@ class InventoryRegWindow(QWidget):
         self.start_date.returnPressed.connect(self.load_inventory)
         self.end_date.returnPressed.connect(self.load_inventory)
         self.btn_close.clicked.connect(self.close)
-        self.group_by.currentIndexChanged.connect(self._set_columns)
         self._set_columns()
 
     @staticmethod
@@ -330,11 +329,20 @@ class InventoryRegWindow(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "창고 조회 오류", str(exc))
 
-    def _set_columns(self, *_):
-        group = self.group_by.currentData()
-        columns = self.LOT_COLUMNS if group == "LOT" else (
-            self.WAREHOUSE_COLUMNS if group == "WAREHOUSE" else self.PRODUCT_COLUMNS
-        )
+    def _columns_for_group(self, group):
+        columns_by_group = {
+            "LOT": self.LOT_COLUMNS,
+            "WAREHOUSE": self.WAREHOUSE_COLUMNS,
+            "PRODUCT": self.PRODUCT_COLUMNS,
+        }
+        try:
+            return columns_by_group[group]
+        except KeyError as exc:
+            raise ValueError("조회 결과의 조회관점이 올바르지 않습니다.") from exc
+
+    def _set_columns(self, group_by=None):
+        group = group_by or self.group_by.currentData()
+        columns = self._columns_for_group(group)
         self._columns = columns
         self.table.setColumnCount(len(columns))
         self.table.setHorizontalHeaderLabels([label for _, label in columns])
@@ -366,7 +374,10 @@ class InventoryRegWindow(QWidget):
         end = str(result.get("end_date") or params["end_date"])
         warehouse = (warehouse_label or self.warehouse.currentText()) if params.get("warehouse_id") is not None else "전체 창고"
         storage = self.STORAGE_LABELS.get(params.get("storage_type"), "전체 보관유형")
-        group = {"LOT": "LOT별 상세", "WAREHOUSE": "창고별", "PRODUCT": "상품별"}.get(params["group_by"], params["group_by"])
+        applied_group = str(result.get("group_by") or params["group_by"]).upper()
+        group = {"LOT": "LOT별 상세", "WAREHOUSE": "창고별", "PRODUCT": "상품별"}.get(
+            applied_group, applied_group
+        )
         zero = "현재고 0 포함" if params["include_zero"] else "현재고 0 제외"
         search = f" / 검색 {params['product_search']}" if params["product_search"] else ""
         return f"마지막 성공 조회 · 조회기간 {start} ~ {end} / {warehouse} / {storage} / {zero} / {group}{search}"
@@ -388,32 +399,46 @@ class InventoryRegWindow(QWidget):
         try:
             response = httpx.get(self._url(), params=params, timeout=30)
             response.raise_for_status(); result = response.json()
+            applied_group = str(result.get("group_by") or params["group_by"]).upper()
+            if applied_group != params["group_by"]:
+                raise ValueError("서버 조회관점이 요청한 조회관점과 일치하지 않습니다.")
+            columns = self._columns_for_group(applied_group)
             rows = result["rows"]
-            self._set_columns()
-            self.table.setRowCount(len(rows))
-            for row_index, row in enumerate(rows):
-                for column, (key, _) in enumerate(self._columns):
+            prepared_rows = []
+            for row in rows:
+                cells = []
+                for column, (key, _) in enumerate(columns):
                     cell = QTableWidgetItem(self._format(key, row.get(key)))
                     if key.endswith("weight") or key in {"average_weight", "inventory_amount", "individual_cost"} or key.endswith("box_qty"):
                         cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     if column == 0:
                         cell.setData(Qt.UserRole, row)
-                    self.table.setItem(row_index, column, cell)
-            self.table.resizeColumnsToContents()
+                    cells.append(cell)
+                prepared_rows.append(cells)
             summary = result["summary"]
-            self.summary.setText(
+            summary_text = (
                 f"전재고 {_integer_value(summary['beginning_box_qty']):,} Box / {_decimal_value(summary['beginning_weight']):,.2f} Kg   +   "
                 f"입고 {_integer_value(summary['inbound_box_qty']):,} Box / {_decimal_value(summary['inbound_weight']):,.2f} Kg   −   "
                 f"출고 {_integer_value(summary['outbound_box_qty']):,} Box / {_decimal_value(summary['outbound_weight']):,.2f} Kg   =   "
                 f"현재고 {_integer_value(summary['current_box_qty']):,} Box / {_decimal_value(summary['current_weight']):,.2f} Kg   ·   "
                 f"참고금액 {_integer_value(summary['inventory_amount']):,}원"
             )
-            request_snapshot = {"params": dict(params), "warehouse_label": warehouse_label}
+            conditions_text = self._format_applied_conditions(params, result, warehouse_label)
+            request_snapshot = {
+                "params": dict(params), "warehouse_label": warehouse_label,
+                "group_by": applied_group,
+            }
+
+            self._set_columns(applied_group)
+            self.table.setRowCount(len(prepared_rows))
+            for row_index, cells in enumerate(prepared_rows):
+                for column, cell in enumerate(cells):
+                    self.table.setItem(row_index, column, cell)
+            self.table.resizeColumnsToContents()
+            self.summary.setText(summary_text)
             self._last_successful_request = request_snapshot
             self.rows = rows
-            self.applied_conditions.setText(
-                self._format_applied_conditions(params, result, warehouse_label)
-            )
+            self.applied_conditions.setText(conditions_text)
         except Exception as exc:
             QMessageBox.critical(self, "재고 조회 오류", str(exc))
         finally:
@@ -429,7 +454,9 @@ class InventoryRegWindow(QWidget):
             widget = widget.parentWidget()
 
     def open_lot_history(self, item):
-        if self.group_by.currentData() != "LOT" or item.row() < 0 or item.row() >= len(self.rows):
+        if (not self._last_successful_request
+                or self._last_successful_request.get("group_by") != "LOT"
+                or item.row() < 0 or item.row() >= len(self.rows)):
             return
         lot = self.rows[item.row()]
         if not lot.get("lot_id"):

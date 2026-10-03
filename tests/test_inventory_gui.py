@@ -25,23 +25,51 @@ def test_inventory_screen_requests_period_company_filters_and_grouping(monkeypat
     app = QApplication.instance() or QApplication([])
     app_context.set_company("00001", "테스트회사")
     requests = []
+    failures = []
+    criticals = []
 
     def get(url, **kwargs):
-        requests.append((url, kwargs))
         if url.endswith("/warehouses"):
             return response([{"warehouse_id": 1, "warehouse_name": "냉동창고", "use_yn": True, "company_use_yn": True}])
+        requests.append((url, kwargs))
+        if failures:
+            raise RuntimeError("조회 실패 fixture")
+        group = kwargs["params"]["group_by"]
+        lot_rows = [
+            {"lot_id": 1, "lot_code": "L1", "warehouse_name": "냉동창고", "product_name": "상품",
+             "beginning_box_qty": 0, "beginning_weight": "0.00", "inbound_box_qty": 7,
+             "inbound_weight": "70.00", "outbound_box_qty": 1, "outbound_weight": "10.00",
+             "current_box_qty": 6, "current_weight": "60.00", "average_weight": "10.00",
+             "individual_cost": 1000, "inventory_amount": 60000, "bl_no": "BL-1", "history_no": "H-1"},
+            {"lot_id": 2, "lot_code": "L2", "warehouse_name": "냉동창고", "product_name": "상품",
+             "beginning_box_qty": 1, "beginning_weight": "10.00", "inbound_box_qty": 5,
+             "inbound_weight": "50.00", "outbound_box_qty": 2, "outbound_weight": "20.00",
+             "current_box_qty": 4, "current_weight": "40.00", "average_weight": "10.00",
+             "individual_cost": 1000, "inventory_amount": 40000, "bl_no": "BL-2", "history_no": "H-2"},
+        ]
+        aggregate = {"warehouse_name": "냉동창고", "product_name": "상품", "source_lot_count": 2,
+                     "beginning_box_qty": 1, "beginning_weight": "10.00",
+                     "inbound_box_qty": 12, "inbound_weight": "120.00",
+                     "outbound_box_qty": 3, "outbound_weight": "30.00",
+                     "current_box_qty": 10, "current_weight": "100.00",
+                     "average_weight": "10.00", "inventory_amount": 100000}
+        rows = lot_rows if group == "LOT" else [aggregate]
+        if group == "WAREHOUSE":
+            rows = [{key: value for key, value in aggregate.items() if key != "product_name"}]
+        elif group == "PRODUCT":
+            rows = [{key: value for key, value in aggregate.items() if key != "warehouse_name"}]
         return response({"start_date": "2025-10-01", "end_date": "2026-10-03",
-                         "rows": [{"lot_id": 1, "lot_code": "L1", "product_name": "상품",
-                                   "current_box_qty": 8, "current_weight": "80.00"}],
-                         "summary": {"beginning_box_qty": 0, "beginning_weight": "0.00",
-                                     "inbound_box_qty": 10, "inbound_weight": "100.00",
-                                     "outbound_box_qty": 2, "outbound_weight": "20.00",
-                                     "current_box_qty": 8, "current_weight": "80.00",
-                                     "inventory_amount": 80000}, "group_by": "LOT"})
+                         "rows": rows,
+                         "summary": {"beginning_box_qty": 1, "beginning_weight": "10.00",
+                                     "inbound_box_qty": 12, "inbound_weight": "120.00",
+                                     "outbound_box_qty": 3, "outbound_weight": "30.00",
+                                     "current_box_qty": 10, "current_weight": "100.00",
+                                     "inventory_amount": 100000}, "group_by": group})
 
     monkeypatch.setattr("views.inventory_reg.httpx.get", get)
+    monkeypatch.setattr(QMessageBox, "critical", lambda *args: criticals.append(args[2]))
     window = InventoryRegWindow()
-    assert window.table.rowCount() == 1
+    assert window.table.rowCount() == 2
     assert window.table.item(0, 2).text() == "L1"
     _, request = requests[-1]
     assert request["params"]["start_date"] == date.today().replace(day=1).isoformat()
@@ -59,6 +87,8 @@ def test_inventory_screen_requests_period_company_filters_and_grouping(monkeypat
     window.group_by.setCurrentIndex(1)
     window.storage_type.setCurrentIndex(1)
     window.warehouse.setCurrentIndex(1)
+    assert "LOT별 상세" in window.applied_conditions.text()
+    assert window.table.rowCount() == 2
     window.load_inventory()
     assert requests[-1][1]["params"]["group_by"] == "WAREHOUSE"
     assert requests[-1][1]["params"]["storage_type"] == "FROZEN"
@@ -66,6 +96,44 @@ def test_inventory_screen_requests_period_company_filters_and_grouping(monkeypat
     assert "냉동창고" in window.applied_conditions.text()
     assert "냉동" in window.applied_conditions.text()
     assert "창고별" in window.applied_conditions.text()
+    assert window.table.rowCount() == 1
+    assert window.table.horizontalHeaderItem(0).text() == "창고"
+    assert window.table.item(0, 0).text() == "냉동창고"
+    assert window.table.item(0, 1).text() == "2"
+    assert window.table.item(0, 2).text() == "1"
+    assert window.table.item(0, 3).text() == "10.00"
+    assert window.table.item(0, 4).text() == "12"
+    assert window.table.item(0, 5).text() == "120.00"
+    assert window.table.item(0, 6).text() == "3"
+    assert window.table.item(0, 7).text() == "30.00"
+    assert window.table.item(0, 8).text() == "10"
+    assert window.table.item(0, 9).text() == "100.00"
+    assert window.table.item(0, 10).text() == "10.00"
+    assert window.table.item(0, 11).text() == "100,000"
+
+    window.group_by.setCurrentIndex(2)
+    assert "창고별" in window.applied_conditions.text()
+    assert window.table.horizontalHeaderItem(0).text() == "창고"
+    window.load_inventory()
+    assert requests[-1][1]["params"]["group_by"] == "PRODUCT"
+    assert "상품별" in window.applied_conditions.text()
+    assert window.table.rowCount() == 1
+    assert window.table.horizontalHeaderItem(0).text() == "상품명"
+    assert window.table.item(0, 0).text() == "상품"
+    assert window.table.item(0, 1).text() == "2"
+
+    prior_label = window.applied_conditions.text()
+    prior_summary = window.summary.text()
+    prior_cells = [window.table.item(0, column).text() for column in range(window.table.columnCount())]
+    window.group_by.setCurrentIndex(1)
+    failures.append(True)
+    window.load_inventory()
+    assert requests[-1][1]["params"]["group_by"] == "WAREHOUSE"
+    assert window.applied_conditions.text() == prior_label
+    assert window.summary.text() == prior_summary
+    assert [window.table.item(0, column).text() for column in range(window.table.columnCount())] == prior_cells
+    assert window._last_successful_request["group_by"] == "PRODUCT"
+    assert criticals == ["조회 실패 fixture"]
     window.close()
 
 
