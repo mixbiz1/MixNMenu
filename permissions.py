@@ -28,6 +28,7 @@ MENU_DEFINITIONS = (
     ("TRADE_COMMON", "거래 공통설정", "거래관리", 200),
     ("PURCHASE_GENERAL", "상품매입등록/수정", "상품입/출고관리", 210),
     ("SALES_GENERAL", "상품매출/출고등록", "상품입/출고관리", 220),
+    ("RECEIPT_MANAGEMENT", "입금관리", "입금/출금관리", 230),
 )
 
 MENU_CODES = {row[0] for row in MENU_DEFINITIONS}
@@ -93,6 +94,7 @@ def permission_for_request(method: str, path: str) -> RoutePermission | None:
             "meatwatch": "PURCHASE_GENERAL",
             "sales": "SALES_GENERAL",
             "sales-receivable-summary": "SALES_GENERAL",
+            "receipts": "RECEIPT_MANAGEMENT",
         }.get(resource, "SYS_COMPANY")
         if resource == "purchases" and len(parts) > 4 and parts[4] in {"confirm", "cancel"}:
             action = "update"

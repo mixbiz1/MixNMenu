@@ -29,6 +29,7 @@ from trade_common import (
     tax_snapshot, validate_leaf_input_expense,
 )
 import models
+from receipt_routes import router as receipt_router
 
 
 # =============================================================================
@@ -44,6 +45,7 @@ app = FastAPI(
     version="1.1.0",
 )
 
+app.include_router(receipt_router)
 
 # =============================================================================
 # Login Schema
