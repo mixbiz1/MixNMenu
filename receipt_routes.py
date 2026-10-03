@@ -6,7 +6,6 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,6 +13,7 @@ import models
 from audit_service import record_audit_event
 from database import get_db
 from trade_common import allocate_document_no, ensure_period_open
+from settlement_service import allocate_settlement_fifo, clear_settlement_allocations, settlement_allocated
 
 
 router = APIRouter(prefix="/api/v1/companies/{comp_code}/receipts", tags=["receipts"])
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/v1/companies/{comp_code}/receipts", tags=["recei
 class ReceiptInput(BaseModel):
     receipt_date: date
     account_id: int
-    amount: Decimal = Field(gt=0)
+    amount: Decimal
     memo: Optional[str] = Field(default=None, max_length=1000)
     audit_reason: Optional[str] = Field(default=None, max_length=1000)
 
@@ -58,25 +58,8 @@ def _sales_account(db: Session, comp_code: str, account_id: int):
 
 
 
-def _source_allocated(db: Session, source_id: int) -> Decimal:
-    value = db.query(func.coalesce(func.sum(models.AccountTransactionAllocation.allocated_amount), 0)).filter(
-        models.AccountTransactionAllocation.source_transaction_id == source_id
-    ).scalar()
-    return Decimal(value or 0)
-
-
-def _settlement_allocated(db: Session, settlement_id: int) -> Decimal:
-    value = db.query(func.coalesce(func.sum(models.AccountTransactionAllocation.allocated_amount), 0)).filter(
-        models.AccountTransactionAllocation.settlement_transaction_id == settlement_id
-    ).scalar()
-    return Decimal(value or 0)
-
-
 def _clear_receipt_allocations(db: Session, receipt_id: int) -> None:
-    db.query(models.AccountTransactionAllocation).filter(
-        models.AccountTransactionAllocation.settlement_transaction_id == receipt_id
-    ).delete(synchronize_session=False)
-    db.flush()
+    clear_settlement_allocations(db, receipt_id)
 
 
 def _allocate_receipt_fifo(db: Session, receipt) -> Decimal:
@@ -85,37 +68,12 @@ def _allocate_receipt_fifo(db: Session, receipt) -> Decimal:
     입금액이 미수보다 크면 초과분은 미배분 선입금으로 남는다. 미래 매출에는
     소급 배분하지 않고 거래처 원장 잔액에서 우선 상계한다.
     """
-    _clear_receipt_allocations(db, receipt.account_transaction_id)
-    remaining = Decimal(receipt.original_amount)
-    sources = db.query(models.AccountTransaction).filter(
-        models.AccountTransaction.comp_code == receipt.comp_code,
-        models.AccountTransaction.account_id == receipt.account_id,
-        models.AccountTransaction.transaction_type.in_(("OPENING_RECEIVABLE", "SALES_RECEIVABLE")),
-        models.AccountTransaction.transaction_date <= receipt.transaction_date,
-    ).order_by(
-        models.AccountTransaction.transaction_date,
-        models.AccountTransaction.account_transaction_id,
-    ).all()
-    for source in sources:
-        if remaining <= 0:
-            break
-        open_amount = Decimal(source.original_amount) - _source_allocated(db, source.account_transaction_id)
-        if open_amount <= 0:
-            continue
-        amount = min(open_amount, remaining)
-        db.add(models.AccountTransactionAllocation(
-            source_transaction_id=source.account_transaction_id,
-            settlement_transaction_id=receipt.account_transaction_id,
-            allocated_amount=amount,
-        ))
-        remaining -= amount
-        db.flush()
-    return Decimal(receipt.original_amount) - remaining
+    return allocate_settlement_fifo(db, receipt, source_types=("OPENING_RECEIVABLE", "SALES_RECEIVABLE"), settlement_type="RECEIPT")
 
 
 def _receipt_snapshot(db: Session, receipt):
     db.flush()
-    allocated = _settlement_allocated(db, receipt.account_transaction_id)
+    allocated = settlement_allocated(db, receipt.account_transaction_id)
     account = db.get(models.Account, receipt.account_id)
     return {
         "account_transaction_id": receipt.account_transaction_id,
@@ -161,6 +119,10 @@ def create_receipt(comp_code: str, data: ReceiptInput, request: Request, db: Ses
     _sales_account(db, comp_code, data.account_id)
     ensure_period_open(db, comp_code, data.receipt_date)
     amount = _ceil_won(data.amount)
+    if amount == 0:
+        raise HTTPException(status_code=422, detail="입금액은 0원이 될 수 없습니다.")
+    if amount < 0 and not ((data.memo or "").strip() or (data.audit_reason or "").strip()):
+        raise HTTPException(status_code=422, detail="음수 입금 조정은 적요 또는 조정사유를 입력하세요.")
     row = models.AccountTransaction(
         comp_code=comp_code,
         transaction_no=allocate_document_no(db, comp_code, "RECEIPT", data.receipt_date),
@@ -208,6 +170,10 @@ def update_receipt(comp_code: str, receipt_id: int, data: ReceiptInput,
     ensure_period_open(db, comp_code, row.transaction_date)
     ensure_period_open(db, comp_code, data.receipt_date)
     _sales_account(db, comp_code, data.account_id)
+    if _ceil_won(data.amount) == 0:
+        raise HTTPException(status_code=422, detail="입금액은 0원이 될 수 없습니다.")
+    if _ceil_won(data.amount) < 0 and not ((data.memo or "").strip() or (data.audit_reason or "").strip()):
+        raise HTTPException(status_code=422, detail="음수 입금 조정은 적요 또는 조정사유를 입력하세요.")
     before = _receipt_snapshot(db, row)
     try:
         _clear_receipt_allocations(db, row.account_transaction_id)

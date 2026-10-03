@@ -29,6 +29,7 @@ MENU_DEFINITIONS = (
     ("PURCHASE_GENERAL", "상품매입등록/수정", "상품입/출고관리", 210),
     ("SALES_GENERAL", "상품매출/출고등록", "상품입/출고관리", 220),
     ("RECEIPT_MANAGEMENT", "입금관리", "입금/출금관리", 230),
+    ("PAYMENT_MANAGEMENT", "지급관리", "입금/출금관리", 240),
 )
 
 MENU_CODES = {row[0] for row in MENU_DEFINITIONS}
@@ -95,6 +96,8 @@ def permission_for_request(method: str, path: str) -> RoutePermission | None:
             "sales": "SALES_GENERAL",
             "sales-receivable-summary": "SALES_GENERAL",
             "receipts": "RECEIPT_MANAGEMENT",
+            "payments": "PAYMENT_MANAGEMENT",
+            "payment-payable-summary": "PAYMENT_MANAGEMENT",
         }.get(resource, "SYS_COMPANY")
         if resource == "purchases" and len(parts) > 4 and parts[4] in {"confirm", "cancel"}:
             action = "update"

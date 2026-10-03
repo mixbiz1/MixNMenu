@@ -78,12 +78,14 @@ try:
     from views.purchase_reg import PurchaseRegWindow
     from views.sale_reg import SaleRegWindow
     from views.receipt_reg import ReceiptRegWindow
+    from views.payment_reg import PaymentRegWindow
 except ImportError:
     from opening_inventory_reg import OpeningInventoryRegWindow
     from opening_balance_reg import OpeningBalanceRegWindow
     from purchase_reg import PurchaseRegWindow
     from sale_reg import SaleRegWindow
     from receipt_reg import ReceiptRegWindow
+    from payment_reg import PaymentRegWindow
 
 try:
     from views.password_change import PasswordChangeDialog
@@ -884,6 +886,9 @@ class MixNMainWindow(QMainWindow):
         self.action_receipt = QAction("1.입금관리", self)
         self.action_receipt.triggered.connect(self.open_receipt_reg)
         self.menu5.addAction(self.action_receipt)
+        self.action_payment = QAction("2.지급관리", self)
+        self.action_payment.triggered.connect(self.open_payment_reg)
+        self.menu5.addAction(self.action_payment)
 
         self.menu6 = QMenu(
             "6.월재고마감관리",
@@ -945,6 +950,7 @@ class MixNMainWindow(QMainWindow):
             "PURCHASE_GENERAL": self.action_purchase,
             "SALES_GENERAL": self.action_sale,
             "RECEIPT_MANAGEMENT": self.action_receipt,
+            "PAYMENT_MANAGEMENT": self.action_payment,
         }
         for code, action in mapping.items():
             action.setVisible(app_context.can(code, "read"))
@@ -1513,7 +1519,7 @@ class MixNMainWindow(QMainWindow):
                 widget = sub.widget()
                 if widget is not None and isinstance(widget, LotRegWindow):
                     self.mdi_area.setActiveSubWindow(sub)
-                    widget.show(); sub.showNormal(); sub.showMaximized()
+                    widget.show(); sub.showNormal(); sub.showMaximized(); sub.raise_(); sub.activateWindow()
                     self._bring_subwindow_to_front(sub)
                     self.set_work_status("8.LOT조회/보정 창이 활성화되었습니다.")
                     return
@@ -1559,12 +1565,17 @@ class MixNMainWindow(QMainWindow):
         """입금관리 화면을 MDI에 1개만 연다."""
         self._open_single_mdi(ReceiptRegWindow, "입금관리", "입금/출금관리 → 입금관리")
 
+    def open_payment_reg(self):
+        self._open_single_mdi(PaymentRegWindow, "지급관리", "입금/출금관리 → 지급관리")
+
 
     def _open_single_mdi(self, widget_class, title, status_text):
         try:
             for sub in self.mdi_area.subWindowList():
                 widget = sub.widget()
-                if widget is not None and isinstance(widget, widget_class):
+                # 지급창은 입금창을 상속하지만 서로 다른 업무창이다. 정확한 클래스만
+                # 중복으로 판단해야 입금관리↔지급관리를 동시에 열 수 있다.
+                if widget is not None and type(widget) is widget_class:
                     self.mdi_area.setActiveSubWindow(sub)
                     widget.show(); sub.showNormal(); sub.showMaximized()
                     self._bring_subwindow_to_front(sub)

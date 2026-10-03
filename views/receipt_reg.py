@@ -205,12 +205,10 @@ class ReceiptRegWindow(QWidget):
             self.advance_balance.setText("-")
 
     def _set_summary_values(self, previous, today_receipt, current):
-        current_receivable = max(int(current), 0)
-        advance = max(-int(current), 0)
-        self.prev_balance.setText(f"{max(int(previous), 0):,} 원")
+        self.prev_balance.setText(f"{int(previous):,} 원")
         self.today_receipt.setText(f"{int(today_receipt):,} 원")
-        self.current_balance.setText(f"{current_receivable:,} 원")
-        self.advance_balance.setText(f"{advance:,} 원")
+        self.current_balance.setText(f"{int(current):,} 원")
+        self.advance_balance.setText("")
 
     def _enter_new_mode(self, keep_context=False):
         """신규 입력은 기존 전표 선택상태와 완전히 분리한다."""
