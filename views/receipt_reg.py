@@ -39,14 +39,14 @@ class ReceiptRegWindow(QWidget):
         self.company = QLabel(app_context.company_name or app_context.company_code)
         self.receipt_date = QDateEdit(QDate.currentDate()); self.receipt_date.setCalendarPopup(True); self.receipt_date.setDisplayFormat("yyyy-M-d"); self.receipt_date.setKeyboardTracking(False)
         self.account = QComboBox(); self.account.setMinimumWidth(260)
-        self.amount = QDoubleSpinBox(); self.amount.setDecimals(0); self.amount.setMaximum(999999999999999); self.amount.setGroupSeparatorShown(True); self.amount.setSuffix(" 원"); self.amount.setSpecialValueText(" "); self.amount.lineEdit().textEdited.connect(self._format_amount_input)
+        self.amount = QDoubleSpinBox(); self.amount.setDecimals(0); self.amount.setRange(-999999999999999, 999999999999999); self.amount.setGroupSeparatorShown(True); self.amount.setSuffix(" 원"); self.amount.lineEdit().textEdited.connect(self._format_amount_input)
+        self._amount_is_blank = True
         self.memo = QLineEdit(); self.memo.setPlaceholderText("입금방법·통장·비고 등")
         self.audit_reason = QLineEdit(); self.audit_reason.setPlaceholderText("수정 사유를 입력해 주세요")
         self.prev_balance = QLabel("0 원")
         self.today_receipt = QLabel("0 원")
         self.current_balance = QLabel("0 원")
-        self.advance_balance = QLabel("0 원")
-        for label in (self.prev_balance, self.today_receipt, self.current_balance, self.advance_balance):
+        for label in (self.prev_balance, self.today_receipt, self.current_balance):
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             label.setStyleSheet("font-weight: 700;")
         form.addRow("업무회사", self.company)
@@ -63,7 +63,6 @@ class ReceiptRegWindow(QWidget):
         balance_layout.addWidget(QLabel("전미수"), 0, 0); balance_layout.addWidget(self.prev_balance, 0, 1)
         balance_layout.addWidget(QLabel("금일입금"), 0, 2); balance_layout.addWidget(self.today_receipt, 0, 3)
         balance_layout.addWidget(QLabel("현미수"), 1, 0); balance_layout.addWidget(self.current_balance, 1, 1)
-        balance_layout.addWidget(QLabel("선입금"), 1, 2); balance_layout.addWidget(self.advance_balance, 1, 3)
         form.addRow(balance_box)
 
         buttons = QHBoxLayout()
@@ -94,6 +93,7 @@ class ReceiptRegWindow(QWidget):
         self.btn_delete.setEnabled(False)
         self.nav = [self.receipt_date, self.account, self.amount, self.memo]
         for widget in self.nav: widget.installEventFilter(self)
+        self._set_amount_blank()
 
     def _format_amount_input(self, _text):
         """입금액을 입력하는 동안에도 3자리 쉼표를 즉시 표시한다."""
@@ -102,16 +102,25 @@ class ReceiptRegWindow(QWidget):
         editor = self.amount.lineEdit()
         raw = editor.text()
         suffix = self.amount.suffix()
+        # 신규 상태는 숫자와 단위를 모두 비운다. 첫 키 입력 때 단위를 복구하되
+        # 사용자가 방금 입력한 문자열은 그대로 보존한다.
+        if self._amount_is_blank:
+            self._amount_is_blank = False
+            self.amount.setSuffix(" 원")
+            editor.setText(raw)
+            suffix = self.amount.suffix()
         core = raw[:-len(suffix)] if suffix and raw.endswith(suffix) else raw
+        negative = core.strip().startswith("-")
         digits = "".join(ch for ch in core if ch.isdigit())
         cursor = editor.cursorPosition()
         digits_before = sum(ch.isdigit() for ch in raw[:cursor])
         self._formatting_amount = True
         try:
             if not digits:
-                self.amount.setValue(0)
+                editor.setText("-" if negative else "")
                 return
-            value = min(int(digits), int(self.amount.maximum()))
+            value = int(digits) * (-1 if negative else 1)
+            value = max(int(self.amount.minimum()), min(value, int(self.amount.maximum())))
             self.amount.setValue(value)
             display = editor.text()
             editable_end = max(0, len(display) - len(suffix)) if suffix else len(display)
@@ -202,20 +211,30 @@ class ReceiptRegWindow(QWidget):
             self.prev_balance.setText("조회 실패")
             self.today_receipt.setText("-")
             self.current_balance.setText("-")
-            self.advance_balance.setText("-")
 
     def _set_summary_values(self, previous, today_receipt, current):
         self.prev_balance.setText(f"{int(previous):,} 원")
         self.today_receipt.setText(f"{int(today_receipt):,} 원")
         self.current_balance.setText(f"{int(current):,} 원")
-        self.advance_balance.setText("")
+
+    def _set_amount_blank(self):
+        """신규 입력에서는 0원 대신 금액 편집란 전체를 비워 둔다."""
+        self._amount_is_blank = True
+        self.amount.setSuffix("")
+        self.amount.setValue(0)
+        self.amount.lineEdit().clear()
+
+    def _set_amount_value(self, value):
+        self._amount_is_blank = False
+        self.amount.setSuffix(" 원")
+        self.amount.setValue(float(value))
 
     def _enter_new_mode(self, keep_context=False):
         """신규 입력은 기존 전표 선택상태와 완전히 분리한다."""
         self.current_id = None
         if not keep_context:
             self.receipt_date.setDate(QDate.currentDate())
-        self.amount.setValue(0)
+        self._set_amount_blank()
         self.memo.clear()
         self.audit_reason.clear()
         self.table.clearSelection()
@@ -243,7 +262,7 @@ class ReceiptRegWindow(QWidget):
         self.btn_save.setText("수정저장 [F4]")
         self.receipt_date.setDate(QDate.fromString(str(item["receipt_date"]), "yyyy-MM-dd"))
         self.account.setCurrentIndex(max(0, self.account.findData(item["account_id"])))
-        self.amount.setValue(float(item["amount"])); self.memo.setText(item.get("memo") or ""); self.audit_reason.clear()
+        self._set_amount_value(item["amount"]); self.memo.setText(item.get("memo") or ""); self.audit_reason.clear()
         self.audit_reason_label.setVisible(True); self.audit_reason.setVisible(True)
         self.load_summary()
 

@@ -3,10 +3,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from unittest.mock import Mock
 
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QLabel, QMessageBox
+from PySide6.QtTest import QTest
 
 from app_context import app_context
 from views.receipt_reg import ReceiptRegWindow
+from views.payment_reg import PaymentRegWindow
 
 
 def test_new_receipt_starts_blank_and_repeated_save_creates_new_transactions(monkeypatch):
@@ -31,7 +33,7 @@ def test_new_receipt_starts_blank_and_repeated_save_creates_new_transactions(mon
     monkeypatch.setattr("views.receipt_reg.QMessageBox.information", lambda *_: None)
 
     assert window.amount.value() == 0
-    assert window.amount.specialValueText() == " "
+    assert window.amount.suffix() == ""
     assert window.amount.text().strip() == ""
     assert window.current_id is None
     assert not window.btn_delete.isEnabled()
@@ -58,6 +60,10 @@ def test_new_receipt_starts_blank_and_repeated_save_creates_new_transactions(mon
     cell.setData(Qt.UserRole, 17)
     window.table.setItem(0, 0, cell)
     window.table.selectRow(0)
+    window.on_selected()
+    assert window.current_id == 17
+    assert window.amount.value() == 999999
+    assert "999,999" in window.amount.text()
     window._enter_new_mode(keep_context=True)
     assert window.current_id is None
     assert window.amount.value() == 0
@@ -120,4 +126,64 @@ def test_amount_live_grouping_and_load_does_not_repeat_summary(monkeypatch):
     window._format_amount_input(editor.text())
     assert window.amount.value() == 1234567
     assert "1,234,567" in window.amount.text()
+    editor.setText("1000")
+    editor.setCursorPosition(4)
+    window._format_amount_input(editor.text())
+    assert window.amount.value() == 1000
+    assert "1,000" in window.amount.text()
+    editor.setText("10000000")
+    editor.setCursorPosition(8)
+    window._format_amount_input(editor.text())
+    assert window.amount.value() == 10000000
+    assert "10,000,000" in window.amount.text()
+    window._set_amount_blank()
+    QTest.keyClicks(editor, "-2500000")
+    assert window.amount.value() == -2500000
+    assert "-2,500,000" in window.amount.text()
+
+    window._set_summary_values(-300, 40, -260)
+    assert window.current_balance.text() == "-260 원"
+    assert not any(label.text() == "선입금" for label in window.findChildren(QLabel))
     window.close()
+
+
+def test_receipt_delete_returns_to_a_completely_blank_amount(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    app_context.set_company("00001", "테스트회사")
+    window = ReceiptRegWindow()
+    window.current_id = 19
+    window.load_data = lambda: None
+    window.load_summary = lambda: None
+    window._set_amount_value(7500)
+
+    response = Mock()
+    response.raise_for_status = Mock()
+    response.json.return_value = {"message": "삭제되었습니다."}
+    delete = Mock(return_value=response)
+    monkeypatch.setattr("views.receipt_reg.httpx.delete", delete)
+    monkeypatch.setattr("views.receipt_reg.QMessageBox.warning", lambda *_args, **_kwargs: QMessageBox.Yes)
+    monkeypatch.setattr("views.receipt_reg.QMessageBox.information", lambda *_: None)
+
+    window.delete_data()
+    assert delete.call_count == 1
+    assert window.current_id is None
+    assert window.amount.value() == 0
+    assert window.amount.text().strip() == ""
+    assert window.amount.suffix() == ""
+    window.close()
+
+
+def test_receipt_and_payment_gui_show_opposite_signed_net_balances():
+    app = QApplication.instance() or QApplication([])
+    app_context.set_company("00001", "테스트회사")
+    receipt = ReceiptRegWindow()
+    payment = PaymentRegWindow()
+
+    receipt._set_summary_values(900, 100, 700)
+    payment._set_summary_values(-900, 50, -700)
+
+    assert receipt.current_balance.text() == "700 원"
+    assert payment.current_balance.text() == "-700 원"
+    assert int(receipt.current_balance.text().split()[0]) == -int(payment.current_balance.text().split()[0])
+    receipt.close()
+    payment.close()

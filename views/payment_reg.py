@@ -14,23 +14,10 @@ class PaymentRegWindow(ReceiptRegWindow):
     """지급은 입금 화면의 검증된 입력 UX를 유지하되 매입 미지급에 배분한다."""
     def __init__(self):
         super().__init__()
-        self.amount.setMinimum(-999999999999999)
         self._rename_for_payment()
-        self._clear_amount_editor()
-
-    def _clear_amount_editor(self):
-        """음수 입력을 허용해 specialValueText를 쓸 수 없으므로 0의 표시만 숨긴다."""
-        if self.current_id is None and self.amount.value() == 0:
-            self.amount.setSuffix("")
-            self.amount.lineEdit().clear()
-
-    def _format_amount_input(self, text):
-        if text and not self.amount.suffix():
-            self.amount.setSuffix(" 원")
-        super()._format_amount_input(text)
 
     def _rename_for_payment(self):
-        replacements = {"입금관리": "지급관리", "입금 입력": "지급 입력", "입금 내역": "지급 내역", "입금일 *": "지급일 *", "입금액 *": "지급액 *", "미수 현황": "미지급 현황", "전미수": "전미지급", "금일입금": "금일지급", "현미수": "현미지급", "선입금": "선지급", "입금액을 등록하면 거래처 미수잔액에 자동 반영됩니다.": "지급액을 등록하면 거래처 미지급잔액에 자동 반영됩니다."}
+        replacements = {"입금관리": "지급관리", "입금 입력": "지급 입력", "입금 내역": "지급 내역", "입금일 *": "지급일 *", "입금액 *": "지급액 *", "미수 현황": "미지급 현황", "전미수": "전미지급", "금일입금": "금일지급", "현미수": "현미지급", "입금액을 등록하면 거래처 미수잔액에 자동 반영됩니다.": "지급액을 등록하면 거래처 미지급잔액에 자동 반영됩니다."}
         for widget in self.findChildren(QLabel):
             if widget.text() in replacements: widget.setText(replacements[widget.text()])
         for widget in self.findChildren(QGroupBox):
@@ -68,7 +55,7 @@ class PaymentRegWindow(ReceiptRegWindow):
         try:
             r = httpx.get(f"{API_BASE_URL}/companies/{app_context.company_code}/payment-payable-summary", params={"account_id": account_id, "transaction_date": self.receipt_date.date().toString("yyyy-MM-dd")}, timeout=10); r.raise_for_status(); v=r.json()
             self._set_summary_values(int(v["previous_payable"]), int(v["today_payment"]), int(v["current_payable"]))
-        except Exception: self.prev_balance.setText("조회 실패"); self.today_receipt.setText("-"); self.current_balance.setText("-"); self.advance_balance.setText("-")
+        except Exception: self.prev_balance.setText("조회 실패"); self.today_receipt.setText("-"); self.current_balance.setText("-")
 
     def on_selected(self):
         if not self.table.selectionModel().hasSelection(): return
@@ -78,17 +65,15 @@ class PaymentRegWindow(ReceiptRegWindow):
         if not item: return
         self.current_id=tx; self.btn_delete.setEnabled(True); self.btn_save.setText("수정저장 [F4]")
         from PySide6.QtCore import QDate
-        self.receipt_date.setDate(QDate.fromString(str(item["payment_date"]),"yyyy-MM-dd")); self.account.setCurrentIndex(max(0,self.account.findData(item["account_id"]))); self.amount.setSuffix(" 원"); self.amount.setValue(float(item["amount"])); self.memo.setText(item.get("memo") or ""); self.audit_reason.clear(); self.audit_reason_label.setVisible(True); self.audit_reason.setVisible(True); self.load_summary()
+        self.receipt_date.setDate(QDate.fromString(str(item["payment_date"]),"yyyy-MM-dd")); self.account.setCurrentIndex(max(0,self.account.findData(item["account_id"]))); self._set_amount_value(item["amount"]); self.memo.setText(item.get("memo") or ""); self.audit_reason.clear(); self.audit_reason_label.setVisible(True); self.audit_reason.setVisible(True); self.load_summary()
 
     def _enter_new_mode(self, keep_context=False):
         super()._enter_new_mode(keep_context=keep_context)
-        self._clear_amount_editor()
 
     def _set_summary_values(self, previous, today_payment, current):
         self.prev_balance.setText(f"{int(previous):,} 원")
         self.today_receipt.setText(f"{int(today_payment):,} 원")
         self.current_balance.setText(f"{int(current):,} 원")
-        self.advance_balance.setText("")
 
     def save_data(self):
         if self.account.currentData() is None: QMessageBox.warning(self,"입력 확인","거래처를 선택해 주세요."); return

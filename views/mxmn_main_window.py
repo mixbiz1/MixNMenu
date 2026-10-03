@@ -10,8 +10,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
     QWidget,
-    QMdiArea,
-    QMdiSubWindow,
     QMenuBar,
     QMenu,
     QStatusBar,
@@ -30,6 +28,7 @@ from PySide6.QtGui import QAction, QDesktopServices, QPalette, QColor
 
 # MXMN 공통 실행 Context
 from app_context import app_context
+from views.mdi_subwindow import ResizableMdiArea
 
 # 거래처입력 화면
 try:
@@ -430,7 +429,7 @@ class MixNMainWindow(QMainWindow):
         # 중앙 MDI
         # ----------------------------------------------------
 
-        self.mdi_area = QMdiArea()
+        self.mdi_area = ResizableMdiArea()
 
         self.mdi_area.setObjectName(
             "mdi_area"
