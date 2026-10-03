@@ -85,6 +85,7 @@ def permission_for_request(method: str, path: str) -> RoutePermission | None:
         code = {
             "warehouses": "MASTER_WAREHOUSE",
             "lots": "MASTER_LOT",
+            "inventory": "MASTER_LOT",
             "opening-inventories": "OPENING_INVENTORY",
             "opening-balances": "OPENING_BALANCE",
             "accounts": "MASTER_ACCOUNT",

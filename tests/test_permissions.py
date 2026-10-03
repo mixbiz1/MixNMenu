@@ -8,6 +8,12 @@ def test_api_route_permission_mapping():
     assert permissions.permission_for_request("POST", "/api/v1/products").action == "create"
     rule = permissions.permission_for_request("DELETE", "/api/v1/companies/00001/lots/3")
     assert (rule.menu_code, rule.action) == ("MASTER_LOT", "delete")
+    assert permissions.permission_for_request(
+        "GET", "/api/v1/companies/00001/inventory"
+    ).menu_code == "MASTER_LOT"
+    assert permissions.permission_for_request(
+        "GET", "/api/v1/companies/00001/inventory/lots/1/transactions"
+    ).menu_code == "MASTER_LOT"
     assert permissions.permission_for_request("PUT", "/api/v1/users/test/access").menu_code == "SYS_PERMISSION"
     assert permissions.permission_for_request("PUT", "/api/v1/users/test/password") is None
     assert permissions.permission_for_request("GET", "/api/v1/warehouses/next-code").menu_code == "MASTER_WAREHOUSE"

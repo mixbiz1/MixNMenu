@@ -31,6 +31,7 @@ from trade_common import (
     tax_snapshot, validate_leaf_input_expense,
 )
 import models
+from inventory_projection import project_inventory, lot_transactions
 from receipt_routes import router as receipt_router
 from payment_routes import router as payment_router
 
@@ -1900,6 +1901,16 @@ def update_lot(comp_code: str, lot_id: int, data: LotSchema,
         raise HTTPException(status_code=404, detail="LOT가 없습니다.")
     if data.lot_code.strip().upper() != obj.lot_code:
         raise HTTPException(status_code=400, detail="저장된 LOT번호는 변경할 수 없습니다.")
+    if data.product_id != obj.product_id or data.warehouse_id != obj.warehouse_id:
+        linked_inbound = db.query(models.InboundItem.inbound_item_id).filter(
+            models.InboundItem.lot_id == obj.lot_id
+        ).first()
+        linked_outbound = db.query(models.OutboundItem.outbound_item_id).filter(
+            models.OutboundItem.lot_id == obj.lot_id
+        ).first()
+        if linked_inbound or linked_outbound:
+            raise HTTPException(status_code=409,
+                                detail="입출고 이력이 있는 LOT의 상품·창고는 변경할 수 없습니다.")
     product = _validate_lot_data(comp_code, data, db, require_active=False)
     values = data.model_dump(exclude={"lot_code"})
     if values["production_date"] and values["expiry_date"] is None:
@@ -2092,9 +2103,53 @@ def get_opening_inventories(comp_code: str, db: Session = Depends(get_db)):
     return [_opening_inventory_result(row) for row in rows]
 
 
+@app.get("/api/v1/companies/{comp_code}/opening-inventories/{inbound_id}/history")
+def get_opening_inventory_history(comp_code: str, inbound_id: int,
+                                  db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    exists = db.query(models.Inbound.inbound_id).filter(
+        models.Inbound.inbound_id == inbound_id,
+        models.Inbound.comp_code == comp_code,
+        models.Inbound.transaction_type == "OPENING_INVENTORY",
+    ).first()
+    if not exists and not db.query(AuditEvent.audit_event_id).filter(
+            AuditEvent.comp_code == comp_code, AuditEvent.entity_type == "OPENING_INVENTORY",
+            AuditEvent.entity_id == str(inbound_id)).first():
+        raise HTTPException(status_code=404, detail="최초재고 이력이 없습니다.")
+    return [{column.key: getattr(event, column.key) for column in AuditEvent.__table__.columns}
+            for event in db.query(AuditEvent).filter(
+                AuditEvent.comp_code == comp_code,
+                AuditEvent.entity_type == "OPENING_INVENTORY",
+                AuditEvent.entity_id == str(inbound_id),
+            ).order_by(AuditEvent.audit_event_id).all()]
+
+
+def _guard_opening_inventory_changes(db: Session, header):
+    """Do not rewrite opening quantities or LOT attributes after downstream use."""
+    lot_ids = [item.lot_id for item in header.items]
+    if not lot_ids:
+        return
+    linked_outbound = db.query(models.OutboundItem.outbound_item_id).join(
+        models.Outbound, models.Outbound.outbound_id == models.OutboundItem.outbound_id
+    ).filter(models.Outbound.comp_code == header.comp_code,
+             models.OutboundItem.lot_id.in_(lot_ids)).first()
+    if linked_outbound:
+        raise HTTPException(status_code=409,
+                            detail="후속 출고에 연결된 최초재고 LOT는 수정 또는 삭제할 수 없습니다.")
+    own_item_ids = [item.inbound_item_id for item in header.items]
+    downstream_inbound = db.query(models.InboundItem.inbound_item_id).join(
+        models.Inbound, models.Inbound.inbound_id == models.InboundItem.inbound_id
+    ).filter(models.Inbound.comp_code == header.comp_code,
+             models.InboundItem.lot_id.in_(lot_ids),
+             ~models.InboundItem.inbound_item_id.in_(own_item_ids)).first()
+    if downstream_inbound:
+        raise HTTPException(status_code=409,
+                            detail="추가 입고에 연결된 최초재고 LOT는 수정 또는 삭제할 수 없습니다.")
+
+
 @app.post("/api/v1/companies/{comp_code}/opening-inventories", status_code=status.HTTP_201_CREATED)
 def create_opening_inventory(comp_code: str, data: OpeningInventorySchema,
-                             db: Session = Depends(get_db)):
+                             request: Request, db: Session = Depends(get_db)):
     """LOT와 최초입고 Header/Detail을 단일 DB Transaction으로 생성한다."""
     _get_company_or_404(comp_code, db)
     warehouse = db.query(models.Warehouse).join(models.CompanyWarehouse).filter(
@@ -2169,6 +2224,14 @@ def create_opening_inventory(comp_code: str, data: OpeningInventorySchema,
                 individual_cost=cost,
                 amount=_ceil_won(weight * cost),
             ))
+        db.flush()
+        after = _opening_inventory_result(inbound)
+        record_audit_event(
+            db, comp_code=comp_code, user_id=request.state.user_id,
+            menu_code="OPENING_INVENTORY", action="CREATE",
+            entity_type="OPENING_INVENTORY", entity_id=inbound.inbound_id,
+            source=f"{request.method} {request.url.path}", after=after,
+        )
         db.commit()
         db.refresh(inbound)
         return _opening_inventory_result(inbound)
@@ -2186,7 +2249,7 @@ def create_opening_inventory(comp_code: str, data: OpeningInventorySchema,
 @app.put("/api/v1/companies/{comp_code}/opening-inventories/{inbound_id}")
 def update_opening_inventory(comp_code: str, inbound_id: int,
                              data: OpeningInventorySchema,
-                             db: Session = Depends(get_db)):
+                             request: Request, db: Session = Depends(get_db)):
     header = db.query(models.Inbound).filter(
         models.Inbound.inbound_id == inbound_id,
         models.Inbound.comp_code == comp_code,
@@ -2194,6 +2257,8 @@ def update_opening_inventory(comp_code: str, inbound_id: int,
     ).first()
     if not header:
         raise HTTPException(status_code=404, detail="최초재고 전표가 없습니다.")
+    _guard_opening_inventory_changes(db, header)
+    before = _opening_inventory_result(header)
     warehouse = db.query(models.Warehouse).join(models.CompanyWarehouse).filter(
         models.Warehouse.warehouse_id == data.warehouse_id,
         models.CompanyWarehouse.comp_code == comp_code,
@@ -2261,6 +2326,16 @@ def update_opening_inventory(comp_code: str, inbound_id: int,
             detail.line_no = line_no; detail.product_id = item.product_id
             detail.box_qty = item.box_qty; detail.weight = weight
             detail.individual_cost = cost; detail.amount = _ceil_won(weight * cost)
+        db.flush()
+        db.expire(header, ["items"])
+        after = _opening_inventory_result(header)
+        record_audit_event(
+            db, comp_code=comp_code, user_id=request.state.user_id,
+            menu_code="OPENING_INVENTORY", action="UPDATE",
+            entity_type="OPENING_INVENTORY", entity_id=header.inbound_id,
+            source=f"{request.method} {request.url.path}", before=before, after=after,
+            related_entity_type="OPENING_INVENTORY", related_entity_id=header.inbound_id,
+        )
         db.commit(); db.refresh(header)
         return _opening_inventory_result(header)
     except HTTPException:
@@ -2277,7 +2352,7 @@ def update_opening_inventory(comp_code: str, inbound_id: int,
 
 @app.delete("/api/v1/companies/{comp_code}/opening-inventories/{inbound_id}")
 def delete_opening_inventory(comp_code: str, inbound_id: int,
-                             db: Session = Depends(get_db)):
+                             request: Request, db: Session = Depends(get_db)):
     header = db.query(models.Inbound).filter(
         models.Inbound.inbound_id == inbound_id,
         models.Inbound.comp_code == comp_code,
@@ -2285,10 +2360,18 @@ def delete_opening_inventory(comp_code: str, inbound_id: int,
     ).first()
     if not header:
         raise HTTPException(status_code=404, detail="최초재고 전표가 없습니다.")
+    _guard_opening_inventory_changes(db, header)
     try:
+        before = _opening_inventory_result(header)
         lots = [item.lot for item in header.items]
         db.delete(header); db.flush()
         for lot in lots: db.delete(lot)
+        record_audit_event(
+            db, comp_code=comp_code, user_id=request.state.user_id,
+            menu_code="OPENING_INVENTORY", action="DELETE",
+            entity_type="OPENING_INVENTORY", entity_id=inbound_id,
+            source=f"{request.method} {request.url.path}", before=before,
+        )
         db.commit()
         return {"message": "최초재고 전표와 연결 LOT가 삭제되었습니다."}
     except IntegrityError as exc:
@@ -2297,6 +2380,49 @@ def delete_opening_inventory(comp_code: str, inbound_id: int,
             status_code=409,
             detail="후속 입출고에 연결된 LOT가 포함되어 삭제할 수 없습니다.",
         ) from exc
+
+
+@app.get("/api/v1/companies/{comp_code}/inventory")
+def get_inventory_projection(comp_code: str, start_date: Optional[date] = None,
+                             end_date: Optional[date] = None,
+                             warehouse_id: Optional[int] = None,
+                             product_search: str = "", include_zero: bool = False,
+                             group_by: str = "LOT", db: Session = Depends(get_db),
+                             storage_type: Optional[str] = None):
+    """Period stock report derived from the authoritative inbound/outbound ledgers."""
+    _get_company_or_404(comp_code, db)
+    effective_end = end_date or date.today()
+    effective_start = start_date or effective_end.replace(day=1)
+    if effective_start > effective_end:
+        raise HTTPException(status_code=400, detail="시작일은 종료일보다 늦을 수 없습니다.")
+    if storage_type and storage_type not in {"FROZEN", "CHILLED", "AMBIENT", "MIXED"}:
+        raise HTTPException(status_code=400, detail="보관유형 값이 올바르지 않습니다.")
+    if warehouse_id is not None:
+        linked = db.query(models.CompanyWarehouse.company_warehouse_id).filter(
+            models.CompanyWarehouse.comp_code == comp_code,
+            models.CompanyWarehouse.warehouse_id == warehouse_id,
+        ).first()
+        if not linked:
+            raise HTTPException(status_code=400, detail="현재 업무회사에 연결되지 않은 창고입니다.")
+    try:
+        result = project_inventory(db, comp_code, effective_start, effective_end,
+                                   warehouse_id, product_search, include_zero, group_by, storage_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result["start_date"] = effective_start
+    result["end_date"] = effective_end
+    return result
+
+
+@app.get("/api/v1/companies/{comp_code}/inventory/lots/{lot_id}/transactions")
+def get_inventory_lot_transactions(comp_code: str, lot_id: int,
+                                   end_date: Optional[date] = None,
+                                   db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    result = lot_transactions(db, comp_code, lot_id, end_date)
+    if result is None:
+        raise HTTPException(status_code=404, detail="현재 업무회사의 LOT가 없습니다.")
+    return result
 
 
 def _opening_balance_result(obj, allocated=Decimal("0")):
@@ -3328,6 +3454,7 @@ def _prepare_sale_lines(db, comp_code, sale_date, items, inventory_exception_rea
     for item in items:
         lot = db.query(models.Lot).filter(models.Lot.lot_id == item.lot_id, models.Lot.comp_code == comp_code, models.Lot.use_yn == True).first()
         if not lot: raise HTTPException(status_code=400, detail=f"{item.line_no}행 LOT는 현재 회사에서 사용 중인 LOT가 아닙니다.")
+        if lot.status != "OPEN": raise HTTPException(status_code=409, detail=f"{item.line_no}행 LOT는 보류 또는 마감 상태여서 출고할 수 없습니다.")
         if lot.product_id != item.product_id: raise HTTPException(status_code=400, detail=f"{item.line_no}행 상품과 LOT의 상품이 일치하지 않습니다.")
         product=db.query(models.Product).filter(models.Product.product_id==item.product_id,models.Product.use_yn==True).first()
         if not product: raise HTTPException(status_code=400, detail=f"{item.line_no}행 상품은 사용 중인 상품이 아닙니다.")

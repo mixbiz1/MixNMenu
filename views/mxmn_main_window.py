@@ -79,6 +79,7 @@ try:
     from views.receipt_reg import ReceiptRegWindow
     from views.payment_reg import PaymentRegWindow
     from views.account_ledger import AccountLedgerWindow
+    from views.inventory_reg import InventoryRegWindow
 except ImportError:
     from opening_inventory_reg import OpeningInventoryRegWindow
     from opening_balance_reg import OpeningBalanceRegWindow
@@ -87,6 +88,7 @@ except ImportError:
     from receipt_reg import ReceiptRegWindow
     from payment_reg import PaymentRegWindow
     from account_ledger import AccountLedgerWindow
+    from inventory_reg import InventoryRegWindow
 
 try:
     from views.password_change import PasswordChangeDialog
@@ -903,6 +905,9 @@ class MixNMainWindow(QMainWindow):
         self.action_account_ledger = QAction("1.거래처원장", self)
         self.action_account_ledger.triggered.connect(self.open_account_ledger)
         self.menu7.addAction(self.action_account_ledger)
+        self.action_inventory = QAction("2.재고수불 조회", self)
+        self.action_inventory.triggered.connect(self.open_inventory_reg)
+        self.menu7.addAction(self.action_inventory)
 
         self.menu8 = QMenu(
             "8.계산서관리",
@@ -959,6 +964,7 @@ class MixNMainWindow(QMainWindow):
         }
         for code, action in mapping.items():
             action.setVisible(app_context.can(code, "read"))
+        self.action_inventory.setVisible(app_context.can("MASTER_LOT", "read"))
 
 
     # ========================================================
@@ -1577,6 +1583,10 @@ class MixNMainWindow(QMainWindow):
     def open_account_ledger(self):
         """거래처원장 조회 화면을 MDI에 1개만 연다."""
         self._open_single_mdi(AccountLedgerWindow, "거래처원장", "조회/출력 → 거래처원장")
+
+    def open_inventory_reg(self):
+        """원장 기반 재고수불 조회 화면을 MDI에 1개만 연다."""
+        self._open_single_mdi(InventoryRegWindow, "재고수불 조회", "조회/출력 → 재고수불 조회")
 
     def _open_single_mdi(self, widget_class, title, status_text):
         try:
