@@ -309,6 +309,14 @@ class ReceiptRegWindow(QWidget):
             if self.table.item(row, 0).data(Qt.UserRole) == transaction_id:
                 self.table.selectRow(row); return
 
+    def open_source_id(self, transaction_id):
+        """원장에서 전달된 입금/지급 원거래 ID를 선택해 수정모드로 연다."""
+        self.load_data()
+        if not any(int(item["account_transaction_id"]) == int(transaction_id) for item in self.rows):
+            return False
+        self._select_id(int(transaction_id))
+        return self.current_id == int(transaction_id)
+
     def close_window(self):
         parent = self.parentWidget(); parent.close() if isinstance(parent, QMdiSubWindow) else self.close()
 

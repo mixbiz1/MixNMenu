@@ -17,7 +17,7 @@ class AccountLedgerWindow(QWidget):
         ("transaction_date", "일자"), ("transaction_no", "전표번호"),
         ("type_label", "구분"), ("memo", "적요"), ("box_qty", "Box"),
         ("weight", "중량(Kg)"), ("unit_price", "단가"),
-        ("transaction_amount", "원거래금액"),
+        ("line_amount", "품목금액"),
         ("sales_amount", "매출금액"), ("receipt_amount", "수금액"),
         ("purchase_amount", "매입금액"), ("payment_amount", "지급액"),
         ("balance", "잔액"), ("reference", "LOT·이력번호"),
@@ -27,6 +27,7 @@ class AccountLedgerWindow(QWidget):
         super().__init__()
         self.accounts = []
         self.ledger = None
+        self._displayed_transactions = []
         self._loading = False
         self._build_ui()
         self.load_accounts()
@@ -65,6 +66,7 @@ class AccountLedgerWindow(QWidget):
         root.addWidget(self.balance_summary)
         self.tabs = QTabWidget()
         self.transaction_table = self._new_table([title for _, title in self.COLUMNS])
+        self.transaction_table.itemDoubleClicked.connect(self.open_source_transaction)
         self.daily_table = self._new_table(["일자", "Box", "중량(Kg)", "매출", "수금", "매입", "지급", "순변동"])
         self.monthly_table = self._new_table(["월", "Box", "중량(Kg)", "매출", "수금", "매입", "지급", "순변동"])
         self.period_table = self._new_table(["조회기간", "Box", "중량(Kg)", "매출", "수금", "매입", "지급", "순변동"])
@@ -73,6 +75,20 @@ class AccountLedgerWindow(QWidget):
         self.tabs.addTab(self.monthly_table, "월계")
         self.tabs.addTab(self.period_table, "기간합계")
         root.addWidget(self.tabs, 1)
+
+    def open_source_transaction(self, item):
+        row_index = item.row()
+        if row_index < 0 or row_index >= len(self._displayed_transactions):
+            return
+        row = self._displayed_transactions[row_index]
+        source_type, source_id = row.get("source_type"), row.get("source_id")
+        if not source_type or source_id is None:
+            return
+        parent = self.parentWidget()
+        while parent is not None and not callable(getattr(parent, "open_account_ledger_source", None)):
+            parent = parent.parentWidget()
+        if parent is not None:
+            parent.open_account_ledger_source(source_type, source_id)
 
     @staticmethod
     def _new_table(headers):
@@ -89,7 +105,7 @@ class AccountLedgerWindow(QWidget):
     def _display(value, key):
         if value is None:
             return ""
-        if key in {"box_qty", "unit_price", "transaction_amount", "sales_amount", "receipt_amount", "purchase_amount", "payment_amount", "balance", "net_change"}:
+        if key in {"box_qty", "unit_price", "line_amount", "transaction_amount", "sales_amount", "receipt_amount", "purchase_amount", "payment_amount", "balance", "net_change"}:
             return f"{int(value):,}"
         if key == "weight":
             return f"{float(value):,.2f}"
@@ -100,10 +116,25 @@ class AccountLedgerWindow(QWidget):
         for row_index, row in enumerate(rows):
             for column, key in enumerate(keys):
                 cell = QTableWidgetItem(self._display(row.get(key), key))
-                if key in {"box_qty", "unit_price", "transaction_amount", "sales_amount", "receipt_amount", "purchase_amount", "payment_amount", "balance", "net_change", "weight"}:
+                if key in {"box_qty", "unit_price", "line_amount", "transaction_amount", "sales_amount", "receipt_amount", "purchase_amount", "payment_amount", "balance", "net_change", "weight"}:
                     cell.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 table.setItem(row_index, column, cell)
         table.resizeColumnsToContents()
+
+    @staticmethod
+    def _expand_transactions(transactions):
+        """품목은 행별로 보이고 전표 금액은 첫 품목행에만 표시한다."""
+        displayed = []
+        amount_keys = ("transaction_amount", "sales_amount", "receipt_amount", "purchase_amount", "payment_amount")
+        for transaction in transactions:
+            details = transaction.get("details") or [transaction]
+            for index, detail in enumerate(details):
+                row = {**transaction, **detail}
+                if index:
+                    for key in amount_keys:
+                        row[key] = None
+                displayed.append(row)
+        return displayed
 
     def load_accounts(self):
         selected = self.account.currentData()
@@ -146,7 +177,9 @@ class AccountLedgerWindow(QWidget):
             )
             response.raise_for_status()
             self.ledger = response.json()
-            self._fill_table(self.transaction_table, self.ledger["transactions"], [key for key, _ in self.COLUMNS])
+            display_rows = self._expand_transactions(self.ledger["transactions"])
+            self._displayed_transactions = display_rows
+            self._fill_table(self.transaction_table, display_rows, [key for key, _ in self.COLUMNS])
             summary_keys = ("box_qty", "weight", "sales_amount", "receipt_amount", "purchase_amount", "payment_amount", "net_change")
             self._fill_table(self.daily_table, [dict(day=day, **values) for day, values in self.ledger["daily_totals"].items()], ["day", *summary_keys])
             self._fill_table(self.monthly_table, [dict(month=month, **values) for month, values in self.ledger["monthly_totals"].items()], ["month", *summary_keys])
@@ -165,6 +198,7 @@ class AccountLedgerWindow(QWidget):
 
     def _clear_results(self):
         self.ledger = None
+        self._displayed_transactions = []
         self.transaction_table.setRowCount(0)
         self.daily_table.setRowCount(0)
         self.monthly_table.setRowCount(0)

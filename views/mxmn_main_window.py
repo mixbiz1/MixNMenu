@@ -1589,7 +1589,7 @@ class MixNMainWindow(QMainWindow):
                     widget.show(); sub.showNormal(); sub.showMaximized()
                     self._bring_subwindow_to_front(sub)
                     self.set_work_status(f"{status_text} 창이 활성화되었습니다.")
-                    return
+                    return widget
             widget = widget_class()
             sub_window = self.mdi_area.addSubWindow(widget)
             sub_window.setAttribute(Qt.WA_DeleteOnClose, True)
@@ -1599,8 +1599,29 @@ class MixNMainWindow(QMainWindow):
             widget.show(); sub_window.show(); sub_window.showMaximized()
             self._bring_subwindow_to_front(sub_window)
             self.set_work_status(f"{status_text} 창이 열렸습니다.")
+            return widget
         except Exception as e:
             QMessageBox.critical(self, f"{title} 실행 오류", f"{title} 화면을 열 수 없습니다.\n\n{e}")
+            return None
+
+    def open_account_ledger_source(self, source_type, source_id):
+        """원장의 안정적인 source ID로 기존 원거래 입력창을 재사용한다."""
+        mapping = {
+            "PURCHASE": (PurchaseRegWindow, "상품매입등록/수정", "상품입/출고관리 → 상품매입등록/수정"),
+            "SALE": (SaleRegWindow, "상품매출/출고등록", "상품입/출고관리 → 상품매출/출고등록"),
+            "RECEIPT": (ReceiptRegWindow, "입금관리", "입금/출금관리 → 입금관리"),
+            "PAYMENT": (PaymentRegWindow, "지급관리", "입금/출금관리 → 지급관리"),
+        }
+        target = mapping.get(source_type)
+        if target is None:
+            return
+        widget_class, title, status_text = target
+        widget = self._open_single_mdi(widget_class, title, status_text)
+        if widget is None:
+            return
+        loader = getattr(widget, "open_source_id", None)
+        if callable(loader):
+            loader(source_id)
 
 
     # ========================================================

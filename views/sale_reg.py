@@ -502,6 +502,20 @@ class SaleRegWindow(QWidget):
             try: self.load_sale(sale)
             except Exception as exc: QMessageBox.warning(self, '전표 로딩 오류', PurchaseRegWindow._error_text(exc))
 
+    def open_source_id(self, sale_id):
+        """원장에서 전달받은 매출 PK를 기준으로 해당 전표를 수정조회한다."""
+        self.query_sales()
+        sale = next((item for item in self.saved if int(item['sale_id']) == int(sale_id)), None)
+        if sale is None:
+            return False
+        self.date.setDate(QDate.fromString(str(sale['sale_date']), 'yyyy-MM-dd'))
+        for row in range(self.today_table.rowCount()):
+            cell = self.today_table.item(row, 0)
+            if cell and int(cell.data(Qt.UserRole)) == int(sale_id):
+                self.today_table.selectRow(row)
+                return True
+        return False
+
     def load_sale(self, sale):
         self.sale_id = sale['sale_id']; self.original = {x['lot_id']:True for x in sale['items']}
         self.loading = True

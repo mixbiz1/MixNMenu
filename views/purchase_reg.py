@@ -315,6 +315,20 @@ class PurchaseRegWindow(QWidget):
         for item in value.get("items",[]): self.add_row(item)
         self.update_totals(); self.load_payable_summary(); self.btn_cancel.setEnabled(True)
 
+    def open_source_id(self, purchase_id):
+        """원장에서 전달받은 매입 PK를 기준으로 당일 전표를 찾아 수정조회한다."""
+        self.load_all()
+        value = next((item for item in self.saved if int(item["purchase_id"]) == int(purchase_id)), None)
+        if value is None:
+            return False
+        self.purchase_date.setDate(QDate.fromString(str(value["purchase_date"]), "yyyy-MM-dd"))
+        for row in range(self.today_table.rowCount()):
+            cell = self.today_table.item(row, 0)
+            if cell and int(cell.data(Qt.UserRole)) == int(purchase_id):
+                self.today_table.selectRow(row)
+                return True
+        return False
+
     def new_document(self, keep_date=False):
         self.current_id=None
         if not keep_date: self.purchase_date.setDate(QDate.currentDate())
