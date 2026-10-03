@@ -24,6 +24,8 @@ from permissions import (
 from purchase_service import (
     calculate_purchase_line, summarize_purchase, validate_box_qty, validate_client_amounts,
 )
+from account_ledger import build_account_ledger
+from settlement_service import account_net_balance, transaction_net_delta
 from trade_common import (
     allocate_document_no, apply_status_transition, ensure_draft, ensure_period_open,
     tax_snapshot, validate_leaf_input_expense,
@@ -3273,23 +3275,20 @@ def cancel_purchase(comp_code: str, purchase_id: int, data: PurchaseCancelInput,
 
 
 @app.get("/api/v1/companies/{comp_code}/payment-payable-summary")
-def get_purchase_payable_summary(comp_code: str, account_id: int, transaction_date: date,
-                                 db: Session = Depends(get_db)):
+def get_payment_payable_summary(comp_code: str, account_id: int, transaction_date: date,
+                                db: Session = Depends(get_db)):
     _get_company_or_404(comp_code, db); _purchase_supplier(db, comp_code, account_id)
     rows = db.query(models.AccountTransaction).filter(
         models.AccountTransaction.comp_code == comp_code,
         models.AccountTransaction.account_id == account_id,
     ).all()
-    def net(row):
-        return (Decimal(row.original_amount) if row.transaction_type in {"OPENING_RECEIVABLE", "SALES_RECEIVABLE", "PAYMENT"}
-                else -Decimal(row.original_amount) if row.transaction_type in {"RECEIPT", "OPENING_PAYABLE", "PURCHASE_PAYABLE"} else Decimal(0))
-    previous = -sum((net(row) for row in rows if row.transaction_date < transaction_date), Decimal(0))
+    previous = -sum((transaction_net_delta(row) for row in rows if row.transaction_date < transaction_date), Decimal(0))
     today_purchase = sum((Decimal(row.original_amount) for row in rows if row.transaction_date == transaction_date and row.transaction_type == "PURCHASE_PAYABLE"), Decimal(0))
     today_payment = sum((Decimal(row.original_amount) for row in rows if row.transaction_date == transaction_date and row.transaction_type == "PAYMENT"), Decimal(0))
     return {"previous_payable": int(previous),
             "today_purchase": int(today_purchase),
             "today_payment": int(today_payment),
-            "current_payable": int(-sum((net(row) for row in rows if row.transaction_date <= transaction_date), Decimal(0)))}
+            "current_payable": int(-account_net_balance(db, comp_code, account_id, transaction_date))}
 
 
 # =============================================================================
@@ -3429,21 +3428,36 @@ def get_sale_history(comp_code:str,sale_id:int,db:Session=Depends(get_db)):
 def get_sales_receivable_summary(comp_code:str,account_id:int,transaction_date:date,db:Session=Depends(get_db)):
     _get_company_or_404(comp_code,db); _sale_customer(db,comp_code,account_id)
     rows=db.query(models.AccountTransaction).filter(models.AccountTransaction.comp_code==comp_code,models.AccountTransaction.account_id==account_id).all()
-    def net(row): return Decimal(row.original_amount) if row.transaction_type in {"OPENING_RECEIVABLE","SALES_RECEIVABLE","PAYMENT"} else -Decimal(row.original_amount) if row.transaction_type in {"RECEIPT","OPENING_PAYABLE","PURCHASE_PAYABLE"} else Decimal(0)
-    previous=sum((net(x) for x in rows if x.transaction_date < transaction_date),Decimal(0))
+    previous=sum((transaction_net_delta(x) for x in rows if x.transaction_date < transaction_date),Decimal(0))
     today_sales=sum((Decimal(x.original_amount) for x in rows if x.transaction_date==transaction_date and x.transaction_type=="SALES_RECEIVABLE"),Decimal(0))
     today_receipt=sum((Decimal(x.original_amount) for x in rows if x.transaction_date==transaction_date and x.transaction_type=="RECEIPT"),Decimal(0))
-    return {"previous_receivable":int(previous),"today_sales":int(today_sales),"today_receipt":int(today_receipt),"current_receivable":int(sum((net(x) for x in rows if x.transaction_date<=transaction_date),Decimal(0)))}
+    return {"previous_receivable":int(previous),"today_sales":int(today_sales),"today_receipt":int(today_receipt),"current_receivable":int(account_net_balance(db,comp_code,account_id,transaction_date))}
 
 @app.get("/api/v1/companies/{comp_code}/purchase-payable-summary")
 def get_purchase_payable_summary(comp_code:str,account_id:int,transaction_date:date,db:Session=Depends(get_db)):
     _get_company_or_404(comp_code,db); _purchase_supplier(db,comp_code,account_id)
     rows=db.query(models.AccountTransaction).filter(models.AccountTransaction.comp_code==comp_code,models.AccountTransaction.account_id==account_id).all()
-    def amount(row): return Decimal(row.original_amount) if row.transaction_type in {"OPENING_PAYABLE","PURCHASE_PAYABLE"} else -Decimal(row.original_amount) if row.transaction_type=="PAYMENT" else Decimal(0)
-    previous=sum((amount(x) for x in rows if x.transaction_date < transaction_date),Decimal(0))
+    previous=-sum((transaction_net_delta(x) for x in rows if x.transaction_date < transaction_date),Decimal(0))
     today_purchase=sum((Decimal(x.original_amount) for x in rows if x.transaction_date==transaction_date and x.transaction_type=="PURCHASE_PAYABLE"),Decimal(0))
     today_payment=sum((Decimal(x.original_amount) for x in rows if x.transaction_date==transaction_date and x.transaction_type=="PAYMENT"),Decimal(0))
-    return {"previous_payable":int(previous),"today_purchase":int(today_purchase),"today_payment":int(today_payment),"current_payable":int(previous+today_purchase-today_payment)}
+    return {"previous_payable":int(previous),"today_purchase":int(today_purchase),"today_payment":int(today_payment),"current_payable":int(-account_net_balance(db,comp_code,account_id,transaction_date))}
+
+
+@app.get("/api/v1/companies/{comp_code}/account-ledger")
+def get_account_ledger(comp_code: str, account_id: int, start_date: date, end_date: date,
+                       db: Session = Depends(get_db)):
+    _get_company_or_404(comp_code, db)
+    relation = db.query(models.CompanyAccount).filter(
+        models.CompanyAccount.comp_code == comp_code,
+        models.CompanyAccount.account_id == account_id,
+        models.CompanyAccount.use_yn == True,
+        models.CompanyAccount.trade_stop_yn == False,
+    ).first()
+    if relation is None:
+        raise HTTPException(status_code=404, detail="현재 업무회사에서 조회할 수 없는 거래처입니다.")
+    if start_date > end_date:
+        raise HTTPException(status_code=422, detail="시작일은 종료일보다 늦을 수 없습니다.")
+    return build_account_ledger(db, comp_code, account_id, start_date, end_date)
 
 @app.put("/api/v1/companies/{comp_code}/sales/{sale_id}")
 def update_sale(comp_code:str,sale_id:int,data:SaleInput,request:Request,db:Session=Depends(get_db)):

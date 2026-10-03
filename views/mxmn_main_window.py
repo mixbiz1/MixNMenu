@@ -78,6 +78,7 @@ try:
     from views.sale_reg import SaleRegWindow
     from views.receipt_reg import ReceiptRegWindow
     from views.payment_reg import PaymentRegWindow
+    from views.account_ledger import AccountLedgerWindow
 except ImportError:
     from opening_inventory_reg import OpeningInventoryRegWindow
     from opening_balance_reg import OpeningBalanceRegWindow
@@ -85,6 +86,7 @@ except ImportError:
     from sale_reg import SaleRegWindow
     from receipt_reg import ReceiptRegWindow
     from payment_reg import PaymentRegWindow
+    from account_ledger import AccountLedgerWindow
 
 try:
     from views.password_change import PasswordChangeDialog
@@ -898,6 +900,9 @@ class MixNMainWindow(QMainWindow):
             "7.조회/출력",
             self,
         )
+        self.action_account_ledger = QAction("1.거래처원장", self)
+        self.action_account_ledger.triggered.connect(self.open_account_ledger)
+        self.menu7.addAction(self.action_account_ledger)
 
         self.menu8 = QMenu(
             "8.계산서관리",
@@ -950,6 +955,7 @@ class MixNMainWindow(QMainWindow):
             "SALES_GENERAL": self.action_sale,
             "RECEIPT_MANAGEMENT": self.action_receipt,
             "PAYMENT_MANAGEMENT": self.action_payment,
+            "ACCOUNT_LEDGER": self.action_account_ledger,
         }
         for code, action in mapping.items():
             action.setVisible(app_context.can(code, "read"))
@@ -1567,6 +1573,10 @@ class MixNMainWindow(QMainWindow):
     def open_payment_reg(self):
         self._open_single_mdi(PaymentRegWindow, "지급관리", "입금/출금관리 → 지급관리")
 
+
+    def open_account_ledger(self):
+        """거래처원장 조회 화면을 MDI에 1개만 연다."""
+        self._open_single_mdi(AccountLedgerWindow, "거래처원장", "조회/출력 → 거래처원장")
 
     def _open_single_mdi(self, widget_class, title, status_text):
         try:

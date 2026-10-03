@@ -12,6 +12,31 @@ from sqlalchemy import func
 import models
 
 
+_NET_SIGNS = {
+    "OPENING_RECEIVABLE": 1,
+    "SALES_RECEIVABLE": 1,
+    "PAYMENT": 1,
+    "RECEIPT": -1,
+    "OPENING_PAYABLE": -1,
+    "PURCHASE_PAYABLE": -1,
+}
+
+
+def transaction_net_delta(transaction):
+    """미수 관점 순잔액(+)에 반영되는 거래별 금액."""
+    return Decimal(transaction.original_amount or 0) * _NET_SIGNS.get(transaction.transaction_type, 0)
+
+
+def account_net_balance(db, comp_code, account_id, transaction_date):
+    """기준일까지 회사·거래처 원거래의 순잔액을 공통 규칙으로 계산한다."""
+    rows = db.query(models.AccountTransaction).filter(
+        models.AccountTransaction.comp_code == comp_code,
+        models.AccountTransaction.account_id == account_id,
+        models.AccountTransaction.transaction_date <= transaction_date,
+    ).all()
+    return sum((transaction_net_delta(row) for row in rows), Decimal(0))
+
+
 def source_allocated(db, source_id):
     value = db.query(func.coalesce(func.sum(models.AccountTransactionAllocation.allocated_amount), 0)).filter(
         models.AccountTransactionAllocation.source_transaction_id == source_id
