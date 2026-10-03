@@ -159,8 +159,8 @@ def _summary(rows):
     }
 
 
-def lot_transactions(db, comp_code, lot_id, end_date=None):
-    """Movement detail with stable references back to purchase/sale or inbound/outbound."""
+def lot_transactions(db, comp_code, lot_id, end_date=None, start_date=None):
+    """Return a LOT ledger, including the balance carried into a requested period."""
     lot = db.query(models.Lot).filter(models.Lot.comp_code == comp_code,
                                       models.Lot.lot_id == lot_id).first()
     if lot is None:
@@ -176,43 +176,51 @@ def lot_transactions(db, comp_code, lot_id, end_date=None):
     purchase_links = {}
     inbound_ids = [item.inbound_item_id for item, _ in inbound]
     if inbound_ids:
-        for purchase_id, purchase_no, inbound_item_id in db.query(
+        for purchase_id, purchase_no, inbound_item_id, account_name in db.query(
                 models.Purchase.purchase_id, models.Purchase.purchase_no,
-                models.PurchaseItem.inbound_item_id).join(
+                models.PurchaseItem.inbound_item_id, models.Account.account_name).join(
                 models.PurchaseItem, models.PurchaseItem.purchase_id == models.Purchase.purchase_id
+        ).join(models.Account, models.Account.account_id == models.Purchase.account_id
         ).filter(models.Purchase.comp_code == comp_code,
                  models.PurchaseItem.inbound_item_id.in_(inbound_ids)).all():
-            purchase_links[inbound_item_id] = (purchase_id, purchase_no)
+            purchase_links[inbound_item_id] = (purchase_id, purchase_no, account_name)
     sale_links = {}
     sale_item_ids = [item.sale_item_id for item, _ in outbound]
     if sale_item_ids:
-        for sale_id, sale_no, sale_item_id in db.query(
-                models.Sale.sale_id, models.Sale.sale_no, models.SaleItem.sale_item_id
-        ).join(models.SaleItem, models.SaleItem.sale_id == models.Sale.sale_id).filter(
+        for sale_id, sale_no, sale_item_id, account_name in db.query(
+                models.Sale.sale_id, models.Sale.sale_no, models.SaleItem.sale_item_id,
+                models.Account.account_name
+        ).join(models.SaleItem, models.SaleItem.sale_id == models.Sale.sale_id).join(
+                models.Account, models.Account.account_id == models.Sale.account_id
+        ).filter(
                 models.Sale.comp_code == comp_code,
                 models.SaleItem.sale_item_id.in_(sale_item_ids)).all():
-            sale_links[sale_item_id] = (sale_id, sale_no)
+            sale_links[sale_item_id] = (sale_id, sale_no, account_name)
     movements = []
     for item, header in inbound:
         purchase = purchase_links.get(item.inbound_item_id)
-        source_type, source_id, source_no = (("PURCHASE", purchase[0], purchase[1]) if purchase else
+        source_type, source_id, source_no, account_name = (("PURCHASE", *purchase) if purchase else
                                               ("OPENING_INVENTORY" if header.transaction_type == "OPENING_INVENTORY" else "INBOUND",
-                                               header.inbound_id, header.inbound_no))
+                                               header.inbound_id, header.inbound_no, None))
         movements.append({"date": header.inbound_date, "direction": "INBOUND",
                           "transaction_type": header.transaction_type,
                           "transaction_no": header.inbound_no, "source_type": source_type,
                           "source_id": source_id, "source_no": source_no,
+                          "account_name": account_name,
+                          "unit_cost": Decimal(item.individual_cost or lot.individual_cost or 0),
                           "inbound_item_id": item.inbound_item_id, "outbound_item_id": None,
                           "box_delta": int(item.box_qty), "weight_delta": Decimal(item.weight),
                           "warehouse_id": header.warehouse_id})
     for item, header in outbound:
         sale = sale_links.get(item.sale_item_id)
-        source_type, source_id, source_no = (("SALE", sale[0], sale[1]) if sale else
-                                             ("OUTBOUND", header.outbound_id, header.outbound_no))
+        source_type, source_id, source_no, account_name = (("SALE", *sale) if sale else
+                                             ("OUTBOUND", header.outbound_id, header.outbound_no, None))
         movements.append({"date": header.outbound_date, "direction": "OUTBOUND",
                           "transaction_type": header.transaction_type,
                           "transaction_no": header.outbound_no, "source_type": source_type,
                           "source_id": source_id, "source_no": source_no,
+                          "account_name": account_name,
+                          "unit_cost": Decimal(lot.individual_cost or 0),
                           "inbound_item_id": None, "outbound_item_id": item.outbound_item_id,
                           "box_delta": -int(item.box_qty), "weight_delta": -Decimal(item.weight),
                           "warehouse_id": header.warehouse_id})
@@ -221,10 +229,45 @@ def lot_transactions(db, comp_code, lot_id, end_date=None):
     movements.sort(key=lambda r: (r["date"], r["direction"], r["transaction_no"],
                                  r["inbound_item_id"] or r["outbound_item_id"]))
     balance_box, balance_kg = 0, ZERO
-    for row in movements:
+    if start_date:
+        opening_box, opening_kg = 0, ZERO
+        for row in movements:
+            if row["date"] < start_date:
+                opening_box += row["box_delta"]
+                opening_kg += row["weight_delta"]
+        period_movements = [row for row in movements if row["date"] >= start_date]
+        balance_box, balance_kg = opening_box, opening_kg
+        beginning = {
+            "date": start_date, "direction": "BEGINNING", "transaction_type": "BEGINNING_BALANCE",
+            "transaction_no": None, "source_type": None, "source_id": None, "source_no": None,
+            "account_name": None, "unit_cost": Decimal(lot.individual_cost or 0),
+            "inbound_item_id": None, "outbound_item_id": None,
+            "beginning_box_qty": opening_box, "beginning_weight": opening_kg,
+            "box_delta": 0, "weight_delta": ZERO, "warehouse_id": lot.warehouse_id,
+            "balance_box_qty": opening_box, "balance_weight": opening_kg,
+        }
+        movements = [beginning]
+    else:
+        period_movements = movements
+    for row in period_movements:
         balance_box += row["box_delta"]; balance_kg += row["weight_delta"]
         row["balance_box_qty"] = balance_box; row["balance_weight"] = balance_kg
+        if row["direction"] == "BEGINNING":
+            continue
+        movements.append(row) if start_date else None
+    product = db.query(models.Product).filter(models.Product.product_id == lot.product_id).first()
+    warehouse = db.query(models.Warehouse).filter(models.Warehouse.warehouse_id == lot.warehouse_id).first()
+    supplier_name = next((link[2] for link in purchase_links.values() if len(link) > 2 and link[2]), None)
     return {"lot_id": lot_id, "lot_code": lot.lot_code,
-            "product_id": lot.product_id, "product_name": lot.product.product_name,
+            "comp_code": lot.comp_code, "source_type": lot.source_type,
+            "status": lot.status, "storage_type": warehouse.storage_type if warehouse else None,
+            "warehouse_id": lot.warehouse_id,
+            "warehouse_name": warehouse.warehouse_name if warehouse else None,
+            "product_id": lot.product_id, "product_name": product.product_name if product else None,
+            "production_date": lot.production_date, "expiry_date": lot.expiry_date,
+            "bl_no": lot.bl_no, "container_no": lot.container_no,
+            "history_no": lot.history_no, "memo": lot.memo,
+            "supplier_name": supplier_name,
+            "start_date": start_date,
             "rows": movements, "current_box_qty": balance_box,
             "current_weight": balance_kg}

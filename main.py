@@ -2417,9 +2417,12 @@ def get_inventory_projection(comp_code: str, start_date: Optional[date] = None,
 @app.get("/api/v1/companies/{comp_code}/inventory/lots/{lot_id}/transactions")
 def get_inventory_lot_transactions(comp_code: str, lot_id: int,
                                    end_date: Optional[date] = None,
-                                   db: Session = Depends(get_db)):
+                                   db: Session = Depends(get_db),
+                                   start_date: Optional[date] = None):
     _get_company_or_404(comp_code, db)
-    result = lot_transactions(db, comp_code, lot_id, end_date)
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(status_code=400, detail="시작일은 종료일보다 늦을 수 없습니다.")
+    result = lot_transactions(db, comp_code, lot_id, end_date, start_date)
     if result is None:
         raise HTTPException(status_code=404, detail="현재 업무회사의 LOT가 없습니다.")
     return result

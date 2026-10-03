@@ -74,7 +74,7 @@ def make_sale_outbound(db, lot_id=1, box=2, weight="20.00", sale_no="SA-1"):
                                 tax_code_snapshot="EXEMPT", tax_name_snapshot="면세", tax_rate_snapshot=0,
                                 tax_amount=0, discount_amount=0, total_amount=40000)
     db.add(sale_item); db.flush()
-    outbound = models.Outbound(comp_code="00001", outbound_no="OU-1", outbound_date=sale.sale_date,
+    outbound = models.Outbound(comp_code="00001", outbound_no=f"OU-{sale_no}", outbound_date=sale.sale_date,
                                warehouse_id=1, transaction_type="SALES_OUTBOUND")
     db.add(outbound); db.flush()
     db.add(models.OutboundItem(outbound_id=outbound.outbound_id, sale_item_id=sale_item.sale_item_id,
@@ -176,6 +176,13 @@ def test_zero_lot_filter_and_company_separation(inventory_db):
         assert any(row["lot_code"] == "ZERO" for row in all_lots["rows"])
         assert all(row["lot_code"] != "OTHER-LOT" for row in all_lots["rows"])
         assert [row["lot_code"] for row in other["rows"]] == ["OTHER-LOT"]
+        zero_lot = db.query(models.Lot).filter(models.Lot.lot_code == "ZERO").one()
+        zero_history = main.get_inventory_lot_transactions(
+            "00001", zero_lot.lot_id, date(2026, 10, 3), db, date(2026, 10, 1))
+        assert len(zero_history["rows"]) == 1
+        assert zero_history["rows"][0]["direction"] == "BEGINNING"
+        assert zero_history["current_box_qty"] == 0
+        assert Decimal(str(zero_history["current_weight"])) == Decimal("0.00")
 
 
 def test_lot_history_has_source_ids_and_running_balances(inventory_db):
@@ -188,6 +195,140 @@ def test_lot_history_has_source_ids_and_running_balances(inventory_db):
         with pytest.raises(HTTPException) as missing:
             main.get_inventory_lot_transactions("00001", 999, None, db)
         assert missing.value.status_code == 404
+
+
+def test_period_lot_ledger_carries_opening_balance_and_reconciles_to_projection(inventory_db):
+    start, end = date(2026, 10, 1), date(2026, 10, 3)
+    with inventory_db() as db:
+        original_inbound = db.query(models.Inbound).one()
+        original_inbound.inbound_date = date(2026, 9, 1)
+        prior_sale = make_sale_outbound(db, box=2, weight="20.00", sale_no="SA-PRIOR")
+        prior_sale.sale_date = date(2026, 9, 30)
+        prior_outbound_item = db.query(models.OutboundItem).filter(
+            models.OutboundItem.sale_item_id == prior_sale.items[0].sale_item_id
+        ).one()
+        prior_outbound_item.outbound.outbound_date = date(2026, 9, 30)
+
+        inbound = models.Inbound(comp_code="00001", inbound_no="I-PERIOD", inbound_date=start,
+                                 warehouse_id=1, transaction_type="PURCHASE_INBOUND")
+        db.add(inbound); db.flush()
+        inbound_item = models.InboundItem(inbound_id=inbound.inbound_id, line_no=1, product_id=1,
+                                          lot_id=1, box_qty=5, weight=Decimal("50.00"),
+                                          individual_cost=1000, amount=50000)
+        db.add(inbound_item); db.flush()
+        purchase = models.Purchase(comp_code="00001", purchase_no="PU-PERIOD", purchase_date=start,
+                                   account_id=1, document_status="CONFIRMED", created_by="tester",
+                                   updated_by="tester")
+        db.add(purchase); db.flush()
+        db.add(models.PurchaseItem(purchase_id=purchase.purchase_id, line_no=1, product_id=1,
+                                   warehouse_id=1, lot_id=1, inbound_item_id=inbound_item.inbound_item_id,
+                                   box_qty=5, weight=Decimal("50.00"), unit_price=1000,
+                                   supply_amount=50000, tax_code_snapshot="EXEMPT",
+                                   tax_name_snapshot="면세", tax_rate_snapshot=0,
+                                   tax_amount=0, discount_amount=0, total_amount=50000))
+        period_sale = make_sale_outbound(db, box=3, weight="30.00", sale_no="SA-END")
+        period_sale.sale_date = end
+        period_outbound_item = db.query(models.OutboundItem).filter(
+            models.OutboundItem.sale_item_id == period_sale.items[0].sale_item_id
+        ).one()
+        period_outbound_item.outbound.outbound_date = end
+        db.commit()
+
+        ledger = main.get_inventory_lot_transactions("00001", 1, end, db, start)
+        projection = main.get_inventory_projection("00001", start, end, None, "", True, "LOT", db)
+        row = next(item for item in projection["rows"] if item["lot_id"] == 1)
+        assert [item["direction"] for item in ledger["rows"]] == ["BEGINNING", "INBOUND", "OUTBOUND"]
+        beginning, received, shipped = ledger["rows"]
+        assert (beginning["beginning_box_qty"], Decimal(str(beginning["beginning_weight"]))) == (8, Decimal("80.00"))
+        assert (beginning["balance_box_qty"], Decimal(str(beginning["balance_weight"]))) == (8, Decimal("80.00"))
+        assert (received["balance_box_qty"], Decimal(str(received["balance_weight"]))) == (13, Decimal("130.00"))
+        assert (shipped["balance_box_qty"], Decimal(str(shipped["balance_weight"]))) == (10, Decimal("100.00"))
+        assert received["date"] == start and shipped["date"] == end
+        assert (received["source_type"], received["source_id"], received["source_no"]) == (
+            "PURCHASE", purchase.purchase_id, purchase.purchase_no)
+        assert received["account_name"] == "매입처"
+        assert (shipped["source_type"], shipped["source_id"], shipped["source_no"]) == (
+            "SALE", period_sale.sale_id, period_sale.sale_no)
+        assert shipped["account_name"] == "매입처"
+        assert (ledger["current_box_qty"], Decimal(str(ledger["current_weight"]))) == (
+            row["current_box_qty"], Decimal(str(row["current_weight"]))) == (10, Decimal("100.00"))
+        assert (row["beginning_box_qty"] + row["inbound_box_qty"] - row["outbound_box_qty"]
+                == row["current_box_qty"])
+        assert (Decimal(str(row["beginning_weight"])) + Decimal(str(row["inbound_weight"]))
+                - Decimal(str(row["outbound_weight"])) == Decimal(str(row["current_weight"])))
+
+
+def test_period_lot_ledger_carries_inbound_from_day_before_start(inventory_db):
+    start, end = date(2026, 10, 2), date(2026, 10, 3)
+    with inventory_db() as db:
+        source_inbound = db.query(models.Inbound).one()
+        source_inbound.inbound_date = date(2026, 10, 1)
+        assert (start - source_inbound.inbound_date).days == 1
+
+        ledger = main.get_inventory_lot_transactions("00001", 1, end, db, start)
+        beginning = ledger["rows"][0]
+        assert beginning["direction"] == "BEGINNING"
+        assert (beginning["beginning_box_qty"], Decimal(str(beginning["beginning_weight"]))) == (10, Decimal("100.00"))
+        assert not any(row["direction"] == "INBOUND" for row in ledger["rows"])
+        assert (ledger["current_box_qty"], Decimal(str(ledger["current_weight"]))) == (10, Decimal("100.00"))
+        assert (beginning["beginning_box_qty"] == ledger["current_box_qty"])
+        assert (Decimal(str(beginning["beginning_weight"])) == Decimal(str(ledger["current_weight"])))
+
+
+def test_period_lot_ledger_has_zero_opening_for_new_inventory_and_inclusive_start(inventory_db):
+    start, end = date(2026, 10, 2), date(2026, 10, 3)
+    with inventory_db() as db:
+        source_inbound = db.query(models.Inbound).one()
+        source_item = db.query(models.InboundItem).one()
+        assert source_inbound.inbound_date == start
+        assert (source_item.box_qty, Decimal(str(source_item.weight))) == (10, Decimal("100.00"))
+        ledger = main.get_inventory_lot_transactions(
+            "00001", 1, end, db, start)
+        assert ledger["rows"][0]["direction"] == "BEGINNING"
+        beginning = ledger["rows"][0]
+        assert (beginning["beginning_box_qty"], Decimal(str(beginning["beginning_weight"]))) == (0, Decimal("0.00"))
+        inbound = next(row for row in ledger["rows"] if row["direction"] == "INBOUND")
+        assert inbound["date"] == start
+        assert (inbound["box_delta"], Decimal(str(inbound["weight_delta"]))) == (10, Decimal("100.00"))
+        assert (inbound["balance_box_qty"], Decimal(str(inbound["balance_weight"]))) == (10, Decimal("100.00"))
+        assert (ledger["current_box_qty"], Decimal(str(ledger["current_weight"]))) == (10, Decimal("100.00"))
+        assert (beginning["beginning_box_qty"] + inbound["box_delta"] == ledger["current_box_qty"])
+        assert (Decimal(str(beginning["beginning_weight"])) + Decimal(str(inbound["weight_delta"]))
+                == Decimal(str(ledger["current_weight"])))
+
+
+def test_period_lot_ledger_includes_start_outbound_and_end_inbound(inventory_db):
+    start, end = date(2026, 10, 2), date(2026, 10, 3)
+    with inventory_db() as db:
+        sale = make_sale_outbound(db, box=2, weight="20.00", sale_no="SA-START")
+        sale.sale_date = start
+        outbound = db.query(models.OutboundItem).filter(
+            models.OutboundItem.sale_item_id == sale.items[0].sale_item_id
+        ).one()
+        outbound.outbound.outbound_date = start
+
+        end_inbound = models.Inbound(comp_code="00001", inbound_no="I-END", inbound_date=end,
+                                     warehouse_id=1, transaction_type="PURCHASE_INBOUND")
+        db.add(end_inbound); db.flush()
+        db.add(models.InboundItem(inbound_id=end_inbound.inbound_id, line_no=1, product_id=1,
+                                  lot_id=1, box_qty=3, weight=Decimal("30.00"),
+                                  individual_cost=1000, amount=30000))
+        db.commit()
+
+        ledger = main.get_inventory_lot_transactions("00001", 1, end, db, start)
+        assert [row["direction"] for row in ledger["rows"]] == [
+            "BEGINNING", "INBOUND", "OUTBOUND", "INBOUND"
+        ]
+        beginning, start_inbound, start_outbound, final_inbound = ledger["rows"]
+        assert (beginning["beginning_box_qty"], Decimal(str(beginning["beginning_weight"]))) == (0, Decimal("0.00"))
+        assert start_inbound["date"] == start
+        assert (start_inbound["balance_box_qty"], Decimal(str(start_inbound["balance_weight"]))) == (10, Decimal("100.00"))
+        assert start_outbound["date"] == start
+        assert (start_outbound["box_delta"], Decimal(str(start_outbound["weight_delta"]))) == (-2, Decimal("-20.00"))
+        assert (start_outbound["balance_box_qty"], Decimal(str(start_outbound["balance_weight"]))) == (8, Decimal("80.00"))
+        assert final_inbound["date"] == end
+        assert (final_inbound["balance_box_qty"], Decimal(str(final_inbound["balance_weight"]))) == (11, Decimal("110.00"))
+        assert (ledger["current_box_qty"], Decimal(str(ledger["current_weight"]))) == (11, Decimal("110.00"))
 
 
 def test_opening_lot_cannot_be_changed_after_outbound(inventory_db):
@@ -270,6 +411,10 @@ def test_inventory_rejects_reversed_period_and_unknown_group(inventory_db):
             main.get_inventory_projection("00001", date(2026, 10, 3), date(2026, 10, 2),
                                           None, "", False, "LOT", db)
         assert reversed_period.value.status_code == 400
+        with pytest.raises(HTTPException) as reversed_history_period:
+            main.get_inventory_lot_transactions("00001", 1, date(2026, 10, 2), db,
+                                                date(2026, 10, 3))
+        assert reversed_history_period.value.status_code == 400
         with pytest.raises(HTTPException) as bad_group:
             main.get_inventory_projection("00001", date(2026, 10, 1), date(2026, 10, 3),
                                           None, "", False, "BL", db)
