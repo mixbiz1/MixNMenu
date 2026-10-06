@@ -60,6 +60,8 @@ class SyncAsgiClient:
                         value = financing.update_participant(comp_code, contract_id, int(action[1]), financing.ParticipantUpdate.model_validate(data), request, db)
                     elif method == "POST" and action == ["lots"]:
                         value = financing.add_contract_lot(comp_code, contract_id, financing.ContractLotInput.model_validate(data), request, db); return self.Result(value, 201)
+                    elif method == "POST" and action == ["items"]:
+                        value = financing.add_contract_item(comp_code, contract_id, financing.ContractItemInput.model_validate(data), request, db); return self.Result(value, 201)
                     else: return self.Result(status=404, error="not found")
                 else: return self.Result(status=404, error="not found")
                 return self.Result(value)
@@ -96,6 +98,7 @@ def api(monkeypatch):
             models.Account(account_id=2, account_code="B1", account_name="추가 출고업체"),
             models.Account(account_id=3, account_code="C1", account_name="타 회사 업체"),
             models.Product(product_id=1, product_code="P1", product_name="상품", tax_type="2"),
+            models.Product(product_id=2, product_code="P2", product_name="상품2", tax_type="2"),
             models.Warehouse(warehouse_id=1, warehouse_code="W1", warehouse_name="창고"),
             models.MenuMaster(menu_code="FINANCING_CONTRACT", menu_name="파이낸싱", menu_group="거래"),
         ])
@@ -135,33 +138,46 @@ def payload(number="FC-001", *, agreement="CONFIRMED", lot_id=1):
             "agreement_status": agreement, "agreement_date": "2026-10-02" if agreement == "CONFIRMED" else None}],
         "lots": [{"lot_id": lot_id, "contract_box_qty": 5, "contract_weight": "50.00"}],
         "terms": [{"effective_from": "2026-10-02", "recovery_template": "ALL_IN",
-            "annual_interest_rate": "7.5", "storage_rate_per_kg_day": "0.12",
-            "brokerage_rate": "1.0", "inbound_outbound_rate_per_kg": "15.5",
-            "weighing_rate_per_box": "200", "conditions": {"currency": "KRW", "vat": "10%"}}],
+            "annual_interest_rate": "7.5", "interest_rate_1": "7.5", "interest_period_days_1": 90,
+            "interest_rate_2": "8.0", "interest_period_days_2": 90,
+            "storage_rate_per_kg_day": "0.12", "brokerage_rate": "1.0",
+            "brokerage_rate_1": "1.0", "brokerage_rate_2": "1.2", "inbound_outbound_rate_per_kg": "15.5",
+            "weighing_rate_per_box": "200", "conditions": {"currency": "KRW", "vat": "10%",
+                "expense_conditions": [{"code": "WORK", "basis": "BOX", "unit_rate": "50",
+                    "tax_treatment": "EXEMPT", "payer": "CONTRACTUAL_PARTY"}]}}],
     }
 
 
-def test_contract_create_list_update_duplicate_and_audit(api):
+def test_contract_create_list_update_auto_number_and_audit(api):
     client, factory, _ = api
     created = client.post(URL, json=payload())
     assert created.status_code == 201, created.text
     result = created.json()
     assert result["status"] == "DRAFT"
+    assert result["contract_no"].startswith("FC-00001-261002-A1-DP-")
     assert result["participants"][0]["role"] == "ORIGINAL_CONTRACTOR"
     assert result["participants"][1]["account_name"] == "추가 출고업체"
     assert result["lots"][0]["lot_id"] == 1
-    assert result["terms"][0]["conditions"] == {"currency": "KRW", "vat": "10%"}
+    assert result["terms"][0]["conditions"]["currency"] == "KRW"
+    assert result["terms"][0]["conditions"]["expense_conditions"][0]["code"] == "WORK"
+    assert Decimal(result["terms"][0]["interest_rate_2"]) == Decimal("8.0")
+    assert result["terms"][0]["interest_period_days_1"] == 90
+    assert Decimal(result["terms"][0]["brokerage_rate_2"]) == Decimal("1.2")
     assert result["deposit_amount"] == 30000
+    item = client.post(f"{URL}/{result['contract_id']}/items", json={
+        "product_id": 2, "contract_box_qty": 2, "contract_weight": "20.00", "memo": "추가 계약상품"})
+    assert item.status_code == 201, item.text
     assert client.get(URL).json()[0]["contract_id"] == result["contract_id"]
     update = client.put(f"{URL}/{result['contract_id']}", json={
         "contract_type": "DOMESTIC_PURCHASE", "contract_date": "2026-10-03", "contractor_account_id": 1,
         "deposit_required": True, "deposit_amount": "30000", "memo": "수정"})
     assert update.status_code == 200, update.text
     assert update.json()["memo"] == "수정"
-    assert client.post(URL, json=payload()).status_code == 409
+    second = client.post(URL, json=payload()).json()
+    assert second["contract_no"] != result["contract_no"]
     with factory() as db:
         events = db.query(AuditEvent).filter(AuditEvent.entity_type == "FINANCING_CONTRACT").all()
-        assert [row.action for row in events] == ["CREATE", "UPDATE"]
+        assert [row.action for row in events] == ["CREATE", "UPDATE", "CREATE"]
         assert db.query(models.AccountTransaction).count() == 0
         assert db.query(models.Outbound).count() == 0
 
@@ -210,7 +226,7 @@ def test_confirm_term_version_immutability_cancel_and_history(api):
         (1, Decimal("7.5")), (2, Decimal("8.0"))]
     child_history = client.get(f"{URL}/{contract_id}/history").json()
     assert {row["entity_type"] for row in child_history} >= {
-        "FINANCING_CONTRACT", "FINANCING_CONTRACT_PARTICIPANT", "FINANCING_CONTRACT_LOT",
+        "FINANCING_CONTRACT", "FINANCING_CONTRACT_PARTICIPANT", "FINANCING_CONTRACT_ITEM", "FINANCING_CONTRACT_LOT",
         "FINANCING_CONTRACT_TERM"}
     canceled = client.post(f"{URL}/{contract_id}/cancel", json={"reason": "계약 협의 종료"})
     assert canceled.status_code == 200, canceled.text
@@ -227,8 +243,47 @@ def test_contract_qty_cannot_overcommit_lot_source_projection(api):
     client, _, _ = api
     data = payload("FC-006")
     data["lots"][0]["contract_box_qty"] = 21
-    assert client.post(URL, json=data).status_code == 201
-    assert client.post(f"{URL}/1/confirm").status_code == 409
+    assert client.post(URL, json=data).status_code == 409
+
+
+def test_contract_can_be_created_and_confirmed_before_lot_then_assign_multiple_lots(api):
+    client, factory, _ = api
+    data = payload("ignored-client-number")
+    data["lots"] = []
+    data["items"] = [{"product_id": 1, "contract_box_qty": 10, "contract_weight": "100.00"},
+        {"product_id": 2, "contract_box_qty": 2, "contract_weight": "20.00", "memo": "별도 품목"}]
+    created = client.post(URL, json=data)
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["contract_no"] != "ignored-client-number"
+    assert body["lots"] == []
+    assert [item["product_id"] for item in body["items"]] == [1, 2]
+    contract_id = body["contract_id"]
+    assert client.post(f"{URL}/{contract_id}/confirm").status_code == 200
+    # Different lots of the same product can be linked as later receipts arrive.
+    with factory() as db:
+        second_lot = models.Lot(comp_code="00001", lot_code="L1-2", source_type="DOMESTIC",
+            product_id=1, warehouse_id=1, individual_cost=1000, status="OPEN", use_yn=True)
+        db.add(second_lot); db.flush()
+        inbound = models.Inbound(comp_code="00001", inbound_no="I2", inbound_date=date(2026, 10, 3),
+            warehouse_id=1, transaction_type="PURCHASE_INBOUND")
+        db.add(inbound); db.flush()
+        db.add(models.InboundItem(inbound_id=inbound.inbound_id, line_no=1, product_id=1,
+            lot_id=second_lot.lot_id, box_qty=10, weight=Decimal("100.00"), individual_cost=1000, amount=100000))
+        second_id = second_lot.lot_id
+        db.commit()
+    item_id = body["items"][0]["contract_item_id"]
+    one = client.post(f"{URL}/{contract_id}/lots", json={"contract_item_id": item_id, "lot_id": 1,
+        "contract_box_qty": 5, "contract_weight": "50.00", "linked_date": "2026-10-03"})
+    two = client.post(f"{URL}/{contract_id}/lots", json={"contract_item_id": item_id, "lot_id": second_id,
+        "contract_box_qty": 5, "contract_weight": "50.00", "linked_date": "2026-10-04"})
+    assert one.status_code == two.status_code == 201, (one.text, two.text)
+    detail = client.get(f"{URL}/{contract_id}").json()
+    assert len(detail["lots"]) == 2
+    assert detail["items"][0]["allocated_box_qty"] == 10
+    over = client.post(f"{URL}/{contract_id}/lots", json={"contract_item_id": item_id, "lot_id": 1,
+        "contract_box_qty": 1, "contract_weight": "1.00"})
+    assert over.status_code == 409
 
 
 def test_interest_only_requires_domestic_purchase_and_recorded_approval(api):
@@ -274,26 +329,35 @@ def test_financing_gui_builds_contract_from_existing_account_lot_and_term(monkey
     app_context.set_company("00001", "테스트회사")
     monkeypatch.setattr(FinancingContractWindow, "_get", lambda self, path, **params: (
         [{"account_id": 1, "account_name": "계약업체", "account_code": "A1"}] if path == "accounts" else
-        [{"lot_id": 1, "lot_code": "L1", "product_name": "상품", "warehouse_name": "창고"}]))
+        [{"lot_id": 1, "lot_code": "L1", "product_name": "상품", "warehouse_name": "창고", "product_id": 1}]))
     list_rows = []
-    monkeypatch.setattr(financing_ui.httpx, "get", lambda *args, **kwargs: Response(list_rows))
+    monkeypatch.setattr(financing_ui.httpx, "get", lambda url, *args, **kwargs: Response(
+        [{"product_id": 1, "product_code": "P1", "product_name": "상품"}] if str(url).endswith("/products") else list_rows))
     captured = {}
 
-    def post(url, json, timeout):
+    def post(url, json=None, timeout=20):
         captured.update(json)
-        list_rows[:] = [{"contract_id": 1, "contract_no": json["contract_no"],
+        list_rows[:] = [{"contract_id": 1, "contract_no": "FC-00001-261002-A1-DP-0001",
             "contract_date": json["contract_date"], "contract_type": json["contract_type"],
             "contractor_account_id": json["contractor_account_id"], "contractor_name": "계약업체",
-            "status": "DRAFT", "lots": json["lots"], "terms": json["terms"], "participants": []}]
+            "status": "DRAFT", "items": [{"contract_item_id": 1, "product_id": 1, "product_code": "P1",
+                "product_name": "상품", "contract_box_qty": 5, "contract_weight": "50.00", "allocated_box_qty": 0,
+                "allocated_weight": 0}], "lots": [], "terms": json["terms"], "participants": []}]
         return Response(list_rows[0])
     monkeypatch.setattr(financing_ui.httpx, "post", post)
 
     window = FinancingContractWindow()
-    window.contract_no.setText("FC-GUI-01")
-    window.box_qty.setText("5"); window.weight.setText("50.00")
+    window.show(); app.processEvents()
+    window.item_box.setText("5"); window.item_kg.setText("50.00"); window.add_item_row()
     window.create_contract()
-    assert captured["contract_no"] == "FC-GUI-01"
-    assert captured["lots"][0]["lot_id"] == 1
+    assert "contract_no" not in captured
+    assert captured["items"][0]["product_id"] == 1
+    assert captured["items"][0]["contract_box_qty"] == 5
+    assert captured["lots"] == []
     assert captured["terms"][0]["recovery_template"] == "ALL_IN"
+    assert window.contract_date.calendarPopup()
+    assert window.interest_days_1.placeholderText()
+    window.interest_1.setText("5.5"); window.interest_1.setFocus(); app.processEvents()
+    assert window.interest_1.selectedText() == "5.5"
     assert window.table.rowCount() == 1
     window.close()

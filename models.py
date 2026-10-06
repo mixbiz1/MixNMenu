@@ -553,7 +553,7 @@ class FinancingContract(Base):
 
     contract_id = Column(Integer, primary_key=True, autoincrement=True)
     comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False, index=True)
-    contract_no = Column(String(30), nullable=False, index=True)
+    contract_no = Column(String(50), nullable=False, index=True)
     contract_type = Column(String(30), nullable=False)
     contract_date = Column(Date, nullable=False, index=True)
     contractor_account_id = Column(Integer, ForeignKey("tb_account.account_id"), nullable=False, index=True)
@@ -577,6 +577,7 @@ class FinancingContract(Base):
 
     contractor = relationship("Account", foreign_keys=[contractor_account_id])
     participants = relationship("FinancingContractParticipant", back_populates="contract", cascade="all, delete-orphan", order_by="FinancingContractParticipant.participant_id")
+    items = relationship("FinancingContractItem", back_populates="contract", cascade="all, delete-orphan", order_by="FinancingContractItem.line_no")
     lots = relationship("FinancingContractLot", back_populates="contract", cascade="all, delete-orphan", order_by="FinancingContractLot.contract_lot_id")
     terms = relationship("FinancingContractTerm", back_populates="contract", cascade="all, delete-orphan", order_by="FinancingContractTerm.version")
 
@@ -604,6 +605,29 @@ class FinancingContractParticipant(Base):
     account = relationship("Account")
 
 
+class FinancingContractItem(Base):
+    """Agreed goods and quantities, recorded before ERP inventory LOTs exist."""
+    __tablename__ = "tb_fin_contract_item"
+    __table_args__ = (
+        UniqueConstraint("contract_id", "line_no", name="UQ_fin_contract_item_line"),
+    )
+
+    contract_item_id = Column(Integer, primary_key=True, autoincrement=True)
+    contract_id = Column(Integer, ForeignKey("tb_fin_contract.contract_id"), nullable=False, index=True)
+    line_no = Column(Integer, nullable=False)
+    product_id = Column(Integer, ForeignKey("tb_product.product_id"), nullable=False, index=True)
+    contract_box_qty = Column(Integer, nullable=False, default=0)
+    contract_weight = Column(Numeric(18, 2), nullable=False, default=0)
+    contract_unit_price = Column(Numeric(18, 0), nullable=True)
+    memo = Column(String(1000), nullable=True)
+    created_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    contract = relationship("FinancingContract", back_populates="items")
+    product = relationship("Product")
+    lots = relationship("FinancingContractLot", back_populates="contract_item")
+
+
 class FinancingContractLot(Base):
     """Link to the existing stock LOT; quantities here are contract terms, not inventory."""
     __tablename__ = "tb_fin_contract_lot"
@@ -613,6 +637,7 @@ class FinancingContractLot(Base):
 
     contract_lot_id = Column(Integer, primary_key=True, autoincrement=True)
     contract_id = Column(Integer, ForeignKey("tb_fin_contract.contract_id"), nullable=False, index=True)
+    contract_item_id = Column(Integer, ForeignKey("tb_fin_contract_item.contract_item_id"), nullable=True, index=True)
     lot_id = Column(Integer, ForeignKey("tb_lot.lot_id"), nullable=False, index=True)
     contract_box_qty = Column(Integer, nullable=False, default=0)
     contract_weight = Column(Numeric(18, 2), nullable=False, default=0)
@@ -624,6 +649,7 @@ class FinancingContractLot(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     contract = relationship("FinancingContract", back_populates="lots")
+    contract_item = relationship("FinancingContractItem", back_populates="lots")
     lot = relationship("Lot")
 
 
@@ -642,8 +668,14 @@ class FinancingContractTerm(Base):
     recovery_template = Column(String(30), nullable=False, default="FREE")
     contract_days = Column(Integer, nullable=True)
     annual_interest_rate = Column(Numeric(9, 6), nullable=False, default=0)
+    interest_rate_1 = Column(Numeric(9, 6), nullable=True)
+    interest_period_days_1 = Column(Integer, nullable=True)
+    interest_rate_2 = Column(Numeric(9, 6), nullable=True)
+    interest_period_days_2 = Column(Integer, nullable=True)
     storage_rate_per_kg_day = Column(Numeric(18, 6), nullable=False, default=0)
     brokerage_rate = Column(Numeric(9, 6), nullable=False, default=0)
+    brokerage_rate_1 = Column(Numeric(9, 6), nullable=True)
+    brokerage_rate_2 = Column(Numeric(9, 6), nullable=True)
     inbound_outbound_rate_per_kg = Column(Numeric(18, 6), nullable=False, default=0)
     weighing_rate_per_box = Column(Numeric(18, 6), nullable=False, default=0)
     conditions_json = Column(Text, nullable=False, default="{}")

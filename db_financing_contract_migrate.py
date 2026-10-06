@@ -11,7 +11,7 @@ def migrate():
         BEGIN
           CREATE TABLE dbo.tb_fin_contract (
             contract_id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fin_contract PRIMARY KEY,
-            comp_code VARCHAR(10) NOT NULL, contract_no VARCHAR(30) NOT NULL,
+            comp_code VARCHAR(10) NOT NULL, contract_no VARCHAR(50) NOT NULL,
             contract_type VARCHAR(30) NOT NULL, contract_date DATE NOT NULL,
             contractor_account_id INT NOT NULL, status VARCHAR(20) NOT NULL CONSTRAINT DF_fin_contract_status DEFAULT 'DRAFT',
             customs_date DATE NULL, cost_finalized_date DATE NULL, warehouse_arrival_date DATE NULL, financing_start_date DATE NULL,
@@ -34,6 +34,34 @@ def migrate():
             CONSTRAINT CK_fin_contract_deposit CHECK(deposit_amount>=0)
           );
           CREATE INDEX IX_fin_contract_lookup ON dbo.tb_fin_contract(comp_code,contract_date,status);
+        END
+        """))
+        conn.execute(text("""
+        IF OBJECT_ID('dbo.tb_fin_contract_item','U') IS NULL
+        BEGIN
+          CREATE TABLE dbo.tb_fin_contract_item (
+            contract_item_id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fin_contract_item PRIMARY KEY,
+            contract_id INT NOT NULL, line_no INT NOT NULL, product_id INT NOT NULL,
+            contract_box_qty INT NOT NULL CONSTRAINT DF_fin_contract_item_box DEFAULT 0,
+            contract_weight NUMERIC(18,2) NOT NULL CONSTRAINT DF_fin_contract_item_weight DEFAULT 0,
+            contract_unit_price NUMERIC(18,0) NULL, memo NVARCHAR(1000) NULL,
+            created_by VARCHAR(50) NOT NULL,
+            created_at DATETIMEOFFSET NOT NULL CONSTRAINT DF_fin_contract_item_created DEFAULT SYSDATETIMEOFFSET(),
+            CONSTRAINT UQ_fin_contract_item_line UNIQUE(contract_id,line_no),
+            CONSTRAINT FK_fin_contract_item_contract FOREIGN KEY(contract_id) REFERENCES dbo.tb_fin_contract(contract_id),
+            CONSTRAINT FK_fin_contract_item_product FOREIGN KEY(product_id) REFERENCES dbo.tb_product(product_id),
+            CONSTRAINT FK_fin_contract_item_created FOREIGN KEY(created_by) REFERENCES dbo.tb_user(user_id),
+            CONSTRAINT CK_fin_contract_item_qty CHECK(contract_box_qty>=0 AND contract_weight>=0 AND (contract_box_qty>0 OR contract_weight>0))
+          );
+          CREATE INDEX IX_fin_contract_item_product ON dbo.tb_fin_contract_item(product_id);
+        END
+        """))
+        conn.execute(text("""
+        IF COL_LENGTH('dbo.tb_fin_contract','contract_no') < 50
+        BEGIN
+          ALTER TABLE dbo.tb_fin_contract DROP CONSTRAINT UQ_fin_contract_company_no;
+          ALTER TABLE dbo.tb_fin_contract ALTER COLUMN contract_no VARCHAR(50) NOT NULL;
+          ALTER TABLE dbo.tb_fin_contract ADD CONSTRAINT UQ_fin_contract_company_no UNIQUE(comp_code,contract_no);
         END
         """))
         conn.execute(text("""
@@ -64,7 +92,7 @@ def migrate():
         BEGIN
           CREATE TABLE dbo.tb_fin_contract_lot (
             contract_lot_id INT IDENTITY(1,1) NOT NULL CONSTRAINT PK_fin_contract_lot PRIMARY KEY,
-            contract_id INT NOT NULL, lot_id INT NOT NULL,
+            contract_id INT NOT NULL, contract_item_id INT NULL, lot_id INT NOT NULL,
             contract_box_qty INT NOT NULL CONSTRAINT DF_fin_contract_lot_box DEFAULT 0,
             contract_weight NUMERIC(18,2) NOT NULL CONSTRAINT DF_fin_contract_lot_weight DEFAULT 0,
             linked_date DATE NOT NULL, status VARCHAR(20) NOT NULL CONSTRAINT DF_fin_contract_lot_status DEFAULT 'ACTIVE',
@@ -90,6 +118,9 @@ def migrate():
             recovery_template VARCHAR(30) NOT NULL CONSTRAINT DF_fin_contract_term_template DEFAULT 'FREE',
             contract_days INT NULL,
             annual_interest_rate NUMERIC(9,6) NOT NULL CONSTRAINT DF_fin_contract_term_interest DEFAULT 0,
+            interest_rate_1 NUMERIC(9,6) NULL, interest_period_days_1 INT NULL,
+            interest_rate_2 NUMERIC(9,6) NULL, interest_period_days_2 INT NULL,
+            brokerage_rate_1 NUMERIC(9,6) NULL, brokerage_rate_2 NUMERIC(9,6) NULL,
             storage_rate_per_kg_day NUMERIC(18,6) NOT NULL CONSTRAINT DF_fin_contract_term_storage DEFAULT 0,
             brokerage_rate NUMERIC(9,6) NOT NULL CONSTRAINT DF_fin_contract_term_brokerage DEFAULT 0,
             inbound_outbound_rate_per_kg NUMERIC(18,6) NOT NULL CONSTRAINT DF_fin_contract_term_inbound DEFAULT 0,
@@ -108,6 +139,113 @@ def migrate():
           );
           CREATE INDEX IX_fin_contract_term_effective ON dbo.tb_fin_contract_term(contract_id,effective_from,version);
         END
+        """))
+        # Keep ADD COLUMN in its own batch. SQL Server can compile later
+        # statements in the same batch before the new column is visible.
+        conn.execute(text("""
+        IF COL_LENGTH('dbo.tb_fin_contract_lot','contract_item_id') IS NULL
+          ALTER TABLE dbo.tb_fin_contract_lot ADD contract_item_id INT NULL;
+        """))
+        # Check the catalog by table/column relationship so reruns also
+        # recognize an equivalent FK or index created under another name.
+        conn.execute(text("""
+        IF NOT EXISTS (
+          SELECT 1 FROM sys.foreign_keys
+           WHERE parent_object_id=OBJECT_ID('dbo.tb_fin_contract_lot')
+             AND name='FK_fin_contract_lot_item'
+        ) AND NOT EXISTS (
+          SELECT 1
+            FROM sys.foreign_key_columns fkc
+            JOIN sys.foreign_keys fk ON fk.object_id=fkc.constraint_object_id
+            JOIN sys.columns parent_col ON parent_col.object_id=fkc.parent_object_id
+                                      AND parent_col.column_id=fkc.parent_column_id
+            JOIN sys.columns ref_col ON ref_col.object_id=fkc.referenced_object_id
+                                    AND ref_col.column_id=fkc.referenced_column_id
+           WHERE fkc.parent_object_id=OBJECT_ID('dbo.tb_fin_contract_lot')
+             AND parent_col.name='contract_item_id'
+             AND fkc.referenced_object_id=OBJECT_ID('dbo.tb_fin_contract_item')
+             AND ref_col.name='contract_item_id'
+        )
+          ALTER TABLE dbo.tb_fin_contract_lot ADD CONSTRAINT FK_fin_contract_lot_item
+            FOREIGN KEY(contract_item_id) REFERENCES dbo.tb_fin_contract_item(contract_item_id);
+
+        IF NOT EXISTS (
+          SELECT 1 FROM sys.indexes
+           WHERE object_id=OBJECT_ID('dbo.tb_fin_contract_lot')
+             AND name='IX_fin_contract_lot_item'
+        ) AND NOT EXISTS (
+          SELECT 1
+            FROM sys.indexes i
+            JOIN sys.index_columns ic ON ic.object_id=i.object_id AND ic.index_id=i.index_id
+            JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+           WHERE i.object_id=OBJECT_ID('dbo.tb_fin_contract_lot')
+             AND i.is_hypothetical=0 AND ic.key_ordinal=1 AND c.name='contract_item_id'
+        )
+          CREATE INDEX IX_fin_contract_lot_item ON dbo.tb_fin_contract_lot(contract_item_id);
+        """))
+        # Backfill missing contract/product items first, including contracts
+        # with some pre-existing items. Existing items are never duplicated.
+        conn.execute(text("""
+        ;WITH legacy AS (
+          SELECT l.contract_id, lot.product_id,
+                 SUM(l.contract_box_qty) AS contract_box_qty,
+                 SUM(l.contract_weight) AS contract_weight,
+                 MIN(c.created_by) AS created_by
+            FROM dbo.tb_fin_contract_lot l
+            JOIN dbo.tb_lot lot ON lot.lot_id=l.lot_id
+            JOIN dbo.tb_fin_contract c ON c.contract_id=l.contract_id
+           WHERE l.contract_item_id IS NULL
+           GROUP BY l.contract_id, lot.product_id
+        ), missing AS (
+          SELECT legacy.contract_id, legacy.product_id, legacy.contract_box_qty,
+                 legacy.contract_weight, legacy.created_by,
+                 ROW_NUMBER() OVER(PARTITION BY legacy.contract_id ORDER BY legacy.product_id) AS row_no
+            FROM legacy
+           WHERE NOT EXISTS (
+             SELECT 1 FROM dbo.tb_fin_contract_item i
+              WHERE i.contract_id=legacy.contract_id AND i.product_id=legacy.product_id
+           )
+        ), existing_lines AS (
+          SELECT contract_id, MAX(line_no) AS max_line_no
+            FROM dbo.tb_fin_contract_item
+           GROUP BY contract_id
+        )
+        INSERT dbo.tb_fin_contract_item
+          (contract_id,line_no,product_id,contract_box_qty,contract_weight,created_by)
+        SELECT m.contract_id, COALESCE(e.max_line_no,0)+m.row_no, m.product_id,
+               m.contract_box_qty, m.contract_weight, m.created_by
+          FROM missing m
+          LEFT JOIN existing_lines e ON e.contract_id=m.contract_id;
+        """))
+        # Link every remaining NULL legacy LOT row to the matching product
+        # item. TOP(1) keeps this deterministic if an older contract has
+        # multiple item rows for the same product.
+        conn.execute(text("""
+        UPDATE link
+           SET contract_item_id=item.contract_item_id
+          FROM dbo.tb_fin_contract_lot link
+          JOIN dbo.tb_lot lot ON lot.lot_id=link.lot_id
+          CROSS APPLY (
+            SELECT TOP (1) i.contract_item_id
+              FROM dbo.tb_fin_contract_item i
+             WHERE i.contract_id=link.contract_id AND i.product_id=lot.product_id
+             ORDER BY i.contract_item_id
+          ) item
+         WHERE link.contract_item_id IS NULL;
+        """))
+        conn.execute(text("""
+        IF COL_LENGTH('dbo.tb_fin_contract_term','interest_rate_1') IS NULL
+          ALTER TABLE dbo.tb_fin_contract_term ADD interest_rate_1 NUMERIC(9,6) NULL;
+        IF COL_LENGTH('dbo.tb_fin_contract_term','interest_period_days_1') IS NULL
+          ALTER TABLE dbo.tb_fin_contract_term ADD interest_period_days_1 INT NULL;
+        IF COL_LENGTH('dbo.tb_fin_contract_term','interest_rate_2') IS NULL
+          ALTER TABLE dbo.tb_fin_contract_term ADD interest_rate_2 NUMERIC(9,6) NULL;
+        IF COL_LENGTH('dbo.tb_fin_contract_term','interest_period_days_2') IS NULL
+          ALTER TABLE dbo.tb_fin_contract_term ADD interest_period_days_2 INT NULL;
+        IF COL_LENGTH('dbo.tb_fin_contract_term','brokerage_rate_1') IS NULL
+          ALTER TABLE dbo.tb_fin_contract_term ADD brokerage_rate_1 NUMERIC(9,6) NULL;
+        IF COL_LENGTH('dbo.tb_fin_contract_term','brokerage_rate_2') IS NULL
+          ALTER TABLE dbo.tb_fin_contract_term ADD brokerage_rate_2 NUMERIC(9,6) NULL;
         """))
         conn.execute(text("""
         IF OBJECT_ID('dbo.tb_menu_master','U') IS NOT NULL
