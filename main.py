@@ -35,6 +35,7 @@ from inventory_projection import project_inventory, lot_transactions
 from receipt_routes import router as receipt_router
 from payment_routes import router as payment_router
 from financing_contract_routes import router as financing_contract_router
+from trade_statement_routes import router as trade_statement_router
 
 
 # =============================================================================
@@ -53,6 +54,7 @@ app = FastAPI(
 app.include_router(receipt_router)
 app.include_router(payment_router)
 app.include_router(financing_contract_router)
+app.include_router(trade_statement_router)
 
 # =============================================================================
 # Login Schema
@@ -190,7 +192,7 @@ async def enforce_api_permissions(request: Request, call_next):
             if not allowed:
                 return JSONResponse(status_code=403, content={"detail": "해당 업무회사에 접근할 권한이 없습니다."})
 
-        rule = permission_for_request(request.method, path)
+        rule = permission_for_request(request.method, path, request.query_params.get("lookup_for", ""))
         # 회사 목록은 로그인 사용자의 선택목록이므로 별도 메뉴권한 없이 허용한다.
         if rule and not (request.method == "GET" and path == "/api/v1/companies") and not user.is_admin:
             permission = db.query(models.UserMenuPermission).filter(
@@ -1399,7 +1401,7 @@ def get_next_product_code(db: Session = Depends(get_db)):
 
 @app.get("/api/v1/products")
 def get_products(search: str = "", category_id: Optional[int] = None,
-                 include_inactive: bool = False, db: Session = Depends(get_db)):
+                 include_inactive: bool = False, db: Session = Depends(get_db), limit: Optional[int] = None):
     query = db.query(models.Product)
     if not include_inactive:
         query = query.filter(models.Product.use_yn == True)
@@ -1423,7 +1425,11 @@ def get_products(search: str = "", category_id: Optional[int] = None,
             (models.Product.product_name.like(keyword)) |
             (models.Product.specification.like(keyword))
         )
-    objects = query.order_by(models.Product.product_code).all()
+    query = query.order_by(models.Product.product_code)
+    if limit is not None:
+        if not 1 <= limit <= 100: raise HTTPException(status_code=422, detail="limit must be 1..100")
+        query = query.limit(limit)
+    objects = query.all()
     return _product_results(objects, db)
 
 
@@ -2699,7 +2705,7 @@ def get_company_accounts(
     comp_code: str,
     include_inactive: bool=False,
     include_stopped: bool=False,
-    db: Session=Depends(get_db)
+    db: Session=Depends(get_db), search: str="", purpose: str="", limit: Optional[int]=None
 ):
     _get_company_or_404(comp_code,db)
     q=(db.query(models.CompanyAccount,models.Account)
@@ -2709,7 +2715,18 @@ def get_company_accounts(
         q=q.filter(models.CompanyAccount.use_yn==True,models.Account.use_yn==True)
     if not include_stopped:
         q=q.filter(models.CompanyAccount.trade_stop_yn==False)
-    return [_company_account_response(c,a) for c,a in q.order_by(models.Account.account_name).all()]
+    if purpose not in ("", "SALE", "PURCHASE", "CONTRACT"):
+        raise HTTPException(status_code=422, detail="Invalid lookup purpose")
+    if purpose == "SALE": q=q.filter(models.CompanyAccount.sales_yn==True)
+    if purpose == "PURCHASE": q=q.filter(models.CompanyAccount.purchase_yn==True)
+    if search.strip():
+        pattern=f"%{search.strip()}%"
+        q=q.filter(or_(models.Account.account_code.like(pattern), models.Account.account_name.like(pattern), models.Account.biz_no.like(pattern)))
+    q=q.order_by(models.Account.account_name,models.Account.account_id)
+    if limit is not None:
+        if not 1 <= limit <= 100: raise HTTPException(status_code=422, detail="limit must be 1..100")
+        q=q.limit(limit)
+    return [_company_account_response(c,a) for c,a in q.all()]
 
 @app.get("/api/v1/companies/{comp_code}/accounts/{account_id}", response_model=CompanyAccountResponse)
 def get_company_account(comp_code: str, account_id:int, db:Session=Depends(get_db)):
@@ -3493,7 +3510,7 @@ def _sale_snapshot(db,row):
     return result
 
 def _sale_or_404(db,comp_code,sale_id):
-    row=db.query(models.Sale).filter(models.Sale.sale_id==sale_id,models.Sale.comp_code==comp_code).first()
+    row=db.query(models.Sale).with_hint(models.Sale, "WITH (UPDLOCK, HOLDLOCK)", dialect_name="mssql").with_for_update().filter(models.Sale.sale_id==sale_id,models.Sale.comp_code==comp_code).first()
     if not row: raise HTTPException(status_code=404,detail="일반 매출전표가 없습니다.")
     return row
 
@@ -3549,8 +3566,11 @@ def get_sale_lot_availability(comp_code: str, editing_sale_id: Optional[int] = N
     return result
 
 @app.get("/api/v1/companies/{comp_code}/sales")
-def get_sales(comp_code:str,db:Session=Depends(get_db)):
-    _get_company_or_404(comp_code,db); return [_sale_result(x) for x in db.query(models.Sale).filter(models.Sale.comp_code==comp_code,models.Sale.document_status!="CANCELLED").order_by(models.Sale.sale_date.desc(),models.Sale.sale_id.desc()).all()]
+def get_sales(comp_code:str,db:Session=Depends(get_db),include_cancelled:bool=False):
+    _get_company_or_404(comp_code,db)
+    query=db.query(models.Sale).filter(models.Sale.comp_code==comp_code)
+    if not include_cancelled: query=query.filter(models.Sale.document_status!="CANCELLED")
+    return [_sale_result(x) for x in query.order_by(models.Sale.sale_date.desc(),models.Sale.sale_id.desc()).all()]
 
 @app.get("/api/v1/companies/{comp_code}/sales/{sale_id}/history")
 def get_sale_history(comp_code:str,sale_id:int,db:Session=Depends(get_db)):

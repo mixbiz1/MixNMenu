@@ -8,9 +8,12 @@ from api_config import API_BASE_URL
 from app_context import app_context
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDateEdit, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
+    QCheckBox, QComboBox, QDialog, QDateEdit, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPushButton, QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
+
+
+from views.lookup_dialog import LookupDialog
 
 
 class SelectAllLineEdit(QLineEdit):
@@ -88,11 +91,15 @@ class FinancingContractWindow(QWidget):
         form.addRow("계약번호 (자동)", self.contract_no)
         form.addRow("계약일", self.contract_date)
         form.addRow("계약유형", self.contract_type)
-        form.addRow("최초 계약업체 (1차 책임)", self.contractor)
+        self.contractor_search = QPushButton("계약업체 검색")
+        self.contractor_search.clicked.connect(lambda: self.lookup_account(self.contractor, "CONTRACT"))
+        form.addRow("최초 계약업체 (1차 책임)", self._pair(self.contractor, self.contractor_search))
         form.addRow("보증금", self._pair(self.deposit_required, self.deposit_amount))
         form.addRow("보증금 비고", self.deposit_memo)
         form.addRow("계약 비고", self.memo)
 
+        self.product_search = QPushButton("상품 검색")
+        self.product_search.clicked.connect(self.lookup_product)
         self.product = QComboBox(); self.item_box = self._number("Box"); self.item_kg = self._number("Kg")
         self.item_price = self._number("계약단가 선택")
         self.item_memo = QLineEdit(); self.item_memo.setPlaceholderText("계약상품 특이사항")
@@ -101,7 +108,7 @@ class FinancingContractWindow(QWidget):
         self.item_table.setHorizontalHeaderLabels(("상품", "계약 Box", "계약 Kg", "기준단가", "LOT 배정 Box/Kg", "비고"))
         self.item_table.setMaximumHeight(145)
         item_row = QWidget(); item_layout = QHBoxLayout(item_row); item_layout.setContentsMargins(0, 0, 0, 0)
-        for widget in (self.product, self.item_box, self.item_kg, self.item_price, self.item_memo, self.add_item_button): item_layout.addWidget(widget)
+        for widget in (self.product, self.product_search, self.item_box, self.item_kg, self.item_price, self.item_memo, self.add_item_button): item_layout.addWidget(widget)
         form.addRow("계약상품 입력", item_row); form.addRow("계약상품 목록", self.item_table)
 
         self.template = QComboBox()
@@ -147,7 +154,9 @@ class FinancingContractWindow(QWidget):
         form.addRow("이자형 승인 메모", self.cost_return_approval_memo)
 
         self.shipper = QComboBox(); self.agreement_date = self._date(); self.agreement_confirmed = QCheckBox("서명된 특별출고약정 수취")
-        form.addRow("추가 출고업체", self.shipper)
+        self.shipper_search = QPushButton("출고업체 검색")
+        self.shipper_search.clicked.connect(lambda: self.lookup_account(self.shipper, "SALE"))
+        form.addRow("추가 출고업체", self._pair(self.shipper, self.shipper_search))
         form.addRow("특별약정 확인일", self._pair(self.agreement_date, self.agreement_confirmed))
         self.participant_table = QTableWidget(0, 4)
         self.participant_table.setHorizontalHeaderLabels(("거래처", "역할", "특별약정", "적용일"))
@@ -198,13 +207,14 @@ class FinancingContractWindow(QWidget):
 
     def _load_options(self):
         try:
-            self.accounts = self._get("accounts")
-            products_response = httpx.get(f"{API_BASE_URL}/products", timeout=15)
+            self.accounts = self._get("accounts", purpose="CONTRACT", limit=1, lookup_for="FINANCING_CONTRACT")
+            products_response = httpx.get(f"{API_BASE_URL}/products", params={"limit": 1, "lookup_for": "FINANCING_CONTRACT"}, timeout=15)
             products_response.raise_for_status(); self.products = products_response.json()
             self.lots = self._get("lots")
             for account in self.accounts:
                 label = f"{account.get('account_name')} ({account.get('account_code')})"
-                self.contractor.addItem(label, account["account_id"]); self.shipper.addItem(label, account["account_id"])
+                self.contractor.addItem(label, account["account_id"])
+            self.shipper.addItem("출고업체 검색 후 선택", None)
             for product in self.products:
                 self.product.addItem(f"{product.get('product_code')} / {product.get('product_name')}", product["product_id"])
             self._refresh_lot_options()
@@ -333,7 +343,9 @@ class FinancingContractWindow(QWidget):
         self.contract_no.setText(row["contract_no"])
         self.contract_date.setDate(QDate.fromString(str(row["contract_date"]), "yyyy-MM-dd"))
         self.contract_type.setCurrentIndex(max(0, self.contract_type.findData(row["contract_type"])))
-        self.contractor.setCurrentIndex(max(0, self.contractor.findData(row["contractor_account_id"])))
+        if self.contractor.findData(row["contractor_account_id"]) < 0:
+            self.contractor.addItem(row.get("contractor_name") or str(row["contractor_account_id"]), row["contractor_account_id"])
+        self.contractor.setCurrentIndex(self.contractor.findData(row["contractor_account_id"]))
         self.deposit_required.setChecked(bool(row.get("deposit_required")))
         self.deposit_amount.setText(str(row.get("deposit_amount") or "")); self.deposit_memo.setText(row.get("deposit_memo") or "")
         self.memo.setText(row.get("memo") or "")
@@ -479,3 +491,28 @@ class FinancingContractWindow(QWidget):
         self.term_effective_from.setDate(QDate.currentDate()); self.agreement_date.setDate(QDate.currentDate()); self.lot_date.setDate(QDate.currentDate())
         self.agreement_confirmed.setChecked(False); self.cost_return_management_approved.setChecked(False)
         self.cost_return_agreement_confirmed.setChecked(False); self.cost_return_approval_memo.clear()
+
+    @staticmethod
+    def _select_lookup(combo, value, pk, label):
+        index = combo.findData(value[pk])
+        if index < 0:
+            combo.addItem(label, value[pk]); index = combo.count() - 1
+        combo.setCurrentIndex(index)
+
+    def lookup_account(self, combo, purpose):
+        dialog = LookupDialog(self, '거래처 검색', '',
+            [('코드', 'account_code'), ('거래처명', 'account_name'), ('사업자번호', 'biz_no')],
+            lambda keyword: self._get('accounts', search=keyword, purpose=purpose, limit=50, lookup_for='FINANCING_CONTRACT'))
+        if dialog.exec() == QDialog.Accepted and dialog.selected:
+            value = dialog.selected
+            self._select_lookup(combo, value, 'account_id', f"{value['account_name']} ({value['account_code']})")
+
+    def lookup_product(self):
+        def fetch(keyword):
+            response = httpx.get(f'{API_BASE_URL}/products', params={'search': keyword, 'limit': 50, 'lookup_for': 'FINANCING_CONTRACT'}, timeout=15)
+            response.raise_for_status(); return response.json()
+        dialog = LookupDialog(self, '계약상품 검색', '',
+            [('코드', 'product_code'), ('상품명', 'product_name'), ('규격', 'specification')], fetch)
+        if dialog.exec() == QDialog.Accepted and dialog.selected:
+            value = dialog.selected
+            self._select_lookup(self.product, value, 'product_id', f"{value['product_code']} / {value['product_name']}")

@@ -55,10 +55,15 @@ def action_for_method(method: str) -> str:
     }.get(method.upper(), "read")
 
 
-def permission_for_request(method: str, path: str) -> RoutePermission | None:
+def permission_for_request(method: str, path: str, lookup_for: str = "") -> RoutePermission | None:
     """등록 순서에 영향받지 않는 API→메뉴 권한 매핑."""
     if not path.startswith("/api/v1/"):
         return None
+    # Only existing list endpoints may borrow the caller's workflow READ permission.
+    parts = path.strip("/").split("/")
+    lookup_path = path == "/api/v1/products" or (len(parts) == 5 and parts[:3] == ["api", "v1", "companies"] and parts[4] == "accounts")
+    if method.upper() == "GET" and lookup_path and lookup_for in {"PURCHASE_GENERAL", "SALES_GENERAL", "FINANCING_CONTRACT"}:
+        return RoutePermission(lookup_for, "read")
     action = action_for_method(method)
     relative = path.removeprefix("/api/v1/")
     if relative.startswith("auth/"):

@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Date, DateTime, Numeric, Boolean, ForeignKey, Text, UniqueConstraint
+from sqlalchemy.dialects.mssql import NVARCHAR
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -859,3 +860,18 @@ class CompanyAccount(Base):
     invoice_issue_yn = Column(Boolean, default=False, nullable=False)
     use_yn = Column(Boolean, default=True, nullable=False)
     memo = Column(String(1000), nullable=True)
+
+
+class TradeStatement(Base):
+    """Issue-time snapshot. No master FK on snapshot rows; past versions survive corrections."""
+    __tablename__ = "tb_trade_statement"
+    __table_args__ = (UniqueConstraint("comp_code", "sale_id", "document_kind", "version", name="UQ_trade_statement_version"),)
+    statement_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False)
+    sale_id = Column(Integer, ForeignKey("tb_sale.sale_id"), nullable=False)
+    document_kind = Column(String(30), nullable=False, default="TRADE_STATEMENT")
+    version = Column(Integer, nullable=False)
+    sale_fingerprint = Column(String(64), nullable=False)
+    snapshot_json = Column(Text().with_variant(NVARCHAR(None), "mssql"), nullable=False)
+    issued_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
+    issued_at = Column(DateTime(timezone=True), nullable=False)

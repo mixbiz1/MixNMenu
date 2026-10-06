@@ -7,11 +7,12 @@ from app_context import app_context
 from sales_inventory import project_lot_stock
 from PySide6.QtCore import QDate, QEvent, Qt
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QDateEdit, QDialog, QFormLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDateEdit, QDialog, QFormLayout,
     QDialogButtonBox, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QMessageBox, QPlainTextEdit, QPushButton, QTableWidget, QTableWidgetItem,
     QTextEdit, QVBoxLayout, QWidget)
-from views.purchase_reg import LookupDialog, PurchaseRegWindow, _number, _won
+from views.lookup_dialog import LookupDialog
+from views.purchase_reg import PurchaseRegWindow, _number, _won
 
 COLUMNS = ['LOT *', '상품명', '창고', 'BOX 출고/잔량', 'KG 출고/잔량',
            '평균중량(KG/BOX) 출고/잔량', '개별원가', '판매단가 *', '매출금액', '매출이익', '이익률(%)', '메모']
@@ -102,7 +103,9 @@ class SaleRegWindow(QWidget):
         left = QGroupBox('매출일자별 전표'); ll = QVBoxLayout(left)
         dl = QHBoxLayout(); dl.addWidget(QLabel('매출일자'))
         self.date = QDateEdit(QDate.currentDate()); self.date.setCalendarPopup(True)
-        self.date.setDisplayFormat('yyyy-MM-dd'); dl.addWidget(self.date); dl.addStretch(); ll.addLayout(dl)
+        self.date.setDisplayFormat('yyyy-MM-dd'); dl.addWidget(self.date)
+        self.include_cancelled = QCheckBox('취소 포함 (재출력)')
+        dl.addWidget(self.include_cancelled); dl.addStretch(); ll.addLayout(dl)
         self.today_table = QTableWidget(0, 4)
         self.today_table.setHorizontalHeaderLabels(['순번', '거래처', '거래처명', '금액'])
         self.today_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -132,6 +135,9 @@ class SaleRegWindow(QWidget):
         self.btn_cancel = QPushButton('전표취소'); self.btn_cancel.setEnabled(False)
         for button in (self.btn_query, self.btn_new, self.btn_add, self.btn_remove,
                        self.btn_save, self.btn_reset, self.btn_cancel): buttons.addWidget(button)
+        self.btn_statement = QPushButton('거래명세표 / 재출력')
+        self.btn_statement.clicked.connect(self.open_statement)
+        buttons.addWidget(self.btn_statement)
         buttons.addStretch(); root.addLayout(buttons)
         self.table = QTableWidget(0, len(COLUMNS)); self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setSelectionBehavior(QAbstractItemView.SelectItems); self.table.setAlternatingRowColors(True)
@@ -158,6 +164,7 @@ class SaleRegWindow(QWidget):
         for label in (self.previous_receivable, self.current_sales, self.today_receipt, self.current_receivable):
             label.setStyleSheet('font-size:14px;font-weight:700;padding:4px 12px;'); rl.addWidget(label)
         rl.addStretch(); root.addWidget(receivable)
+        self.include_cancelled.toggled.connect(self.query_sales)
         self.date.dateChanged.connect(self._date_changed)
         self.today_table.itemSelectionChanged.connect(self.open_sale)
         self.customer_button.clicked.connect(self.lookup_customer)
@@ -177,19 +184,14 @@ class SaleRegWindow(QWidget):
 
     def load_options(self):
         try:
-            self.accounts = self._get('accounts'); self.refresh_inventory()
+            self.accounts = self._get('accounts', purpose='SALE', limit=50, lookup_for='SALES_GENERAL'); self.refresh_inventory()
         except Exception as exc: QMessageBox.warning(self, '기준자료 조회 오류', PurchaseRegWindow._error_text(exc))
 
     def lookup_customer(self):
-        try: self.accounts = self._get('accounts')
-        except Exception as exc:
-            QMessageBox.warning(self, '거래처 조회 오류', PurchaseRegWindow._error_text(exc)); return
         def fetch(keyword):
-            return [x for x in self.accounts if x.get('sales_yn') and x.get('use_yn', True)
-                    and not x.get('trade_stop_yn', False)
-                    and keyword.casefold() in f"{x.get('account_code', '')} {x.get('account_name', '')}".casefold()]
+            return self._get('accounts', search=keyword, purpose='SALE', limit=50, lookup_for='SALES_GENERAL')
         dialog = LookupDialog(self, '매출처 조회', self.customer_edit.text(),
-                              [('거래처코드', 'account_code'), ('거래처명', 'account_name')], fetch)
+                              [('거래처코드', 'account_code'), ('거래처명', 'account_name'), ('사업자번호', 'biz_no')], fetch)
         if dialog.exec() == QDialog.Accepted and dialog.selected:
             self.set_customer(dialog.selected); self.refresh_summary()
             if not self.table.rowCount(): self.add_row()
@@ -476,19 +478,19 @@ class SaleRegWindow(QWidget):
         self.load_options(); self.query_sales(); self.refresh_summary()
 
     def query_sales(self):
-        try: self.saved = self._get('sales'); self.refresh_today()
+        try: self.saved = self._get('sales', include_cancelled=self.include_cancelled.isChecked()); self.refresh_today()
         except Exception as exc: QMessageBox.warning(self, '조회 오류', PurchaseRegWindow._error_text(exc))
 
     def refresh_today(self):
         day = self.date.date().toString('yyyy-MM-dd')
         rows = [x for x in self.saved if str(x['sale_date']) == day
-                and str(x.get('document_status') or '').strip().upper() != 'CANCELLED']
+                and (self.include_cancelled.isChecked() or str(x.get('document_status') or '').strip().upper() != 'CANCELLED')]
         self.today_table.blockSignals(True)
         try:
             self.today_table.setRowCount(0)
             for index, sale in enumerate(rows, 1):
                 row = self.today_table.rowCount(); self.today_table.insertRow(row)
-                for col, text in enumerate((index, sale.get('account_code') or '', sale.get('account_name') or '', f"{int(sale['total_amount']):,}")):
+                for col, text in enumerate((index, sale.get('account_code') or '', (sale.get('account_name') or '') + (' [취소]' if sale.get('document_status') == 'CANCELLED' else ''), f"{int(sale['total_amount']):,}")):
                     self.today_table.setItem(row, col, QTableWidgetItem(str(text)))
                 self.today_table.item(row, 0).setData(Qt.UserRole, sale['sale_id'])
         finally: self.today_table.blockSignals(False)
@@ -561,3 +563,12 @@ class SaleRegWindow(QWidget):
 
     def _date_changed(self, *_):
         if not self.loading: self.refresh_today(); self.refresh_summary()
+
+    def open_statement(self):
+        if not self.sale_id:
+            QMessageBox.information(self, '거래명세표', '저장된 매출전표를 선택하세요.'); return
+        from views.trade_statement import TradeStatementDialog
+        try:
+            TradeStatementDialog(self, self.sale_id).exec()
+        except Exception as exc:
+            QMessageBox.warning(self, '거래명세표', PurchaseRegWindow._error_text(exc))
