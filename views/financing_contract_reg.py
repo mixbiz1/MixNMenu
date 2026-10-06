@@ -149,7 +149,7 @@ class FinancingContractWindow(QWidget):
                             ("work", "작업비"), ("inspection", "검역비"), ("other", "기타비용")):
             field, basis, tax, payer, memo = self.expense_fields[name]
             form.addRow(label, self._row(field, basis, tax, payer, memo))
-        form.addRow("조건 적용 시작일", self.term_effective_from)
+        form.addRow("계약상 조건 적용 기준일", self.term_effective_from)
         form.addRow("이자형 국내매입 승인", self._pair(self.cost_return_management_approved, self.cost_return_agreement_confirmed))
         form.addRow("이자형 승인 메모", self.cost_return_approval_memo)
 

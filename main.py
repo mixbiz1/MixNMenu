@@ -36,6 +36,7 @@ from receipt_routes import router as receipt_router
 from payment_routes import router as payment_router
 from financing_contract_routes import router as financing_contract_router
 from trade_statement_routes import router as trade_statement_router
+from financing_intake_routes import router as financing_intake_router
 
 
 # =============================================================================
@@ -55,6 +56,7 @@ app.include_router(receipt_router)
 app.include_router(payment_router)
 app.include_router(financing_contract_router)
 app.include_router(trade_statement_router)
+app.include_router(financing_intake_router)
 
 # =============================================================================
 # Login Schema
@@ -1909,6 +1911,10 @@ def update_lot(comp_code: str, lot_id: int, data: LotSchema,
         raise HTTPException(status_code=404, detail="LOT가 없습니다.")
     if data.lot_code.strip().upper() != obj.lot_code:
         raise HTTPException(status_code=400, detail="저장된 LOT번호는 변경할 수 없습니다.")
+    if (data.product_id != obj.product_id or data.warehouse_id != obj.warehouse_id
+            or _ceil_won(data.individual_cost) != obj.individual_cost
+            or (data.bl_no.strip() if data.bl_no else None) != obj.bl_no):
+        _guard_import_case_lots(db, [lot_id])
     if data.product_id != obj.product_id or data.warehouse_id != obj.warehouse_id:
         linked_inbound = db.query(models.InboundItem.inbound_item_id).filter(
             models.InboundItem.lot_id == obj.lot_id
@@ -2132,11 +2138,20 @@ def get_opening_inventory_history(comp_code: str, inbound_id: int,
             ).order_by(AuditEvent.audit_event_id).all()]
 
 
+def _guard_import_case_lots(db: Session, lot_ids):
+    """Preserve the receipt/cost basis already connected to an import case."""
+    if lot_ids and db.query(models.ImportCaseItem.case_item_id).filter(
+            models.ImportCaseItem.lot_id.in_(lot_ids)).first():
+        raise HTTPException(status_code=409,
+                            detail="수입건에 연결된 LOT의 입고·상품·창고·BL·원가는 원거래에서 변경할 수 없습니다. 수입접수/원가정산 이력을 먼저 확인하세요.")
+
+
 def _guard_opening_inventory_changes(db: Session, header):
     """Do not rewrite opening quantities or LOT attributes after downstream use."""
     lot_ids = [item.lot_id for item in header.items]
     if not lot_ids:
         return
+    _guard_import_case_lots(db, lot_ids)
     linked_outbound = db.query(models.OutboundItem.outbound_item_id).join(
         models.Outbound, models.Outbound.outbound_id == models.OutboundItem.outbound_id
     ).filter(models.Outbound.comp_code == header.comp_code,
@@ -3106,6 +3121,7 @@ def _guard_purchase_dematerialization(db: Session, row, transaction_no: Optional
     purchase_no = transaction_no or row.purchase_no
 
     if lot_ids:
+        _guard_import_case_lots(db, list(lot_ids))
         downstream_lot_link = db.query(models.InboundItem.inbound_item_id).filter(
             models.InboundItem.lot_id.in_(lot_ids),
             ~models.InboundItem.inbound_item_id.in_(owned_inbound_item_ids),

@@ -638,7 +638,10 @@ def cancel_contract(comp_code: str, contract_id: int, data: CancelInput, request
     row = _contract(db, comp_code, contract_id)
     if row.status not in {"DRAFT", "CONFIRMED"}:
         _err(409, "현재 상태의 계약은 취소할 수 없습니다.")
-    # Downstream financing releases/sales will add explicit FK guards in their phase.
+    if (db.query(models.ContractDocument).filter_by(contract_id=contract_id, status="CONFIRMED").first()
+            or db.query(models.ImportCase).filter_by(contract_id=contract_id).first()):
+        _err(409, "계약서 확정본 또는 수입건이 연결된 계약은 취소할 수 없습니다.")
+    # Preserve downstream confirmed snapshots and import references.
     actor = _actor(request)
     before = {"status": row.status}
     row.status = "CANCELLED"

@@ -923,6 +923,14 @@ class MixNMainWindow(QMainWindow):
         self.action_financing_contract = QAction("1.파이낸싱 계약관리", self)
         self.action_financing_contract.triggered.connect(self.open_financing_contract)
         self.menu9.addAction(self.action_financing_contract)
+        from views.financing_intake import ContractDocumentWindow, ImportCaseWindow, ImportCostWindow
+        for attribute, title, widget in [
+            ('action_contract_document', '2.계약서 작성/조회', ContractDocumentWindow),
+            ('action_import_case', '3.수입접수', ImportCaseWindow),
+            ('action_import_cost', '4.수입원가정산', ImportCostWindow)]:
+            action = QAction(title, self)
+            action.triggered.connect(lambda checked=False, cls=widget, text=title: self._open_single_mdi(cls, text, text))
+            setattr(self, attribute, action); self.menu9.addAction(action)
 
         # ----------------------------------------------------
         # 메뉴바 배치
@@ -967,6 +975,9 @@ class MixNMainWindow(QMainWindow):
             "PAYMENT_MANAGEMENT": self.action_payment,
             "ACCOUNT_LEDGER": self.action_account_ledger,
             "FINANCING_CONTRACT": self.action_financing_contract,
+            "FINANCING_DOCUMENT": self.action_contract_document,
+            "IMPORT_INTAKE": self.action_import_case,
+            "IMPORT_COST": self.action_import_cost,
         }
         for code, action in mapping.items():
             action.setVisible(app_context.can(code, "read"))

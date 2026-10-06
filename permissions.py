@@ -31,6 +31,9 @@ MENU_DEFINITIONS = (
     ("RECEIPT_MANAGEMENT", "입금관리", "입금/출금관리", 230),
     ("PAYMENT_MANAGEMENT", "지급관리", "입금/출금관리", 240),
     ("ACCOUNT_LEDGER", "거래처원장", "조회/출력", 250),
+    ("FINANCING_DOCUMENT", "계약서 작성/조회", "파이낸싱/계약판매", 226),
+    ("IMPORT_INTAKE", "수입접수", "파이낸싱/계약판매", 227),
+    ("IMPORT_COST", "수입원가정산", "파이낸싱/계약판매", 228),
     ("FINANCING_CONTRACT", "파이낸싱 계약관리", "상품입/출고관리", 225),
 )
 
@@ -61,8 +64,15 @@ def permission_for_request(method: str, path: str, lookup_for: str = "") -> Rout
         return None
     # Only existing list endpoints may borrow the caller's workflow READ permission.
     parts = path.strip("/").split("/")
+    workflow_lookups = {"FINANCING_DOCUMENT", "IMPORT_INTAKE", "IMPORT_COST"}
+    workflow_list = len(parts) == 5 and parts[:3] == ["api", "v1", "companies"] and parts[4] in {"financing-contracts", "import-cases"}
+    workflow_list = workflow_list or (lookup_for == "IMPORT_COST" and len(parts) == 6 and parts[:3] == ["api", "v1", "companies"] and parts[4] == "import-cases" and parts[5].isdigit())
+    if method == "GET" and workflow_list and lookup_for in workflow_lookups:
+        return RoutePermission(lookup_for, "read")
+    if method == "GET" and len(parts) == 5 and parts[:3] == ["api", "v1", "companies"] and parts[4] == "lots" and lookup_for in {"IMPORT_INTAKE", "IMPORT_COST"}:
+        return RoutePermission(lookup_for, "read")
     lookup_path = path == "/api/v1/products" or (len(parts) == 5 and parts[:3] == ["api", "v1", "companies"] and parts[4] == "accounts")
-    if method.upper() == "GET" and lookup_path and lookup_for in {"PURCHASE_GENERAL", "SALES_GENERAL", "FINANCING_CONTRACT"}:
+    if method.upper() == "GET" and lookup_path and lookup_for in {"PURCHASE_GENERAL", "SALES_GENERAL", "FINANCING_CONTRACT", "FINANCING_DOCUMENT", "IMPORT_INTAKE", "IMPORT_COST"}:
         return RoutePermission(lookup_for, "read")
     action = action_for_method(method)
     relative = path.removeprefix("/api/v1/")
@@ -103,12 +113,19 @@ def permission_for_request(method: str, path: str, lookup_for: str = "") -> Rout
             "meatwatch": "PURCHASE_GENERAL",
             "sales": "SALES_GENERAL",
             "financing-contracts": "FINANCING_CONTRACT",
+            "contract-documents": "FINANCING_DOCUMENT",
+            "import-cases": "IMPORT_INTAKE",
+            "import-costs": "IMPORT_COST",
             "sales-receivable-summary": "SALES_GENERAL",
             "receipts": "RECEIPT_MANAGEMENT",
             "payments": "PAYMENT_MANAGEMENT",
             "payment-payable-summary": "PAYMENT_MANAGEMENT",
             "account-ledger": "ACCOUNT_LEDGER",
         }.get(resource, "SYS_COMPANY")
+        if resource in {"contract-documents", "import-cases", "import-costs"} and method == "POST" and len(parts) > 4 and parts[4] in {"confirm", "cancel", "start", "close"}:
+            action = "update"
+        if resource == "import-costs" and method == "POST" and len(parts) > 4 and parts[4] == "rows":
+            action = "update"
         if resource == "purchases" and len(parts) > 4 and parts[4] in {"confirm", "cancel"}:
             action = "update"
         if resource == "financing-contracts" and len(parts) > 4 and parts[4] in {"confirm", "cancel"}:

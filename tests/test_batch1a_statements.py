@@ -151,7 +151,14 @@ with patch.object(QFontDatabase, 'families', staticmethod(families_for_test)), p
     printer.assert_not_called()
     reader.close()
 """
-    environment = dict(os.environ, QT_QPA_PLATFORM='offscreen')
+    environment = dict(os.environ)
+    if sys.platform == 'win32':
+        # Windows offscreen does not reliably use the installed font registry.
+        # Use the native Qt platform in this isolated, non-visible PDF process.
+        environment.pop('QT_QPA_PLATFORM', None)
+        environment.pop('QT_QPA_FONTDIR', None)
+    else:
+        environment['QT_QPA_PLATFORM'] = 'offscreen'
     result = subprocess.run(
         [sys.executable, '-c', script, str(source), str(target)],
         cwd=Path(__file__).resolve().parents[1], env=environment,

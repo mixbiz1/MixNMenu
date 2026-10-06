@@ -875,3 +875,125 @@ class TradeStatement(Base):
     snapshot_json = Column(Text().with_variant(NVARCHAR(None), "mssql"), nullable=False)
     issued_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
     issued_at = Column(DateTime(timezone=True), nullable=False)
+
+# Batch 2A: immutable confirmed documents and actual cost foundations.
+from sqlalchemy import Unicode, UnicodeText, CheckConstraint
+
+class ContractDocument(Base):
+    __tablename__ = 'tb_fin_contract_document'
+    __table_args__ = (UniqueConstraint('contract_id', 'version', name='UQ_fin_document_version'),
+        CheckConstraint("status IN ('DRAFT','CONFIRMED','SUPERSEDED','CANCELLED')", name='CK_fin_document_status'))
+    document_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey('tb_company.comp_code'), nullable=False)
+    contract_id = Column(Integer, ForeignKey('tb_fin_contract.contract_id'), nullable=False, index=True)
+    template_type = Column(String(30), nullable=False)
+    version = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, default='DRAFT')
+    body = Column(UnicodeText().with_variant(NVARCHAR(None), 'mssql'), nullable=False)
+    snapshot_json = Column(UnicodeText().with_variant(NVARCHAR(None), 'mssql'), nullable=False)
+    created_by = Column(String(50), ForeignKey('tb_user.user_id'), nullable=False)
+    updated_by = Column(String(50), ForeignKey('tb_user.user_id'), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    confirmed_at = Column(DateTime(timezone=True))
+
+class ImportCase(Base):
+    __tablename__ = 'tb_import_case'
+    __table_args__ = (UniqueConstraint('comp_code', 'import_case_no', name='UQ_import_case_no'),
+        CheckConstraint("status IN ('DRAFT','IN_PROGRESS','COSTING','COST_CONFIRMED','CLOSED')", name='CK_import_case_status'))
+    import_case_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey('tb_company.comp_code'), nullable=False, index=True)
+    contract_id = Column(Integer, ForeignKey('tb_fin_contract.contract_id'), index=True)
+    import_case_no = Column(String(40), nullable=False)
+    supplier_account_id = Column(Integer, ForeignKey('tb_account.account_id'))
+    bl_no = Column(Unicode(80))
+    reference = Column(Unicode(100))
+    currency = Column(String(3), nullable=False, default='USD')
+    customs_date = Column(Date)
+    warehouse_receipt_date = Column(Date)
+    status = Column(String(20), nullable=False, default='DRAFT')
+    memo = Column(Unicode(1000))
+    source_snapshot_json = Column(UnicodeText().with_variant(NVARCHAR(None), 'mssql'), nullable=False)
+    created_by = Column(String(50), ForeignKey('tb_user.user_id'), nullable=False)
+    updated_by = Column(String(50), ForeignKey('tb_user.user_id'), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    items = relationship('ImportCaseItem', cascade='all, delete-orphan', order_by='ImportCaseItem.line_no')
+    supplier = relationship('Account')
+
+class ImportCaseItem(Base):
+    __tablename__ = 'tb_import_case_item'
+    __table_args__ = (UniqueConstraint('import_case_id', 'line_no', name='UQ_import_case_item_line'),)
+    case_item_id = Column(Integer, primary_key=True, autoincrement=True)
+    import_case_id = Column(Integer, ForeignKey('tb_import_case.import_case_id'), nullable=False, index=True)
+    line_no = Column(Integer, nullable=False)
+    contract_item_id = Column(Integer, ForeignKey('tb_fin_contract_item.contract_item_id'))
+    product_id = Column(Integer, ForeignKey('tb_product.product_id'), nullable=False)
+    lot_id = Column(Integer, ForeignKey('tb_lot.lot_id'))
+    box_qty = Column(Integer, nullable=False, default=0)
+    weight = Column(Numeric(18, 2), nullable=False, default=0)
+    memo = Column(Unicode(1000))
+
+    product = relationship('Product')
+    lot = relationship('Lot')
+
+class ImportCostSettlement(Base):
+    __tablename__ = 'tb_import_cost_settlement'
+    __table_args__ = (UniqueConstraint('import_case_id', 'version', name='UQ_import_cost_version'),
+        CheckConstraint("status IN ('DRAFT','CONFIRMED','CANCELLED')", name='CK_import_cost_status'))
+    settlement_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey('tb_company.comp_code'), nullable=False)
+    import_case_id = Column(Integer, ForeignKey('tb_import_case.import_case_id'), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, default='DRAFT')
+    total_cost = Column(Numeric(18, 0), nullable=False, default=0)
+    snapshot_json = Column(UnicodeText().with_variant(NVARCHAR(None), 'mssql'))
+    created_by = Column(String(50), ForeignKey('tb_user.user_id'), nullable=False)
+    updated_by = Column(String(50), ForeignKey('tb_user.user_id'), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    confirmed_at = Column(DateTime(timezone=True))
+    rows = relationship('ImportCostRow', cascade='all, delete-orphan', order_by='ImportCostRow.line_no')
+    allocations = relationship('ImportCostAllocation', order_by='ImportCostAllocation.allocation_id')
+
+class ImportCostRow(Base):
+    __tablename__ = 'tb_import_cost_row'
+    __table_args__ = (UniqueConstraint('settlement_id', 'line_no', name='UQ_import_cost_row_line'),
+        CheckConstraint("cost_kind IN ('EVENT','PERIOD')", name='CK_import_cost_row_kind'))
+    cost_row_id = Column(Integer, primary_key=True, autoincrement=True)
+    settlement_id = Column(Integer, ForeignKey('tb_import_cost_settlement.settlement_id'), nullable=False, index=True)
+    line_no = Column(Integer, nullable=False)
+    cost_name = Column(Unicode(100), nullable=False)
+    cost_kind = Column(String(10), nullable=False, default='EVENT')
+    occurred_on = Column(Date)
+    period_start = Column(Date)
+    period_end = Column(Date)
+    rate = Column(Numeric(18, 4))
+    basis = Column(Unicode(50))
+    basis_quantity = Column(Numeric(18, 4))
+    amount = Column(Numeric(18, 4))  # Signed actual amount; null means not entered.
+    currency = Column(String(3), nullable=False, default='KRW')
+    exchange_rate = Column(Numeric(18, 2))
+    krw_amount = Column(Numeric(18, 0))
+    tax_kind = Column(String(20), nullable=False, default='EXEMPT')
+    tax_amount_krw = Column(Numeric(18, 0), nullable=False, default=0)
+    capitalize_tax = Column(Boolean, nullable=False, default=False)
+    payer = Column(String(30), nullable=False, default='MXMN')
+    origin = Column(String(10), nullable=False, default='MANUAL')
+    reference_json = Column(UnicodeText().with_variant(NVARCHAR(None), 'mssql'))
+    product_id = Column(Integer, ForeignKey('tb_product.product_id'))
+    lot_id = Column(Integer, ForeignKey('tb_lot.lot_id'))
+    memo = Column(Unicode(1000))
+
+class ImportCostAllocation(Base):
+    __tablename__ = 'tb_import_cost_allocation'
+    __table_args__ = (UniqueConstraint('settlement_id', 'lot_id', name='UQ_import_cost_allocation_lot'),)
+    allocation_id = Column(Integer, primary_key=True, autoincrement=True)
+    settlement_id = Column(Integer, ForeignKey('tb_import_cost_settlement.settlement_id'), nullable=False, index=True)
+    case_item_id = Column(Integer, ForeignKey('tb_import_case_item.case_item_id'), nullable=False)
+    lot_id = Column(Integer, ForeignKey('tb_lot.lot_id'), nullable=False)
+    actual_weight = Column(Numeric(18, 2), nullable=False)
+    allocated_cost = Column(Numeric(18, 0), nullable=False)
+    unit_cost = Column(Numeric(18, 0), nullable=False)
+    previous_unit_cost = Column(Numeric(18, 4), nullable=False)
+    allocation_method = Column(String(10), nullable=False)
