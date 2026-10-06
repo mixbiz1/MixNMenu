@@ -31,6 +31,7 @@ MENU_DEFINITIONS = (
     ("RECEIPT_MANAGEMENT", "입금관리", "입금/출금관리", 230),
     ("PAYMENT_MANAGEMENT", "지급관리", "입금/출금관리", 240),
     ("ACCOUNT_LEDGER", "거래처원장", "조회/출력", 250),
+    ("FINANCING_CONTRACT", "파이낸싱 계약관리", "상품입/출고관리", 225),
 )
 
 MENU_CODES = {row[0] for row in MENU_DEFINITIONS}
@@ -96,6 +97,7 @@ def permission_for_request(method: str, path: str) -> RoutePermission | None:
             "purchase-payable-summary": "PURCHASE_GENERAL",
             "meatwatch": "PURCHASE_GENERAL",
             "sales": "SALES_GENERAL",
+            "financing-contracts": "FINANCING_CONTRACT",
             "sales-receivable-summary": "SALES_GENERAL",
             "receipts": "RECEIPT_MANAGEMENT",
             "payments": "PAYMENT_MANAGEMENT",
@@ -103,6 +105,8 @@ def permission_for_request(method: str, path: str) -> RoutePermission | None:
             "account-ledger": "ACCOUNT_LEDGER",
         }.get(resource, "SYS_COMPANY")
         if resource == "purchases" and len(parts) > 4 and parts[4] in {"confirm", "cancel"}:
+            action = "update"
+        if resource == "financing-contracts" and len(parts) > 4 and parts[4] in {"confirm", "cancel"}:
             action = "update"
         return RoutePermission(code, action)
     if relative in {"company", "companies"}:

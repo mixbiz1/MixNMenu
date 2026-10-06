@@ -11,6 +11,8 @@ from views.mxmn_main_window import MixNMainWindow
 from views.main_dashboard import MainDashboard
 from views.payment_reg import PaymentRegWindow
 from views.receipt_reg import ReceiptRegWindow
+from views.financing_contract_reg import FinancingContractWindow
+import views.financing_contract_reg as financing_contract_view
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -148,4 +150,28 @@ def test_delete_on_close_mdi_window_is_removed_and_recreated_with_content():
     assert replacement.widget() is not old_widget
     assert replacement.widget().findChild(QLabel).text() == "창 내용 유지 확인"
     assert not replacement.widget().isHidden()
+    main.close()
+
+
+def test_financing_contract_mdi_close_reopen_keeps_single_live_window(monkeypatch):
+    class Response:
+        def json(self): return []
+        def raise_for_status(self): return None
+
+    monkeypatch.setattr(FinancingContractWindow, "_get", lambda self, path, **params: [])
+    monkeypatch.setattr(financing_contract_view.httpx, "get", lambda *args, **kwargs: Response())
+    main = MixNMainWindow()
+    main.open_financing_contract()
+    sub = next(s for s in main.mdi_area.subWindowList() if type(s.widget()) is FinancingContractWindow)
+    screen = sub.widget()
+    assert screen.findChild(QLabel) is not None
+    main.open_financing_contract()
+    assert sum(type(s.widget()) is FinancingContractWindow for s in main.mdi_area.subWindowList()) == 1
+    sub.close()
+    _APP.processEvents()
+    assert sub not in main.mdi_area.subWindowList()
+    main.open_financing_contract()
+    replacement = next(s for s in main.mdi_area.subWindowList() if type(s.widget()) is FinancingContractWindow)
+    assert replacement.widget() is not screen
+    assert sum(type(s.widget()) is FinancingContractWindow for s in main.mdi_area.subWindowList()) == 1
     main.close()

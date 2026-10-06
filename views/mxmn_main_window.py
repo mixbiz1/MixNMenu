@@ -80,6 +80,7 @@ try:
     from views.payment_reg import PaymentRegWindow
     from views.account_ledger import AccountLedgerWindow
     from views.inventory_reg import InventoryRegWindow
+    from views.financing_contract_reg import FinancingContractWindow
 except ImportError:
     from opening_inventory_reg import OpeningInventoryRegWindow
     from opening_balance_reg import OpeningBalanceRegWindow
@@ -89,6 +90,7 @@ except ImportError:
     from payment_reg import PaymentRegWindow
     from account_ledger import AccountLedgerWindow
     from inventory_reg import InventoryRegWindow
+    from financing_contract_reg import FinancingContractWindow
 
 try:
     from views.password_change import PasswordChangeDialog
@@ -918,6 +920,9 @@ class MixNMainWindow(QMainWindow):
             "9.파이낸싱/계약판매",
             self,
         )
+        self.action_financing_contract = QAction("1.파이낸싱 계약관리", self)
+        self.action_financing_contract.triggered.connect(self.open_financing_contract)
+        self.menu9.addAction(self.action_financing_contract)
 
         # ----------------------------------------------------
         # 메뉴바 배치
@@ -961,6 +966,7 @@ class MixNMainWindow(QMainWindow):
             "RECEIPT_MANAGEMENT": self.action_receipt,
             "PAYMENT_MANAGEMENT": self.action_payment,
             "ACCOUNT_LEDGER": self.action_account_ledger,
+            "FINANCING_CONTRACT": self.action_financing_contract,
         }
         for code, action in mapping.items():
             action.setVisible(app_context.can(code, "read"))
@@ -1587,6 +1593,9 @@ class MixNMainWindow(QMainWindow):
     def open_inventory_reg(self):
         """원장 기반 재고수불 조회 화면을 MDI에 1개만 연다."""
         self._open_single_mdi(InventoryRegWindow, "재고수불 조회", "조회/출력 → 재고수불 조회")
+
+    def open_financing_contract(self):
+        self._open_single_mdi(FinancingContractWindow, "파이낸싱 계약관리", "파이낸싱/계약판매 → 계약관리")
 
     def _open_single_mdi(self, widget_class, title, status_text):
         try:

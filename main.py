@@ -34,6 +34,7 @@ import models
 from inventory_projection import project_inventory, lot_transactions
 from receipt_routes import router as receipt_router
 from payment_routes import router as payment_router
+from financing_contract_routes import router as financing_contract_router
 
 
 # =============================================================================
@@ -51,6 +52,7 @@ app = FastAPI(
 
 app.include_router(receipt_router)
 app.include_router(payment_router)
+app.include_router(financing_contract_router)
 
 # =============================================================================
 # Login Schema

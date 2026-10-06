@@ -544,6 +544,116 @@ class Lot(Base):
     warehouse = relationship("Warehouse")
 
 
+class FinancingContract(Base):
+    """Financing contract metadata; actual inventory and trade stay in ERP ledgers."""
+    __tablename__ = "tb_fin_contract"
+    __table_args__ = (
+        UniqueConstraint("comp_code", "contract_no", name="UQ_fin_contract_company_no"),
+    )
+
+    contract_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey("tb_company.comp_code"), nullable=False, index=True)
+    contract_no = Column(String(30), nullable=False, index=True)
+    contract_type = Column(String(30), nullable=False)
+    contract_date = Column(Date, nullable=False, index=True)
+    contractor_account_id = Column(Integer, ForeignKey("tb_account.account_id"), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="DRAFT", index=True)
+    customs_date = Column(Date, nullable=True)
+    cost_finalized_date = Column(Date, nullable=True)
+    warehouse_arrival_date = Column(Date, nullable=True)
+    financing_start_date = Column(Date, nullable=True)
+    deposit_required = Column(Boolean, nullable=False, default=False)
+    deposit_amount = Column(Numeric(18, 0), nullable=False, default=0)
+    deposit_memo = Column(String(1000), nullable=True)
+    memo = Column(String(1000), nullable=True)
+    created_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    confirmed_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    cancelled_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=True)
+    cancelled_at = Column(DateTime(timezone=True), nullable=True)
+
+    contractor = relationship("Account", foreign_keys=[contractor_account_id])
+    participants = relationship("FinancingContractParticipant", back_populates="contract", cascade="all, delete-orphan", order_by="FinancingContractParticipant.participant_id")
+    lots = relationship("FinancingContractLot", back_populates="contract", cascade="all, delete-orphan", order_by="FinancingContractLot.contract_lot_id")
+    terms = relationship("FinancingContractTerm", back_populates="contract", cascade="all, delete-orphan", order_by="FinancingContractTerm.version")
+
+
+class FinancingContractParticipant(Base):
+    """Contract responsibility participant and prior shipper agreement evidence."""
+    __tablename__ = "tb_fin_contract_participant"
+    __table_args__ = (
+        UniqueConstraint("contract_id", "account_id", name="UQ_fin_participant_account"),
+    )
+
+    participant_id = Column(Integer, primary_key=True, autoincrement=True)
+    contract_id = Column(Integer, ForeignKey("tb_fin_contract.contract_id"), nullable=False, index=True)
+    account_id = Column(Integer, ForeignKey("tb_account.account_id"), nullable=False, index=True)
+    role = Column(String(30), nullable=False)  # ORIGINAL_CONTRACTOR / AUTHORIZED_SHIPPER
+    agreement_status = Column(String(20), nullable=False, default="NOT_REQUIRED")  # NOT_REQUIRED / PENDING / CONFIRMED
+    agreement_date = Column(Date, nullable=True)
+    effective_date = Column(Date, nullable=True)
+    status = Column(String(20), nullable=False, default="ACTIVE")
+    memo = Column(String(1000), nullable=True)
+    created_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    contract = relationship("FinancingContract", back_populates="participants")
+    account = relationship("Account")
+
+
+class FinancingContractLot(Base):
+    """Link to the existing stock LOT; quantities here are contract terms, not inventory."""
+    __tablename__ = "tb_fin_contract_lot"
+    __table_args__ = (
+        UniqueConstraint("contract_id", "lot_id", name="UQ_fin_contract_lot"),
+    )
+
+    contract_lot_id = Column(Integer, primary_key=True, autoincrement=True)
+    contract_id = Column(Integer, ForeignKey("tb_fin_contract.contract_id"), nullable=False, index=True)
+    lot_id = Column(Integer, ForeignKey("tb_lot.lot_id"), nullable=False, index=True)
+    contract_box_qty = Column(Integer, nullable=False, default=0)
+    contract_weight = Column(Numeric(18, 2), nullable=False, default=0)
+    linked_date = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, default="ACTIVE")
+    conditions_override_json = Column(Text, nullable=True)
+    memo = Column(String(1000), nullable=True)
+    created_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    contract = relationship("FinancingContract", back_populates="lots")
+    lot = relationship("Lot")
+
+
+class FinancingContractTerm(Base):
+    """Immutable, versioned terms. Values snapshot agreement conditions, not global rates."""
+    __tablename__ = "tb_fin_contract_term"
+    __table_args__ = (
+        UniqueConstraint("contract_id", "version", name="UQ_fin_contract_term_version"),
+        UniqueConstraint("contract_id", "effective_from", name="UQ_fin_contract_term_effective"),
+    )
+
+    term_id = Column(Integer, primary_key=True, autoincrement=True)
+    contract_id = Column(Integer, ForeignKey("tb_fin_contract.contract_id"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    effective_from = Column(Date, nullable=False, index=True)
+    recovery_template = Column(String(30), nullable=False, default="FREE")
+    contract_days = Column(Integer, nullable=True)
+    annual_interest_rate = Column(Numeric(9, 6), nullable=False, default=0)
+    storage_rate_per_kg_day = Column(Numeric(18, 6), nullable=False, default=0)
+    brokerage_rate = Column(Numeric(9, 6), nullable=False, default=0)
+    inbound_outbound_rate_per_kg = Column(Numeric(18, 6), nullable=False, default=0)
+    weighing_rate_per_box = Column(Numeric(18, 6), nullable=False, default=0)
+    conditions_json = Column(Text, nullable=False, default="{}")
+    change_reason = Column(String(1000), nullable=True)
+    created_by = Column(String(50), ForeignKey("tb_user.user_id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    contract = relationship("FinancingContract", back_populates="terms")
+
+
 class Inbound(Base):
     """입고 원장 Header. 최초재고도 일반 입고와 같은 원장에 기록한다."""
     __tablename__ = "tb_inbound"
