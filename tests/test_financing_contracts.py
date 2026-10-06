@@ -315,7 +315,7 @@ def test_financing_api_uses_its_menu_permission_mapping():
 def test_financing_gui_builds_contract_from_existing_account_lot_and_term(monkeypatch):
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QLabel
     from app_context import app_context
     from views.financing_contract_reg import FinancingContractWindow
     import views.financing_contract_reg as financing_ui
@@ -348,6 +348,15 @@ def test_financing_gui_builds_contract_from_existing_account_lot_and_term(monkey
 
     window = FinancingContractWindow()
     window.show(); app.processEvents()
+    for field, text in ((window.item_box, '계약 Box'), (window.item_kg, '계약 Kg'),
+                        (window.item_price, '기준단가 (원/Kg)'), (window.item_memo, '비고'),
+                        (window.lot_box, 'LOT 배정 Box'), (window.lot_kg, 'LOT 배정 Kg')):
+        labels = [label for label in window.findChildren(QLabel) if label.buddy() is field]
+        assert len(labels) == 1 and labels[0].text() == text
+        assert labels[0].isVisible()
+        field.setText('1')
+        assert labels[0].isVisible() and labels[0].text() == text
+    window.item_memo.clear()
     window.item_box.setText("5"); window.item_kg.setText("50.00"); window.add_item_row()
     window.create_contract()
     assert "contract_no" not in captured

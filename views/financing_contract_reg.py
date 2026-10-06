@@ -71,6 +71,13 @@ class FinancingContractWindow(QWidget):
         layout.addWidget(left); layout.addWidget(right)
         return widget
 
+    @staticmethod
+    def _labelled(text, field):
+        widget = QWidget(); layout = QVBoxLayout(widget); layout.setContentsMargins(0, 0, 0, 0)
+        label = QLabel(text); label.setBuddy(field)
+        layout.addWidget(label); layout.addWidget(field)
+        return widget
+
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.addWidget(QLabel(f"업무회사: {app_context.company_code} {app_context.company_name or ''}"))
@@ -108,7 +115,11 @@ class FinancingContractWindow(QWidget):
         self.item_table.setHorizontalHeaderLabels(("상품", "계약 Box", "계약 Kg", "기준단가", "LOT 배정 Box/Kg", "비고"))
         self.item_table.setMaximumHeight(145)
         item_row = QWidget(); item_layout = QHBoxLayout(item_row); item_layout.setContentsMargins(0, 0, 0, 0)
-        for widget in (self.product, self.product_search, self.item_box, self.item_kg, self.item_price, self.item_memo, self.add_item_button): item_layout.addWidget(widget)
+        for text, field in (("계약상품", self.product), ("계약 Box", self.item_box), ("계약 Kg", self.item_kg),
+                            ("기준단가 (원/Kg)", self.item_price), ("비고", self.item_memo)):
+            item_layout.addWidget(self._labelled(text, field))
+            if field is self.product: item_layout.addWidget(self.product_search, alignment=Qt.AlignBottom)
+        item_layout.addWidget(self.add_item_button, alignment=Qt.AlignBottom)
         form.addRow("계약상품 입력", item_row); form.addRow("계약상품 목록", self.item_table)
 
         self.template = QComboBox()
@@ -166,7 +177,10 @@ class FinancingContractWindow(QWidget):
         self.lot = QComboBox(); self.lot_item = QComboBox(); self.lot_box = self._number("배정 Box"); self.lot_kg = self._number("배정 Kg")
         self.lot_date = self._date(); self.add_lot_button = QPushButton("실제 ERP LOT 배정")
         lot_row = QWidget(); lot_layout = QHBoxLayout(lot_row); lot_layout.setContentsMargins(0, 0, 0, 0)
-        for widget in (self.lot_item, self.lot, self.lot_box, self.lot_kg, self.lot_date, self.add_lot_button): lot_layout.addWidget(widget)
+        for text, field in (("배정할 계약상품", self.lot_item), ("실제 ERP LOT", self.lot),
+                            ("LOT 배정 Box", self.lot_box), ("LOT 배정 Kg", self.lot_kg), ("연결일", self.lot_date)):
+            lot_layout.addWidget(self._labelled(text, field))
+        lot_layout.addWidget(self.add_lot_button, alignment=Qt.AlignBottom)
         form.addRow("입고 후 계약상품 ↔ ERP LOT", lot_row)
         self.lot_table = QTableWidget(0, 5)
         self.lot_table.setHorizontalHeaderLabels(("ERP LOT", "계약상품", "Box", "Kg", "연결일"))

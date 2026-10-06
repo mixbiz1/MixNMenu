@@ -136,8 +136,8 @@ def _account(db: Session, comp_code: str, account_id: int, *, require_sale: bool
     row = (db.query(models.Account).join(models.CompanyAccount, models.CompanyAccount.account_id == models.Account.account_id)
            .filter(models.CompanyAccount.comp_code == comp_code,
                    models.CompanyAccount.account_id == account_id,
-                   models.CompanyAccount.use_yn.is_(True), models.CompanyAccount.trade_stop_yn.is_(False),
-                   models.Account.use_yn.is_(True)).first())
+                   models.CompanyAccount.use_yn == True, models.CompanyAccount.trade_stop_yn == False,
+                   models.Account.use_yn == True).first())
     if require_sale and row is not None:
         sale_relation = db.query(models.CompanyAccount).filter_by(comp_code=comp_code, account_id=account_id,
             use_yn=True, trade_stop_yn=False, sales_yn=True).first()
@@ -297,7 +297,7 @@ def _add_lot(db: Session, contract: models.FinancingContract, data: ContractLotI
     if data.contract_box_qty == 0 and data.contract_weight == 0:
         _err(400, "배정 수량은 Box 또는 Kg 중 하나 이상 입력해야 합니다.")
     lot = db.query(models.Lot).filter(models.Lot.comp_code == contract.comp_code,
-        models.Lot.lot_id == data.lot_id, models.Lot.use_yn.is_(True)).first()
+        models.Lot.lot_id == data.lot_id, models.Lot.use_yn == True).first()
     if lot is None:
         _err(404, "해당 회사에서 사용할 수 있는 기존 LOT가 아닙니다.")
     if lot.status != "OPEN":
