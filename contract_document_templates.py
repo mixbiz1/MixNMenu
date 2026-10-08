@@ -10,7 +10,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 import re
 
-REVISION = '20261008.v1.integrity'
+REVISION = '20261008.v1.seller-account'
 FORMS = {
     'IMPORT_AGENCY': ('수입대행계약서', 'IMPORT_AGENCY', 'import_agency.html'),
     'BL_TRANSFER': ('BL양수도 기본계약서', 'BL_TRANSFER', 'bl_transfer.html'),

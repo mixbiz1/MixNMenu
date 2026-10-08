@@ -9,7 +9,7 @@ import api_client as httpx
 from api_config import API_BASE_URL
 from app_context import app_context
 from views.lookup_dialog import LookupDialog, error_text
-from contract_document_templates import FORMS
+from contract_document_templates import FORMS, REVISION
 
 
 def line(placeholder=''):
@@ -148,6 +148,8 @@ class ContractDocumentWindow(WorkWindow):
         self.validation.setPlainText('\n'.join(lines))
         if not value['snapshot'].get('template_revision'):
             self.summary.setText(self.summary.text() + ' / 기존 예시 문서: 초안은 표준양식 다시 작성, 확정본은 새 version을 생성하십시오.')
+        elif value['status'] == 'DRAFT' and value['snapshot']['template_revision'] != REVISION:
+            self.summary.setText(self.summary.text() + ' / 이전 양식으로 저장된 초안입니다. 최신 문구 반영은 표준양식 다시 작성으로 실행하십시오. 기존 편집 문구는 재작성됩니다.')
 
     def create(self):
         value = self.request('post', json={'contract_id': self.contract.property('pk'), 'template_type': self.template.currentData()})
