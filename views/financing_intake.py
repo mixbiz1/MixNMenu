@@ -98,6 +98,8 @@ class ContractDocumentWindow(WorkWindow):
         self.set_templates()
         self.form.addRow('확정 계약', self.picker(self.contract, self.pick_contract))
         self.form.addRow('출력양식', self.template)
+        self.validation = QPlainTextEdit(); self.validation.setReadOnly(True); self.validation.setMaximumHeight(125)
+        self.form.addRow('확정 전 확인', self.validation)
         self.body = QTextEdit(); self.body.setAcceptRichText(False); self.body.setMinimumHeight(400)
         self.form.addRow('표준 초안 / 문구·표 수정', self.body)
         self.form.addRow(QLabel('미입력 빈칸은 초안에서 확인·수정하십시오. 원화 기준단가는 USD 오퍼단가로 변환하지 않습니다.\n문서 편집은 원계약 조건을 변경하지 않습니다. 관세사용 양식에는 금액을 추가하지 마십시오.'))
@@ -130,7 +132,7 @@ class ContractDocumentWindow(WorkWindow):
             self.table.setItem(index,4,QTableWidgetItem(FORMS.get(value['template_type'], (value['template_type'],))[0]))
 
     def clear(self):
-        super().clear(); self.contract.clear(); self.contract.setProperty('pk', None); self.body.clear(); self.body.setReadOnly(False); self.reason.clear(); self.set_templates()
+        super().clear(); self.contract.clear(); self.contract.setProperty('pk', None); self.body.clear(); self.body.setReadOnly(False); self.reason.clear(); self.set_templates(); self.validation.clear()
 
     def load(self, value):
         super().load(value); self.contract.setProperty('pk', value['contract_id'])
@@ -139,6 +141,11 @@ class ContractDocumentWindow(WorkWindow):
         if value['snapshot'].get('body_format') == 'HTML': self.body.setHtml(value['body'])
         else: self.body.setPlainText(value['body'])
         self.body.setReadOnly(value['status'] != 'DRAFT'); self.body.document().setModified(False)
+        review = value.get('validation') or {}
+        lines = [review.get('notice', '')]
+        for key, title in [('required','필수 확인'), ('optional','선택·추가조건 확인')]:
+            lines.append(title + ': ' + (' / '.join(review.get(key) or []) or '누락 없음'))
+        self.validation.setPlainText('\n'.join(lines))
         if not value['snapshot'].get('template_revision'):
             self.summary.setText(self.summary.text() + ' / 기존 예시 문서: 초안은 표준양식 다시 작성, 확정본은 새 version을 생성하십시오.')
 

@@ -10,7 +10,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 import re
 
-REVISION = '20261008.v1'
+REVISION = '20261008.v1.integrity'
 FORMS = {
     'IMPORT_AGENCY': ('수입대행계약서', 'IMPORT_AGENCY', 'import_agency.html'),
     'BL_TRANSFER': ('BL양수도 기본계약서', 'BL_TRANSFER', 'bl_transfer.html'),
@@ -20,6 +20,32 @@ FORMS = {
 }
 TEMPLATE_DIR = Path(__file__).resolve().parent / 'templates' / 'contracts'
 BLANK = '________'
+RATE_INPUT_KEY = 'document_rate_inputs'
+RATE_FIELDS = ('annual_interest_rate', 'brokerage_rate', 'storage_rate_per_kg_day',
+               'inbound_outbound_rate_per_kg', 'weighing_rate_per_box')
+
+
+def legal_name(party):
+    """Do not guess a registered name by trimming an internal master label."""
+    name = party.get('name')
+    if name and str(name).strip().startswith('(계약)'):
+        return None
+    return name
+
+
+def term_value(term, key):
+    """Presentation only: persisted default zero is not evidence of agreement.
+
+    Explicit expense rows and new presence metadata preserve agreed zero. Older
+    unmarked flat zero cannot be reconstructed and must be reviewed, not guessed.
+    """
+    value = term.get(key)
+    if value is None: return None
+    inputs = (term.get('conditions') or {}).get(RATE_INPUT_KEY, {})
+    canonical = {'interest_rate_1':'annual_interest_rate', 'brokerage_rate_1':'brokerage_rate'}.get(key,key)
+    if canonical in RATE_FIELDS and Decimal(str(value)) == 0:
+        if inputs.get(canonical) is not True: return None
+    return value
 
 
 def text(value):
@@ -42,7 +68,7 @@ def difference(first, second):
 
 def party_block(party, signature=False):
     address = ' '.join(str(party.get(k) or '') for k in ['address','address_detail']).strip()
-    lines = ['사업자등록번호: ' + text(party.get('biz_no')), text(party.get('name')),
+    lines = ['사업자등록번호: ' + text(party.get('biz_no')), text(legal_name(party)),
              text(address), '대표이사 ' + text(party.get('ceo_name'))]
     return '<br/>'.join(lines) + ('　(인)<br/><br/>' if signature else '')
 
@@ -57,6 +83,63 @@ def contract_amount(items):
     if not items or any(i.get('contract_unit_price') is None for i in items): return None
     return sum(((Decimal(str(i['contract_weight'])) * Decimal(str(i['contract_unit_price']))).quantize(
                 Decimal(1), rounding=ROUND_CEILING) for i in items), Decimal(0))
+
+
+def validation(source, form):
+    """Read-only source review, separate from legal prose and manual body edits.
+
+    Required means verify before signing, not a new contract state/approval rule.
+    An edited body may supply a value absent from structured source; never parse
+    that prose into financial conditions or silently certify it as reconciled.
+    """
+    required, optional = [], []
+    contract = source.get('contract') or {}; term = active_term(contract)
+    for field, label in [('contract_no','계약번호'), ('contract_date','계약일')]:
+        if not contract.get(field): required.append(label)
+    for key, label in [('company','당사'), ('partner','계약업체')]:
+        party = source.get(key) or {}
+        if not legal_name(party): required.append(label + ' 법적 상호 (Master 원본 확인 필요)')
+        for field, name in [('biz_no','사업자번호'), ('ceo_name','대표자'), ('address','주소')]:
+            if not party.get(field): required.append(label + ' ' + name)
+    items = contract.get('items') or []
+    if not items: required.append('계약상품')
+    for index, item in enumerate(items, 1):
+        if not item.get('product_name'): required.append(f'상품 {index} 상품명')
+        if not (item.get('contract_box_qty') or Decimal(str(item.get('contract_weight') or 0))):
+            required.append(f'상품 {index} Box/Kg 수량')
+        if form in {'DOMESTIC_PURCHASE','BL_TRANSFER_TAX'} and item.get('contract_unit_price') is None:
+            required.append(f'상품 {index} 원화 기준단가/금액')
+    if form in {'BL_TRANSFER_TAX','BL_TRANSFER_CUSTOMS'}:
+        metadata = source.get('document_goods') or {}
+        for field, label in [('bl_no','BL 번호'), ('container_no','Container 번호')]:
+            if not any(row.get(field) for row in metadata.values()): required.append(label)
+    else:
+        if not term: required.append('계약일 유효 조건')
+        if term.get('contract_days') is None: required.append('출고약정기간 (이자 적용일수와 별도)')
+        if not (source.get('company') or {}).get('bank1'): required.append('판매대금 입금계좌 (당사 bank1)')
+        for first, fallback, label in [('interest_rate_1','annual_interest_rate','최초 이자율'),
+                                        ('brokerage_rate_1','brokerage_rate','최초 계약수수료율')]:
+            if term_value(term, first if term.get(first) is not None else fallback) is None:
+                required.append(label + ' (미입력/과거 기본 0 여부 확인)')
+        expenses = (term.get('conditions') or {}).get('expense_conditions', [])
+        brokerage = next((x for x in expenses if x.get('code') == 'BROKERAGE'), {})
+        if brokerage.get('tax_treatment') not in {'TAXABLE','EXEMPT'}:
+            required.append('계약수수료 세무구분')
+        if form in {'IMPORT_AGENCY','BL_TRANSFER'}:
+            required.append('USD 오퍼단가/물품총액 (현재 구조화 출처 없음; KRW 대체 금지)')
+            (required if contract.get('deposit_required') else optional).append(
+                '보증금 비율 (약정액으로 비율 역산 금지; 구조화 출처 없음)')
+        for field, codes, label in [('storage_rate_per_kg_day',{'STORAGE'},'창고료'),
+                                  ('inbound_outbound_rate_per_kg',{'INOUT','INBOUND_OUTBOUND'},'입출고비'),
+                                  ('weighing_rate_per_box',{'WEIGHING'},'계근비')]:
+            rows = [x for x in expenses if x.get('code') in codes]
+            if (rows and any(x.get('unit_rate') is None for x in rows)) or (not rows and term_value(term, field) is None):
+                optional.append(label + ' (미확정; 실비/요율/0원 합의 확인)')
+        for field, label in [('interest_rate_2','연장 이자율/적용조건'),
+                             ('brokerage_rate_2','연장 계약수수료율')]:
+            if term.get(field) is None: optional.append(label)
+    return {'required': required, 'optional': optional,
+            'notice':'자동승계 원본 기준 확인사항입니다. 문구에서 수동 보완한 값은 원계약 조건을 변경하지 않습니다.'}
 
 
 def goods_rows(source, domestic=False):
@@ -86,24 +169,24 @@ def extras(source, term):
     taxes = {'TAXABLE':'부가세 별도','EXEMPT':'면세','INCLUDED':'부가세 포함'}
     payers = {'MXMN':'판매사','ORIGINAL_CONTRACTOR':'고객사','ACTUAL_SHIPPER':'출고업체','CONTRACTOR':'고객사','SHIPPER':'출고업체','SUPPLIER':'공급업체'}
     expense_rows = conditions.get('expense_conditions', [])
-    if term.get('storage_rate_per_kg_day') is not None and not any(row.get('code') == 'STORAGE' for row in expense_rows):
-        lines.append('창고료 기준: ' + number(term['storage_rate_per_kg_day']) + '원/Kg·일')
+    if not any(row.get('code') == 'STORAGE' for row in expense_rows):
+        value = term_value(term, 'storage_rate_per_kg_day')
+        lines.append('창고료 기준: ' + (number(value) + '원/Kg·일' if value is not None else '미확정'))
     for row in expense_rows:
         if not isinstance(row,dict) or row.get('code') not in codes: continue
         if row['code'] == 'BROKERAGE':
             lines.append('중개수수료 부담: ' + payers.get(row.get('payer'), BLANK))
             continue
         value = row.get('unit_rate')
-        if value is None: continue
-        label = codes[row['code']] + ': ' + number(value) + '원/' + bases.get(row.get('basis'), BLANK)
+        label = codes[row['code']] + ': ' + (number(value) + '원/' + bases.get(row.get('basis'), BLANK) if value is not None else '미확정')
         label += ' / ' + taxes.get(row.get('tax_treatment'), BLANK) + ' / 부담: ' + payers.get(row.get('payer'), BLANK)
         if row.get('memo'): label += ' / ' + str(row['memo'])
         lines.append(label)
     for key, label in [('inbound_outbound_rate_per_kg','입출고비'),('weighing_rate_per_box','계근비')]:
         codes_for_rate = {'INOUT','INBOUND_OUTBOUND'} if key.endswith('kg') else {'WEIGHING'}
         if any(row.get('code') in codes_for_rate for row in expense_rows): continue
-        if term.get(key) not in {None,0,Decimal(0)}:
-            lines.append(label + ': ' + number(term[key]) + ('원/Kg' if key.endswith('kg') else '원/Box'))
+        value = term_value(term, key)
+        lines.append(label + ': ' + (number(value) + ('원/Kg' if key.endswith('kg') else '원/Box') if value is not None else '미확정'))
     recovery = {'ALL_IN':'모두포함형','EXCLUDE_BROKERAGE':'중개수수료 제외형','EXCLUDE_BROKERAGE_STORAGE':'중개수수료·창고료 제외형',
                 'INTEREST_ONLY':'이자형','COST_ONLY':'원가형','FREE':'자유형'}
     if term.get('recovery_template') in recovery: lines.append('회수유형: ' + recovery[term['recovery_template']])
@@ -125,16 +208,16 @@ def extras(source, term):
 def render(source, form):
     if form not in FORMS: raise ValueError('지원하지 않는 계약서 양식입니다.')
     contract = source['contract']; term = active_term(contract)
-    initial_interest = term.get('interest_rate_1')
-    if initial_interest is None: initial_interest = term.get('annual_interest_rate')
-    brokerage = term.get('brokerage_rate_1')
-    if brokerage is None: brokerage = term.get('brokerage_rate')
+    initial_interest = term_value(term, 'interest_rate_1')
+    if term.get('interest_rate_1') is None: initial_interest = term_value(term, 'annual_interest_rate')
+    brokerage = term_value(term, 'brokerage_rate_1')
+    if term.get('brokerage_rate_1') is None: brokerage = term_value(term, 'brokerage_rate')
     day = date.fromisoformat(str(contract['contract_date'])[:10])
     items = contract['items']; metadata = source.get('document_goods', {})
     distinct = lambda key: ' / '.join(dict.fromkeys(str(x[key]) for x in metadata.values() if x.get(key)))
     values = {
-        'contract_no':text(contract['contract_no']), 'company_name':text(source['company']['name']),
-        'partner_name':text(source['partner']['name']), 'company_party':party_block(source['company']),
+        'contract_no':text(contract['contract_no']), 'company_name':text(legal_name(source['company'])),
+        'partner_name':text(legal_name(source['partner'])), 'company_party':party_block(source['company']),
         'partner_party':party_block(source['partner']), 'company_signature':party_block(source['company'],True),
         'partner_signature':party_block(source['partner'],True), 'contract_date':day.isoformat(),
         'contract_date_ko':f'{day.year}년 {day.month:02d}월 {day.day:02d}일',

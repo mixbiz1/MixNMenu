@@ -124,6 +124,7 @@ class FinancingContractWindow(QWidget):
 
         self.template = QComboBox()
         for label, code in self.TEMPLATES: self.template.addItem(label, code)
+        self.contract_days = self._number("출고약정 / 계약기간 일수")
         self.interest_1 = self._number("연 이자율 %"); self.interest_days_1 = self._number("1차 적용 일수")
         self.interest_2 = self._number("연장 이자율 %"); self.interest_days_2 = self._number("2차 적용 일수")
         self.brokerage_1 = self._number("1차 수수료율 %"); self.brokerage_2 = self._number("2차 수수료율 %")
@@ -153,6 +154,7 @@ class FinancingContractWindow(QWidget):
         self.cost_return_agreement_confirmed = QCheckBox("계약자 합의 확인")
         self.cost_return_approval_memo = QLineEdit(); self.cost_return_approval_memo.setPlaceholderText("이자형 사용 시 승인·합의 근거")
         form.addRow("출고가 회수 유형", self.template)
+        form.addRow("출고약정 / 계약기간 (일)", self.contract_days)
         form.addRow("이자 1차: 연율 / 적용 일수", self._pair(self.interest_1, self.interest_days_1))
         form.addRow("이자 2차: 연율 / 적용 일수", self._pair(self.interest_2, self.interest_days_2))
         form.addRow("중개수수료 1차 / 2차 / 세무 / 부담", self._row(self.brokerage_1, self.brokerage_2, self.brokerage_tax, self.brokerage_payer))
@@ -268,7 +270,7 @@ class FinancingContractWindow(QWidget):
         except (ValueError, InvalidOperation):
             QMessageBox.warning(self, "계약상품", "Box, Kg, 단가를 확인하십시오. Box 또는 Kg 수량은 하나 이상 입력해야 합니다."); return
         row = self.item_table.rowCount(); self.item_table.insertRow(row)
-        values = (self.product.currentText(), str(box), str(kg), str(price or ""), "0 / 0", self.item_memo.text().strip())
+        values = (self.product.currentText(), str(box), str(kg), str(price) if price is not None else "", "0 / 0", self.item_memo.text().strip())
         for column, value in enumerate(values):
             cell = QTableWidgetItem(value)
             if column == 0: cell.setData(Qt.UserRole + 1, self.product.currentData())
@@ -313,6 +315,7 @@ class FinancingContractWindow(QWidget):
                 "payer": self.brokerage_payer.currentData(), "memo": ""})
         effective = self.term_effective_from.date().toString("yyyy-MM-dd")
         return {"effective_from": effective, "recovery_template": self.template.currentData(),
+            "contract_days": integer_value(self.contract_days, "출고약정 / 계약기간"),
             "annual_interest_rate": str(r1 or 0), "interest_rate_1": str(r1) if r1 is not None else None,
             "interest_period_days_1": d1, "interest_rate_2": str(r2) if r2 is not None else None,
             "interest_period_days_2": d2, "brokerage_rate": str(b1 or 0),
@@ -321,6 +324,11 @@ class FinancingContractWindow(QWidget):
             "inbound_outbound_rate_per_kg": str(decimal_value(self.inout, "입출고비") or 0),
             "weighing_rate_per_box": str(decimal_value(self.weighing, "계근비") or 0),
             "conditions": {"expense_conditions": expenses,
+                "document_rate_inputs": {
+                    "annual_interest_rate": r1 is not None, "brokerage_rate": b1 is not None,
+                    "storage_rate_per_kg_day": bool(self.storage.text().strip()),
+                    "inbound_outbound_rate_per_kg": bool(self.inout.text().strip()),
+                    "weighing_rate_per_box": bool(self.weighing.text().strip())},
                 "interest_tax_treatment": "EXEMPT",
                 "cost_return_management_approved": self.cost_return_management_approved.isChecked(),
                 "counterparty_agreement_confirmed": self.cost_return_agreement_confirmed.isChecked(),
@@ -367,7 +375,7 @@ class FinancingContractWindow(QWidget):
         for item in row.get("items", []):
             idx = self.item_table.rowCount(); self.item_table.insertRow(idx)
             vals = (f"{item.get('product_code')} / {item.get('product_name')}", str(item["contract_box_qty"]),
-                str(item["contract_weight"]), str(item.get("contract_unit_price") or ""),
+                str(item["contract_weight"]), str(item["contract_unit_price"]) if item.get("contract_unit_price") is not None else "",
                 f"{item.get('allocated_box_qty', 0)} / {item.get('allocated_weight', 0)}", item.get("memo") or "")
             for col, value in enumerate(vals):
                 cell = QTableWidgetItem(value)
@@ -389,10 +397,15 @@ class FinancingContractWindow(QWidget):
             for col, value in enumerate(values): self.lot_table.setItem(idx, col, QTableWidgetItem(value))
         if row.get("terms"):
             term = row["terms"][-1]; self.template.setCurrentIndex(max(0, self.template.findData(term["recovery_template"])))
-            self.interest_1.setText(str(term.get("interest_rate_1") or term.get("annual_interest_rate") or ""))
+            self.contract_days.setText(str(term['contract_days']) if term.get('contract_days') is not None else "")
+            from contract_document_templates import term_value
+            def display(key, fallback=None):
+                value = term_value(term, key if term.get(key) is not None or fallback is None else fallback)
+                return str(value) if value is not None else ""
+            self.interest_1.setText(display("interest_rate_1", "annual_interest_rate"))
             self.interest_days_1.setText(str(term.get("interest_period_days_1") or ""))
-            self.interest_2.setText(str(term.get("interest_rate_2") or "")); self.interest_days_2.setText(str(term.get("interest_period_days_2") or ""))
-            self.brokerage_1.setText(str(term.get("brokerage_rate_1") or term.get("brokerage_rate") or "")); self.brokerage_2.setText(str(term.get("brokerage_rate_2") or ""))
+            self.interest_2.setText(display("interest_rate_2")); self.interest_days_2.setText(str(term.get("interest_period_days_2") or ""))
+            self.brokerage_1.setText(display("brokerage_rate_1", "brokerage_rate")); self.brokerage_2.setText(display("brokerage_rate_2"))
             brokerage_condition = next((x for x in term.get("conditions", {}).get("expense_conditions", []) if x.get("code") == "BROKERAGE"), {})
             self.brokerage_tax.setCurrentIndex(max(0, self.brokerage_tax.findData(brokerage_condition.get("tax_treatment"))))
             self.brokerage_payer.setCurrentIndex(max(0, self.brokerage_payer.findData(brokerage_condition.get("payer"))))
@@ -401,14 +414,20 @@ class FinancingContractWindow(QWidget):
                 for field in (fieldset[0], fieldset[4]): field.clear()
                 for combo in fieldset[1:4]: combo.setCurrentIndex(0)
             for expense in term.get("conditions", {}).get("expense_conditions", []):
-                fieldset = self.expense_fields.get(str(expense.get("code", "")).lower())
+                name = str(expense.get("code", "")).lower()
+                fieldset = self.expense_fields.get('inbound_outbound' if name == 'inout' else name)
                 if not fieldset: continue
                 field, basis, tax, payer, memo = fieldset
-                field.setText(str(expense.get("unit_rate", "")))
+                value = expense.get("unit_rate")
+                field.setText(str(value) if value is not None else "")
                 basis.setCurrentIndex(max(0, basis.findData(expense.get("basis"))))
                 tax.setCurrentIndex(max(0, tax.findData(expense.get("tax_treatment"))))
                 payer.setCurrentIndex(max(0, payer.findData(expense.get("payer"))))
                 memo.setText(expense.get("memo") or "")
+            for name, key in [('storage','storage_rate_per_kg_day'), ('inbound_outbound','inbound_outbound_rate_per_kg'), ('weighing','weighing_rate_per_box')]:
+                codes = {'INOUT','INBOUND_OUTBOUND'} if name == 'inbound_outbound' else {name.upper()}
+                if not any(row.get('code') in codes for row in term.get('conditions', {}).get('expense_conditions', [])):
+                    self.expense_fields[name][0].setText(display(key))
         self.lot_item.clear()
         for item in row.get("items", []):
             self.lot_item.addItem(f"{item.get('product_name')} / {item['contract_box_qty']} Box / {item['contract_weight']} Kg", item["contract_item_id"])
@@ -496,6 +515,7 @@ class FinancingContractWindow(QWidget):
         self.deposit_required.setChecked(False); self.deposit_amount.clear(); self.deposit_memo.clear(); self.memo.clear()
         self.item_table.setRowCount(0); self.lot_table.setRowCount(0); self.participant_table.setRowCount(0)
         self.interest_1.clear(); self.interest_days_1.clear(); self.interest_2.clear(); self.interest_days_2.clear()
+        self.contract_days.clear()
         self.brokerage_1.clear(); self.brokerage_2.clear()
         self.brokerage_tax.setCurrentIndex(0); self.brokerage_payer.setCurrentIndex(0)
         for name, (field, basis, tax, payer, memo) in self.expense_fields.items():

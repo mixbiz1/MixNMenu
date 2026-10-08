@@ -75,7 +75,7 @@ def test_contract_document_template_edit_confirm_snapshot_version_and_master_cha
     document=call(client,'POST','/contract-documents',201,json={'contract_id':contract['contract_id'],'template_type':kind})
     assert contract['contract_no'] in document['body'] and '140.00' in document['body']
     assert '{{' not in document['body'] and '물품구매-판매계약서' in document['body']
-    assert document['snapshot']['body_format']=='HTML' and document['snapshot']['template_revision']=='20261008.v1'
+    assert document['snapshot']['body_format']=='HTML' and document['snapshot']['template_revision']=='20261008.v1.integrity'
     document=call(client,'PUT',f"/contract-documents/{document['document_id']}",json={'body':document['body']+'\n사용자 특별조건','reason':'문구 검토'})
     document=call(client,'POST',f"/contract-documents/{document['document_id']}/confirm")
     assert document['snapshot']['body']==document['body']

@@ -16,7 +16,7 @@ from database import get_db
 from audit_service import record_audit_event
 import models
 import financing_contract_routes as contracts
-from contract_document_templates import FORMS, REVISION, render, is_html, validate_html
+from contract_document_templates import FORMS, REVISION, render, is_html, validate_html, validation
 
 router = APIRouter(prefix='/api/v1/companies/{comp_code}')
 TITLES = {code: item[0] for code, item in FORMS.items()}
@@ -140,6 +140,8 @@ def view(row):
     data = columns(row)
     for field in ['snapshot_json', 'source_snapshot_json']:
         if field in data: data[field.removesuffix('_json')] = json.loads(data.pop(field)) if getattr(row, field) else None
+    if isinstance(row, models.ContractDocument):
+        data['validation'] = validation(data['snapshot'], row.template_type)
     if isinstance(row, models.ImportCase):
         data['contract_no'] = data['source_snapshot'].get('contract', {}).get('contract_no')
         data['supplier_name'] = row.supplier.account_name if row.supplier else None

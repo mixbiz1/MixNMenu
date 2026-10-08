@@ -17,6 +17,7 @@ from audit_service import record_audit_event
 from database import get_db
 import models
 from trade_common import allocate_document_no
+from contract_document_templates import RATE_FIELDS, RATE_INPUT_KEY
 
 
 router = APIRouter()
@@ -192,6 +193,18 @@ def _append_term(db: Session, contract: models.FinancingContract, data: TermInpu
         _err(409, "새 계약조건의 적용일은 기존 마지막 조건 적용일보다 빠를 수 없습니다.")
     if contract.status not in {"DRAFT", "CONFIRMED", "ACTIVE"}:
         _err(409, "종결 또는 취소된 계약에는 조건을 추가할 수 없습니다.")
+    # Output provenance only; do not change the numeric agreement/calculation columns.
+    inputs = data.conditions.get(RATE_INPUT_KEY)
+    if inputs is not None and (not isinstance(inputs, dict) or set(inputs) - set(RATE_FIELDS)
+                              or any(type(value) is not bool for value in inputs.values())):
+        _err(400, "계약서 요율 입력 여부는 지원 항목의 true/false로 지정하십시오.")
+    inputs = dict(inputs or {})
+    for field in RATE_FIELDS:
+        first = {'annual_interest_rate':'interest_rate_1', 'brokerage_rate':'brokerage_rate_1'}.get(field)
+        value = getattr(data, first) if first and getattr(data, first) is not None else getattr(data, field)
+        if inputs.get(field) is False and value != 0:
+            _err(400, "미입력 요율에 0이 아닌 값을 지정할 수 없습니다.")
+        inputs.setdefault(field, field in data.model_fields_set or bool(first and getattr(data, first) is not None))
     row = models.FinancingContractTerm(
         contract_id=contract.contract_id, version=(latest.version + 1 if latest else 1),
         recovery_template=data.recovery_template, contract_days=data.contract_days,
@@ -206,7 +219,7 @@ def _append_term(db: Session, contract: models.FinancingContract, data: TermInpu
         brokerage_rate_2=data.brokerage_rate_2,
         inbound_outbound_rate_per_kg=data.inbound_outbound_rate_per_kg,
         weighing_rate_per_box=data.weighing_rate_per_box,
-        conditions_json=json.dumps({**data.conditions,
+        conditions_json=json.dumps({**data.conditions, RATE_INPUT_KEY: inputs,
             **({"cost_return_management_approved_by": actor} if data.recovery_template == "INTEREST_ONLY" else {})},
             ensure_ascii=False, sort_keys=True, default=str),
         effective_from=data.effective_from, change_reason=data.change_reason, created_by=actor,
