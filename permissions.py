@@ -126,6 +126,8 @@ def permission_for_request(method: str, path: str, lookup_for: str = "") -> Rout
             action = "update"
         if resource == "import-costs" and method == "POST" and len(parts) > 4 and parts[4] == "rows":
             action = "update"
+        if resource == "contract-documents" and method == "POST" and len(parts) > 4 and parts[4] == "regenerate":
+            action = "update"
         if resource == "purchases" and len(parts) > 4 and parts[4] in {"confirm", "cancel"}:
             action = "update"
         if resource == "financing-contracts" and len(parts) > 4 and parts[4] in {"confirm", "cancel"}:

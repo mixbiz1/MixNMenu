@@ -56,7 +56,7 @@ def test_gui_contract_document_create_edit_confirm_requery(flow,ui_adapter,monke
     monkeypatch.setattr(window,'choose',lambda *args,**kwargs:contract)
     window.pick_contract(); window.create()
     assert contract['contract_no'] in window.body.toPlainText()
-    window.body.appendPlainText('추가 약정'); window.save(); window.action('confirm')
+    window.body.append('추가 약정'); window.save(); window.action('confirm')
     assert window.body.isReadOnly() and window.current['status']=='CONFIRMED'
     assert '추가 약정' in window.current['snapshot']['body']
     window.refresh(); window.clear(); assert not window.body.isReadOnly()

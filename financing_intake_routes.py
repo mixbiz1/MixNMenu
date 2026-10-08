@@ -2,7 +2,6 @@
 No sale, receipt, deposit or inventory quantity is materialized here.
 """
 import json
-import re
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
@@ -17,22 +16,10 @@ from database import get_db
 from audit_service import record_audit_event
 import models
 import financing_contract_routes as contracts
+from contract_document_templates import FORMS, REVISION, render, is_html, validate_html
 
 router = APIRouter(prefix='/api/v1/companies/{comp_code}')
-TITLES = {'IMPORT_AGENCY': '수입대행계약', 'BL_TRANSFER': 'BL 양수도계약', 'DOMESTIC_PURCHASE': '국내매입계약'}
-SAMPLE = '''{{title}} — 업무 초안 예시 (법률문구 검토 전)
-계약번호: {{contract_no}} / 계약일: {{contract_date}}
-당사: {{company_name}}
-계약업체: {{partner_name}} / {{partner_biz_no}} / {{partner_address}}
-계약상품: {{product_summary}}
-이자 조건: {{interest_terms}}
-수수료 조건: {{brokerage_terms}}
-창고료 조건: {{storage_terms}}
-회수유형: {{recovery_terms}}
-특별조건: {{special_terms}}
-참여/출고업체: {{participant_terms}}
-이 문서는 자동승계 및 편집을 위한 Sample Template이며 법률문구의 최종 승인본이 아닙니다.
-'''
+TITLES = {code: item[0] for code, item in FORMS.items()}
 
 class Input(BaseModel):
     model_config = ConfigDict(extra='forbid')
@@ -164,28 +151,22 @@ def view(row):
 
 
 def party(row, name):
-    return {'name': getattr(row, name), **{k: getattr(row, k, None) for k in ['biz_no','address','address_detail','ceo_name','uptae','upjong']}}
+    return {'name': getattr(row, name), **{k: getattr(row, k, None) for k in ['biz_no','address','address_detail','ceo_name','uptae','upjong','bank1']}}
 
 
 def contract_source(db, contract):
-    return {'contract': contracts._snapshot(contract),
+    metadata = {}
+    for item in contract.items:
+        lots = [link.lot for link in contract.lots if link.status == 'ACTIVE' and link.contract_item_id == item.contract_item_id and link.lot]
+        distinct = lambda getter: ' / '.join(dict.fromkeys(str(value) for lot in lots if (value := getter(lot))))
+        metadata[str(item.contract_item_id)] = {
+            'origin': distinct(lambda lot: lot.origin) or item.product.origin,
+            'bl_no': distinct(lambda lot: lot.bl_no), 'container_no': distinct(lambda lot: lot.container_no),
+            'warehouse_name': distinct(lambda lot: lot.warehouse.warehouse_name if lot.warehouse else None),
+        }
+    return {'contract': contracts._snapshot(contract), 'document_goods': metadata,
             'company': party(db.get(models.Company, contract.comp_code), 'comp_name'),
             'partner': party(contract.contractor, 'account_name')}
-
-
-def render(source, template):
-    contract = source['contract']; partner = source['partner']; terms = contract['terms']
-    variables = {'title': TITLES[template], 'contract_no': contract['contract_no'],
-        'contract_date': contract['contract_date'], 'company_name': source['company']['name'],
-        'partner_name': partner['name'], 'partner_biz_no': partner['biz_no'] or '', 'partner_address': partner['address'] or '',
-        'product_summary': '; '.join(f"{i.get('product_name')} / {i['contract_box_qty']} BOX / {i['contract_weight']} KG / 기준단가 {i.get('contract_unit_price')}" for i in contract['items']),
-        'interest_terms': dumps([{k: t.get(k) for k in ['effective_from','interest_rate_1','interest_period_days_1','interest_rate_2','interest_period_days_2']} for t in terms]),
-        'brokerage_terms': dumps([{k: t.get(k) for k in ['brokerage_rate_1','brokerage_rate_2']} for t in terms]),
-        'storage_terms': dumps([t.get('storage_rate_per_kg_day') for t in terms]),
-        'recovery_terms': ', '.join(t['recovery_template'] for t in terms),
-        'special_terms': dumps({'memo': contract['memo'], 'conditions': [t.get('conditions') for t in terms]}),
-        'participant_terms': dumps(contract['participants'])}
-    return re.sub(r'\{\{(\w+)\}\}', lambda m: str(variables[m[1]]), SAMPLE)
 
 
 @router.get('/contract-documents')
@@ -200,10 +181,11 @@ def create_document(comp_code: str, data: DocumentCreate, request: Request, db: 
     with atomic(db):
         contract = locked(db, models.FinancingContract, comp_code, 'contract_id', data.contract_id)
         if contract.status not in {'CONFIRMED','ACTIVE'}: fail('확정 계약에서 계약서를 작성합니다.')
-        if data.template_type not in TITLES or data.template_type != contract.contract_type: fail('계약유형과 Template Type이 일치해야 합니다.', 400)
-        if db.query(models.ContractDocument).filter_by(contract_id=contract.contract_id, status='DRAFT').first(): fail('기존 초안을 수정하거나 취소한 뒤 새 version을 만드세요.')
+        if data.template_type not in FORMS or FORMS[data.template_type][1] != contract.contract_type: fail('계약유형과 Template Type이 일치해야 합니다.', 400)
+        if db.query(models.ContractDocument).filter_by(contract_id=contract.contract_id, template_type=data.template_type, status='DRAFT').first(): fail('기존 초안을 수정하거나 취소한 뒤 새 version을 만드세요.')
         version = (db.query(func.max(models.ContractDocument.version)).filter_by(contract_id=contract.contract_id).scalar() or 0) + 1
         source = contract_source(db, contract)
+        source.update({'body_format': 'HTML', 'template_revision': REVISION})
         row = models.ContractDocument(comp_code=comp_code, contract_id=contract.contract_id, template_type=data.template_type,
             version=version, status='DRAFT', body=render(source, data.template_type), snapshot_json=dumps(source),
             created_by=request.state.user_id, updated_by=request.state.user_id)
@@ -217,12 +199,34 @@ def document(comp_code: str, document_id: int, db: Session = Depends(get_db)):
     return view(locked(db, models.ContractDocument, comp_code, 'document_id', document_id))
 
 
+@router.post('/contract-documents/{document_id}/regenerate')
+def regenerate_document(comp_code: str, document_id: int, data: Reason, request: Request, db: Session = Depends(get_db)):
+    with atomic(db):
+        row = locked(db, models.ContractDocument, comp_code, 'document_id', document_id)
+        if row.status != 'DRAFT': fail('초안만 표준양식으로 다시 작성할 수 있습니다.')
+        before = view(row)
+        source = json.loads(row.snapshot_json)
+        source.update({'body_format':'HTML', 'template_revision':REVISION})
+        row.body = render(source, row.template_type); row.snapshot_json = dumps(source)
+        audit(db, request, row, 'UPDATE', before, data.reason); result = view(row)
+    return result
+
+
 @router.put('/contract-documents/{document_id}')
 def edit_document(comp_code: str, document_id: int, data: BodyInput, request: Request, db: Session = Depends(get_db)):
     with atomic(db):
         row = locked(db, models.ContractDocument, comp_code, 'document_id', document_id)
         if row.status != 'DRAFT': fail('확정된 계약서는 수정할 수 없습니다. 새 version을 만드세요.')
-        before = view(row); row.body = data.body; row.updated_by = request.state.user_id; row.updated_at = datetime.now(timezone.utc)
+        before = view(row)
+        source = json.loads(row.snapshot_json)
+        if is_html(data.body):
+            try: validate_html(data.body)
+            except ValueError as exc: fail(str(exc), 400)
+            source['body_format'] = 'HTML'
+        else:
+            source['body_format'] = 'PLAIN'
+        row.snapshot_json = dumps(source)
+        row.body = data.body; row.updated_by = request.state.user_id; row.updated_at = datetime.now(timezone.utc)
         audit(db, request, row, 'UPDATE', before, data.reason); result = view(row)
     return result
 
@@ -236,10 +240,10 @@ def confirm_document(comp_code: str, document_id: int, request: Request, db: Ses
         if row.status == 'CONFIRMED': return view(row)
         if row.status != 'DRAFT': fail('초안만 확정할 수 있습니다.')
         before = view(row)
-        for old in db.query(models.ContractDocument).filter_by(contract_id=row.contract_id, status='CONFIRMED').all():
+        for old in db.query(models.ContractDocument).filter_by(contract_id=row.contract_id, template_type=row.template_type, status='CONFIRMED').all():
             old_before = view(old); old.status = 'SUPERSEDED'; audit(db, request, old, 'SUPERSEDE', old_before)
         source = json.loads(row.snapshot_json)
-        source.update({'body': row.body, 'template_type': row.template_type, 'version': row.version, 'sample_template': True})
+        source.update({'body': row.body, 'template_type': row.template_type, 'version': row.version, 'sample_template': not bool(source.get('template_revision'))})
         row.snapshot_json = dumps(source); row.status = 'CONFIRMED'; row.confirmed_at = datetime.now(timezone.utc)
         audit(db, request, row, 'CONFIRM', before); result = view(row)
     return result
@@ -289,7 +293,7 @@ def create_case(comp_code: str, data: CaseCreate, request: Request, db: Session 
         if data.contract_id:
             contract = locked(db, models.FinancingContract, comp_code, 'contract_id', data.contract_id)
             if contract.status not in {'CONFIRMED','ACTIVE'}: fail('확정 계약에서 수입건을 만드세요.')
-            doc = db.query(models.ContractDocument).filter_by(contract_id=data.contract_id, status='CONFIRMED').first()
+            doc = db.query(models.ContractDocument).filter_by(contract_id=data.contract_id, template_type=contract.contract_type, status='CONFIRMED').order_by(models.ContractDocument.version.desc()).first()
             source = json.loads(doc.snapshot_json) if doc else contract_source(db, contract)
             if entries is None:
                 entries = [CaseItemInput(contract_item_id=x.contract_item_id, product_id=x.product_id,

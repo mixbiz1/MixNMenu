@@ -3,12 +3,13 @@ import json
 from datetime import date
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit,
-    QLabel, QPushButton, QComboBox, QPlainTextEdit, QTableWidget, QTableWidgetItem,
+    QLabel, QPushButton, QComboBox, QPlainTextEdit, QTextEdit, QTableWidget, QTableWidgetItem,
     QMessageBox, QDialog, QFileDialog, QCheckBox, QScrollArea, QSplitter)
 import api_client as httpx
 from api_config import API_BASE_URL
 from app_context import app_context
 from views.lookup_dialog import LookupDialog, error_text
+from contract_document_templates import FORMS
 
 
 def line(placeholder=''):
@@ -94,12 +95,15 @@ class ContractDocumentWindow(WorkWindow):
     resource = 'contract-documents'; menu = 'FINANCING_DOCUMENT'; pk = 'document_id'
     def __init__(self):
         super().__init__(); self.contract = line(); self.template = QComboBox()
-        for label, code in [('수입대행계약','IMPORT_AGENCY'),('BL 양수도계약','BL_TRANSFER'),('국내매입계약','DOMESTIC_PURCHASE')]: self.template.addItem(label, code)
+        self.set_templates()
         self.form.addRow('확정 계약', self.picker(self.contract, self.pick_contract))
-        self.form.addRow('Template Type', self.template)
-        self.body = QPlainTextEdit(); self.body.setMinimumHeight(260); self.form.addRow('자동초안 / 문구 수정', self.body)
+        self.form.addRow('출력양식', self.template)
+        self.body = QTextEdit(); self.body.setAcceptRichText(False); self.body.setMinimumHeight(400)
+        self.form.addRow('표준 초안 / 문구·표 수정', self.body)
+        self.form.addRow(QLabel('미입력 빈칸은 초안에서 확인·수정하십시오. 원화 기준단가는 USD 오퍼단가로 변환하지 않습니다.\n문서 편집은 원계약 조건을 변경하지 않습니다. 관세사용 양식에는 금액을 추가하지 마십시오.'))
         self.reason = line('수정/취소 사유'); self.form.addRow('사유', self.reason)
         self.add_button('자동초안 생성', self.create, 'create')
+        self.add_button('표준양식 다시 작성', self.regenerate, 'update')
         self.add_button('문구 저장', self.save, 'update')
         self.add_button('확정', lambda: self.action('confirm'), 'update')
         self.add_button('취소', lambda: self.action('cancel'), 'update')
@@ -110,16 +114,33 @@ class ContractDocumentWindow(WorkWindow):
     def pick_contract(self):
         value = self.pick(self.contract, 'financing-contracts', '확정 계약 검색',
             [('계약번호','contract_no'),('업체','contractor_name'),('상태','status')], 'contract_id','contract_no')
-        if value: self.template.setCurrentIndex(self.template.findData(value['contract_type']))
+        if value: self.set_templates(value['contract_type'])
+
+    def set_templates(self, kind=None, selected=None):
+        self.template.clear()
+        for code, (label, contract_type, _) in FORMS.items():
+            if kind is None or kind == contract_type: self.template.addItem(label, code)
+        if selected: self.template.setCurrentIndex(self.template.findData(selected))
+
+    def refresh(self):
+        super().refresh()
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(['문서 ID','상태','Version','연결 계약','출력양식'])
+        for index, value in enumerate(self.rows):
+            self.table.setItem(index,4,QTableWidgetItem(FORMS.get(value['template_type'], (value['template_type'],))[0]))
 
     def clear(self):
-        super().clear(); self.contract.clear(); self.contract.setProperty('pk', None); self.body.clear(); self.body.setReadOnly(False); self.reason.clear()
+        super().clear(); self.contract.clear(); self.contract.setProperty('pk', None); self.body.clear(); self.body.setReadOnly(False); self.reason.clear(); self.set_templates()
 
     def load(self, value):
         super().load(value); self.contract.setProperty('pk', value['contract_id'])
         self.contract.setText(value['snapshot']['contract']['contract_no'])
-        self.template.setCurrentIndex(self.template.findData(value['template_type']))
-        self.body.setPlainText(value['body']); self.body.setReadOnly(value['status'] != 'DRAFT')
+        self.set_templates(value['snapshot']['contract']['contract_type'], value['template_type'])
+        if value['snapshot'].get('body_format') == 'HTML': self.body.setHtml(value['body'])
+        else: self.body.setPlainText(value['body'])
+        self.body.setReadOnly(value['status'] != 'DRAFT'); self.body.document().setModified(False)
+        if not value['snapshot'].get('template_revision'):
+            self.summary.setText(self.summary.text() + ' / 기존 예시 문서: 초안은 표준양식 다시 작성, 확정본은 새 version을 생성하십시오.')
 
     def create(self):
         value = self.request('post', json={'contract_id': self.contract.property('pk'), 'template_type': self.template.currentData()})
@@ -127,10 +148,15 @@ class ContractDocumentWindow(WorkWindow):
 
     def save(self):
         if self.current:
-            self.load(self.request('put', '/' + str(self.current[self.pk]), json={'body': self.body.toPlainText(), 'reason': self.reason.text() or None}))
+            self.load(self.request('put', '/' + str(self.current[self.pk]), json={'body': self.body.toHtml(), 'reason': self.reason.text() or None}))
+
+    def regenerate(self):
+        if self.current:
+            self.load(self.request('post', f"/{self.current[self.pk]}/regenerate", json={'reason':self.reason.text() or '표준양식으로 초안 재작성'}))
 
     def action(self, action):
         if self.current:
+            if action == 'confirm' and self.body.document().isModified(): self.save()
             value = self.request('post', f"/{self.current[self.pk]}/{action}", **({'json': {'reason': self.reason.text()}} if action == 'cancel' else {}))
             self.refresh(); self.load(value)
 

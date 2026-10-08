@@ -38,7 +38,9 @@ def statement_html(document):
 
 def korean_font_family():
     """Select installed known Korean families; Qt script/glyph probes are not guards."""
-    from PySide6.QtGui import QFontDatabase
+    from PySide6.QtGui import QFontDatabase, QGuiApplication
+    if not isinstance(QGuiApplication.instance(), QGuiApplication):
+        raise RuntimeError('PDF/인쇄 전에 QApplication을 초기화해야 합니다.')
     installed = QFontDatabase.families()
     by_name = {family.casefold(): family for family in installed}
     preferred = ('Malgun Gothic', '맑은 고딕', 'NanumGothic', '나눔고딕',
