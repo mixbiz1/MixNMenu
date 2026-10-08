@@ -172,7 +172,6 @@ class ContractDocumentWindow(WorkWindow):
         from PySide6.QtPrintSupport import QPrinter, QPrintDialog
         from financing_document import print_contract
         document = self.request('get', '/' + str(self.current[self.pk]))
-        if document['status'] == 'DRAFT': raise ValueError('확정된 계약서만 인쇄할 수 있습니다.')
         printer = QPrinter(QPrinter.HighResolution)
         if QPrintDialog(printer, self).exec() == QDialog.Accepted: print_contract(document, printer)
 

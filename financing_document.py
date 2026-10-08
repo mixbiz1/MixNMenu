@@ -2,6 +2,7 @@
 from html import escape
 from pathlib import Path
 import os
+import re
 import tempfile
 from trade_statement_document import korean_font_family
 
@@ -12,11 +13,15 @@ def document_html(document):
     if snapshot.get('body_format') == 'HTML':
         from contract_document_templates import validate_html
         validate_html(body)
-        labels = {'CANCELLED':'취소된 계약서', 'SUPERSEDED':'새 version으로 대체된 계약서'}
+        labels = {'DRAFT':'초안 / 검토용', 'CANCELLED':'취소된 계약서', 'SUPERSEDED':'새 version으로 대체된 계약서'}
         if document['status'] in labels:
-            body = body.replace('<body>', '<body><p>' + labels[document['status']] + '</p>', 1)
+            notice = '<p align="center"><b>' + labels[document['status']] + '</b></p>'
+            # QTextEdit saves <body style="...">; a literal <body> match misses it.
+            body, count = re.subn(r'(<body\b[^>]*>)', lambda match: match[0] + notice, body, count=1, flags=re.I)
+            if not count: body = notice + body
         return body
-    return f"<h1>계약서 / Version {document['version']}</h1><p>{escape(document['status'])}</p><p>{escape(body).replace(chr(10), '<br/>')}</p>"
+    status = '초안 / 검토용' if document['status'] == 'DRAFT' else document['status']
+    return f"<h1>계약서 / Version {document['version']}</h1><p>{escape(status)}</p><p>{escape(body).replace(chr(10), '<br/>')}</p>"
 
 
 # Same physical layout for PDF and actual printers. No QTextDocument.print_()
@@ -92,7 +97,6 @@ def print_contract(document, device):
 
 def export_contract_pdf(document, filename):
     from PySide6.QtGui import QPdfWriter, QPageSize
-    if document['status'] == 'DRAFT': raise RuntimeError('확정된 계약서만 출력할 수 있습니다.')
     korean_font_family()
     destination = Path(filename)
     fd, temporary = tempfile.mkstemp(suffix='.pdf', dir=destination.parent)
