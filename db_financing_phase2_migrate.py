@@ -1,4 +1,4 @@
-"""Explicit, idempotent SQL Server Financing phase2 migration. Never imported at startup.
+﻿"""Explicit, idempotent SQL Server Financing phase2 migration. Never imported at startup.
 Six new tables and two named CHECK constraints are upgraded without data changes.
 FK targets are validated before any DDL; each
 CREATE TABLE / CREATE INDEX is executed in its own compilation batch.
@@ -60,7 +60,7 @@ def statements():
 
 
 def migrate():
-    from db_trade_statement_migrate import CHECK_REFERENCE
+    CHECK_REFERENCE = "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA=:schema_name AND TABLE_NAME=:table_name AND COLUMN_NAME=:column_name"
     new = {table.name for table in TABLES}
     targets = sorted({(fk.column.table.name, fk.column.name) for table in TABLES
                       for fk in table.foreign_keys if fk.column.table.name not in new})
@@ -83,3 +83,4 @@ def migrate():
 
 
 if __name__ == '__main__': migrate()
+
