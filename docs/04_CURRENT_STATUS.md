@@ -1,5 +1,16 @@
 # MXMN CURRENT STATUS
 
+## 2026-10-13 일반유통 확인 및 Financing 출고 연결
+
+시작 main `0ee3395`에서 일반유통/기존 계약·문서·원가정산을 재검증하고,
+지원 조건의 부분출고 정산 → 은행입금 확인 → 기존 SALE/OUTBOUND/채권을 연결했다.
+서명된 특별출고약정의 추가 등록·철회도 기존 원계약 수정금지와 분리해 제공한다.
+새 `tb_fin_release` Migration이 필요하며 운영 DB/Windows 검증은 별도다.
+전체 Financing 1차 목표는 과세/별도청구·복잡한 기간정산·보증금/최종마감 등이 남아 **미완료**다.
+상세 지원범위/테스트/배포: [21 마감 및 진행 문서](21_MXMN_FIRST_GOAL_FINANCING_RELEASE_PROGRESS_20261013.md).
+
+아래는 과거 구현 경과이며 현재 Source of Truth 및 실제 코드를 우선한다.
+
 **Version:** 1.27\
 **Status date:** 2026-10-02\
 **Project:** MXMN\

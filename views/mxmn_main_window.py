@@ -924,10 +924,13 @@ class MixNMainWindow(QMainWindow):
         self.action_financing_contract.triggered.connect(self.open_financing_contract)
         self.menu9.addAction(self.action_financing_contract)
         from views.financing_intake import ContractDocumentWindow, ImportCaseWindow, ImportCostWindow
+        from views.financing_release import FinancingReleaseWindow, SpecialShipperWindow
         for attribute, title, widget in [
             ('action_contract_document', '2.계약서 작성/조회', ContractDocumentWindow),
             ('action_import_case', '3.수입접수', ImportCaseWindow),
-            ('action_import_cost', '4.수입원가정산', ImportCostWindow)]:
+            ('action_import_cost', '4.수입원가정산', ImportCostWindow),
+            ('action_financing_release', '5.출고정산/입금요청', FinancingReleaseWindow),
+            ('action_financing_agreement', '6.특별출고약정', SpecialShipperWindow)]:
             action = QAction(title, self)
             action.triggered.connect(lambda checked=False, cls=widget, text=title: self._open_single_mdi(cls, text, text))
             setattr(self, attribute, action); self.menu9.addAction(action)
@@ -978,9 +981,11 @@ class MixNMainWindow(QMainWindow):
             "FINANCING_DOCUMENT": self.action_contract_document,
             "IMPORT_INTAKE": self.action_import_case,
             "IMPORT_COST": self.action_import_cost,
+            "FINANCING_RELEASE": self.action_financing_release,
         }
         for code, action in mapping.items():
             action.setVisible(app_context.can(code, "read"))
+        self.action_financing_agreement.setVisible(app_context.can("FINANCING_CONTRACT", "read"))
         self.action_inventory.setVisible(app_context.can("MASTER_LOT", "read"))
 
 

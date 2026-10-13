@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, DateTime, Numeric, Boolean, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Index, text, Column, Integer, String, Date, DateTime, Numeric, Boolean, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.dialects.mssql import NVARCHAR
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -997,3 +997,30 @@ class ImportCostAllocation(Base):
     unit_cost = Column(Numeric(18, 0), nullable=False)
     previous_unit_cost = Column(Numeric(18, 4), nullable=False)
     allocation_method = Column(String(10), nullable=False)
+
+
+class FinancingRelease(Base):
+    """Frozen partial release/payment request linked to the existing ERP sale."""
+    __tablename__ = 'tb_fin_release'
+    __table_args__ = (
+        UniqueConstraint('comp_code', 'request_key', name='UQ_fin_release_request'),
+        Index('UQ_fin_release_sale', 'sale_id', unique=True, mssql_where=text('sale_id IS NOT NULL'), sqlite_where=text('sale_id IS NOT NULL')),
+        CheckConstraint("status IN ('DRAFT','CONFIRMED','PAID','SHIPPED','CANCELLED')", name='CK_fin_release_status'),
+    )
+    release_id = Column(Integer, primary_key=True, autoincrement=True)
+    comp_code = Column(String(10), ForeignKey('tb_company.comp_code'), nullable=False, index=True)
+    contract_id = Column(Integer, ForeignKey('tb_fin_contract.contract_id'), nullable=False, index=True)
+    shipper_account_id = Column(Integer, ForeignKey('tb_account.account_id'), nullable=False)
+    release_date = Column(Date, nullable=False)
+    request_key = Column(String(64), nullable=False)
+    status = Column(String(20), nullable=False, default='DRAFT', index=True)
+    snapshot_json = Column(UnicodeText().with_variant(NVARCHAR(None), 'mssql'), nullable=False)
+    total_amount = Column(Numeric(18, 0), nullable=False)
+    sale_id = Column(Integer, ForeignKey('tb_sale.sale_id'), nullable=True)
+    payment_evidence = Column(Unicode(1000), nullable=True)
+    payment_confirmed_by = Column(String(50), ForeignKey('tb_user.user_id'), nullable=True)
+    payment_confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(String(50), ForeignKey('tb_user.user_id'), nullable=False)
+    updated_by = Column(String(50), ForeignKey('tb_user.user_id'), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

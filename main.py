@@ -57,6 +57,9 @@ app.include_router(payment_router)
 app.include_router(financing_contract_router)
 app.include_router(trade_statement_router)
 app.include_router(financing_intake_router)
+from financing_release_routes import router as financing_release_router, agreement_router
+app.include_router(financing_release_router)
+app.include_router(agreement_router)
 
 # =============================================================================
 # Login Schema
@@ -3490,7 +3493,7 @@ def _prepare_sale_lines(db, comp_code, sale_date, items, inventory_exception_rea
     if len({x.line_no for x in items}) != len(items): raise HTTPException(status_code=400, detail="전표 내 Detail 순번은 중복될 수 없습니다.")
     prepared=[]
     for item in items:
-        lot = db.query(models.Lot).filter(models.Lot.lot_id == item.lot_id, models.Lot.comp_code == comp_code, models.Lot.use_yn == True).first()
+        lot = db.query(models.Lot).with_hint(models.Lot, "WITH (UPDLOCK, HOLDLOCK)", dialect_name="mssql").with_for_update().filter(models.Lot.lot_id == item.lot_id, models.Lot.comp_code == comp_code, models.Lot.use_yn == True).first()
         if not lot: raise HTTPException(status_code=400, detail=f"{item.line_no}행 LOT는 현재 회사에서 사용 중인 LOT가 아닙니다.")
         if lot.status != "OPEN": raise HTTPException(status_code=409, detail=f"{item.line_no}행 LOT는 보류 또는 마감 상태여서 출고할 수 없습니다.")
         if lot.product_id != item.product_id: raise HTTPException(status_code=400, detail=f"{item.line_no}행 상품과 LOT의 상품이 일치하지 않습니다.")
@@ -3541,22 +3544,28 @@ def _materialize_sale(db,row):
         db.add(models.OutboundItem(outbound_id=outbound.outbound_id,sale_item_id=item.sale_item_id,line_no=item.line_no,product_id=item.product_id,lot_id=item.lot_id,box_qty=item.box_qty,weight=item.weight,amount=item.supply_amount))
     db.add(models.AccountTransaction(comp_code=row.comp_code,transaction_no=row.sale_no,transaction_date=row.sale_date,account_id=row.account_id,transaction_type="SALES_RECEIVABLE",original_amount=row.total_amount,memo=f"일반매출 {row.sale_no}"))
 
-def _guard_sale_dematerialization(db,row,transaction_no=None):
+def _guard_sale_dematerialization(db,row,transaction_no=None,financing_release_id=None):
+    release=db.query(models.FinancingRelease).filter_by(comp_code=row.comp_code,sale_id=row.sale_id,status="SHIPPED").first()
+    if release and release.release_id != financing_release_id: raise HTTPException(status_code=409,detail="파이낸싱 출고정산에서 연결 매출을 취소하십시오. 일반매출에서 직접 정정할 수 없습니다.")
     payable_ids=[x[0] for x in db.query(models.AccountTransaction.account_transaction_id).filter(models.AccountTransaction.comp_code==row.comp_code,models.AccountTransaction.transaction_no==(transaction_no or row.sale_no),models.AccountTransaction.transaction_type=="SALES_RECEIVABLE").all()]
     if payable_ids and db.query(models.AccountTransactionAllocation).filter(or_(models.AccountTransactionAllocation.source_transaction_id.in_(payable_ids),models.AccountTransactionAllocation.settlement_transaction_id.in_(payable_ids))).first(): raise HTTPException(status_code=409,detail="수금이 배분된 미수금 원거래가 있는 매출은 수정 또는 취소할 수 없습니다.")
 
-def _dematerialize_sale(db,row,transaction_no=None):
-    _guard_sale_dematerialization(db,row,transaction_no); ids=[x.sale_item_id for x in row.items]
+def _dematerialize_sale(db,row,transaction_no=None,financing_release_id=None):
+    _guard_sale_dematerialization(db,row,transaction_no,financing_release_id); ids=[x.sale_item_id for x in row.items]
     outbound_ids=[x[0] for x in db.query(models.OutboundItem.outbound_id).filter(models.OutboundItem.sale_item_id.in_(ids)).all()] if ids else []
     if outbound_ids: db.query(models.OutboundItem).filter(models.OutboundItem.outbound_id.in_(outbound_ids)).delete(synchronize_session=False); db.query(models.Outbound).filter(models.Outbound.outbound_id.in_(outbound_ids)).delete(synchronize_session=False)
     db.query(models.AccountTransaction).filter(models.AccountTransaction.comp_code==row.comp_code,models.AccountTransaction.transaction_no==(transaction_no or row.sale_no),models.AccountTransaction.transaction_type=="SALES_RECEIVABLE").delete(synchronize_session=False)
 
 @app.post("/api/v1/companies/{comp_code}/sales",status_code=status.HTTP_201_CREATED)
 def create_sale(comp_code:str,data:SaleInput,request:Request,db:Session=Depends(get_db)):
+    return _save_sale(comp_code,data,request,db)
+
+def _save_sale(comp_code,data,request,db,*,commit=True):
     _get_company_or_404(comp_code,db); _sale_customer(db,comp_code,data.account_id); ensure_period_open(db,comp_code,data.sale_date); prepared,negative,reason=_prepare_sale_lines(db,comp_code,data.sale_date,data.items,data.inventory_exception_reason); totals=summarize_purchase(prepared)
     row=models.Sale(comp_code=comp_code,sale_no=allocate_document_no(db,comp_code,"SALE",data.sale_date),sale_date=data.sale_date,account_id=data.account_id,memo=data.memo,inventory_exception_yn=negative,inventory_exception_reason=reason,document_status="DRAFT",created_by=request.state.user_id,updated_by=request.state.user_id,**totals); row.items=[models.SaleItem(**x) for x in prepared]; db.add(row)
     try:
-        db.flush(); created=_sale_snapshot(db,row); record_audit_event(db,comp_code=comp_code,user_id=request.state.user_id,menu_code="SALES_GENERAL",action="CREATE",entity_type="SALE",entity_id=row.sale_id,source=f"{request.method} {request.url.path}",after=created,reason=data.audit_reason); _materialize_sale(db,row); apply_status_transition(row,"CONFIRMED",request.state.user_id); db.flush(); after=_sale_snapshot(db,row); record_audit_event(db,comp_code=comp_code,user_id=request.state.user_id,menu_code="SALES_GENERAL",action="CONFIRM",entity_type="SALE",entity_id=row.sale_id,source=f"{request.method} {request.url.path}",before=created,after=after,reason=data.audit_reason); db.commit()
+        db.flush(); created=_sale_snapshot(db,row); record_audit_event(db,comp_code=comp_code,user_id=request.state.user_id,menu_code="SALES_GENERAL",action="CREATE",entity_type="SALE",entity_id=row.sale_id,source=f"{request.method} {request.url.path}",after=created,reason=data.audit_reason); _materialize_sale(db,row); apply_status_transition(row,"CONFIRMED",request.state.user_id); db.flush(); after=_sale_snapshot(db,row); record_audit_event(db,comp_code=comp_code,user_id=request.state.user_id,menu_code="SALES_GENERAL",action="CONFIRM",entity_type="SALE",entity_id=row.sale_id,source=f"{request.method} {request.url.path}",before=created,after=after,reason=data.audit_reason)
+        if commit: db.commit()
     except HTTPException: db.rollback(); raise
     except IntegrityError: db.rollback(); raise HTTPException(status_code=409,detail="매출전표·출고·미수금 원거래 연결을 확인하세요.")
     db.refresh(row); return _sale_result(row)

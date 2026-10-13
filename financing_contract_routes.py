@@ -242,8 +242,8 @@ def _append_term(db: Session, contract: models.FinancingContract, data: TermInpu
     return row
 
 
-def _add_participant(db: Session, contract: models.FinancingContract, data: ParticipantInput, actor: str):
-    if contract.status != "DRAFT":
+def _add_participant(db: Session, contract: models.FinancingContract, data: ParticipantInput, actor: str, *, signed_supplement=False):
+    if contract.status != "DRAFT" and not (signed_supplement and contract.status in {"CONFIRMED", "ACTIVE"}):
         _err(409, "계약 확정 후에는 참여업체 구성을 변경할 수 없습니다.")
     _account(db, contract.comp_code, data.account_id, require_sale=True)
     if data.account_id == contract.contractor_account_id:
@@ -261,7 +261,7 @@ def _add_participant(db: Session, contract: models.FinancingContract, data: Part
     record_audit_event(db, comp_code=contract.comp_code, user_id=actor, menu_code="FINANCING_CONTRACT",
         action="CREATE", entity_type="FINANCING_CONTRACT_PARTICIPANT", entity_id=row.participant_id,
         source="API", after={"contract_id": contract.contract_id, "account_id": row.account_id,
-        "role": row.role, "agreement_status": row.agreement_status, "agreement_date": row.agreement_date},
+        "role": row.role, "agreement_status": row.agreement_status, "agreement_date": row.agreement_date, "memo": row.memo},
         related_entity_type="FINANCING_CONTRACT", related_entity_id=contract.contract_id)
     return row
 
