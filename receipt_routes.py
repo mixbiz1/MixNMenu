@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/v1/companies/{comp_code}/receipts", tags=["recei
 
 
 class ReceiptInput(BaseModel):
+    bank_reference: Optional[str] = Field(default=None, max_length=200)
     receipt_date: date
     account_id: int
     amount: Decimal
@@ -71,10 +72,18 @@ def _allocate_receipt_fifo(db: Session, receipt) -> Decimal:
     return allocate_settlement_fifo(db, receipt, source_types=("OPENING_RECEIVABLE", "SALES_RECEIVABLE"), settlement_type="RECEIPT")
 
 
+
+def _validate_cash_reference(db,company,account_id,amount,reference):
+    if amount>0 and not (reference or '').strip() and db.query(models.FinancingDeposit).filter_by(
+            comp_code=company,account_id=account_id,status='CONFIRMED').first():
+        raise HTTPException(status_code=400,detail='보증금 수취가 있는 거래처의 실제 현금입금에는 은행 거래근거가 필요합니다. 보증금 실수취를 일반 입금으로 중복 등록하지 마십시오.')
+
+
 def _receipt_snapshot(db: Session, receipt):
     db.flush()
     allocated = settlement_allocated(db, receipt.account_transaction_id)
     account = db.get(models.Account, receipt.account_id)
+    evidence=db.query(models.FinancingBankEvidence).filter_by(comp_code=receipt.comp_code,source_type="RECEIPT",source_id=receipt.account_transaction_id).order_by(models.FinancingBankEvidence.evidence_id.desc()).first()
     return {
         "account_transaction_id": receipt.account_transaction_id,
         "transaction_no": receipt.transaction_no,
@@ -86,6 +95,7 @@ def _receipt_snapshot(db: Session, receipt):
         "allocated_amount": int(allocated),
         "unallocated_amount": int(Decimal(receipt.original_amount) - allocated),
         "memo": receipt.memo,
+        "bank_reference": evidence.reference if evidence else None,
     }
 
 
@@ -119,6 +129,7 @@ def create_receipt(comp_code: str, data: ReceiptInput, request: Request, db: Ses
     _sales_account(db, comp_code, data.account_id)
     ensure_period_open(db, comp_code, data.receipt_date)
     amount = _ceil_won(data.amount)
+    _validate_cash_reference(db,comp_code,data.account_id,amount,data.bank_reference)
     if amount == 0:
         raise HTTPException(status_code=422, detail="입금액은 0원이 될 수 없습니다.")
     if amount < 0 and not ((data.memo or "").strip() or (data.audit_reason or "").strip()):
@@ -135,6 +146,9 @@ def create_receipt(comp_code: str, data: ReceiptInput, request: Request, db: Ses
     try:
         db.add(row)
         db.flush()
+        if data.bank_reference:
+            from financing_deposit_routes import claim_bank
+            claim_bank(db,comp_code,data.bank_reference,'RECEIPT',row.account_transaction_id)
         _allocate_receipt_fifo(db, row)
         after = _receipt_snapshot(db, row)
         record_audit_event(
@@ -177,6 +191,7 @@ def update_receipt(comp_code: str, receipt_id: int, data: ReceiptInput,
     before = _receipt_snapshot(db, row)
     try:
         _clear_receipt_allocations(db, row.account_transaction_id)
+        _validate_cash_reference(db,comp_code,data.account_id,_ceil_won(data.amount),data.bank_reference)
         if row.transaction_date != data.receipt_date:
             row.transaction_no = allocate_document_no(db, comp_code, "RECEIPT", data.receipt_date)
         row.transaction_date = data.receipt_date
@@ -184,6 +199,9 @@ def update_receipt(comp_code: str, receipt_id: int, data: ReceiptInput,
         row.original_amount = _ceil_won(data.amount)
         row.memo = data.memo.strip() if data.memo else None
         db.flush()
+        if data.bank_reference:
+            from financing_deposit_routes import claim_bank
+            claim_bank(db,comp_code,data.bank_reference,'RECEIPT',row.account_transaction_id)
         _allocate_receipt_fifo(db, row)
         after = _receipt_snapshot(db, row)
         record_audit_event(

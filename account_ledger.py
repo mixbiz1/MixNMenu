@@ -14,6 +14,9 @@ _TYPE_LABELS = {
     "PURCHASE_PAYABLE": "매입",
     "RECEIPT": "입금",
     "PAYMENT": "지급",
+    "DEPOSIT_RECEIPT": "보증금 수취",
+    "DEPOSIT_RETURN": "보증금 반환",
+    "DEPOSIT_APPLIED": "보증금 충당",
 }
 
 
@@ -69,16 +72,32 @@ def _details_for_transaction(db, comp_code, transaction):
         ).first()
         items = header.items if header else []
         source_type, source_id = "SALE", header.sale_id if header else None
+        if not header:
+            charge=db.query(models.FinancingCharge).filter_by(comp_code=comp_code,transaction_id=transaction.account_transaction_id).first()
+            if charge:
+                import json
+                return [{"memo":"[별도비용] "+x['name'],"box_qty":0,"weight":0.0,"unit_price":None,
+                    "line_amount":x['total_amount'],"product_name":x['name'],"line_no":i+1,
+                    "lot_code":None,"reference":x['evidence_type'],"source_type":"FINANCING_RELEASE","source_id":charge.release_id}
+                    for i,x in enumerate(json.loads(charge.snapshot_json)['lines'])]
     else:
         label = _TYPE_LABELS.get(transaction.transaction_type, transaction.transaction_type)
         memo = f"[{label}]"
         if transaction.memo and transaction.memo.strip():
             memo += f" {transaction.memo.strip()}"
+        deposit_id=None
+        if transaction.transaction_type=='DEPOSIT_RECEIPT':
+            deposit=db.query(models.FinancingDeposit).filter_by(comp_code=comp_code,transaction_id=transaction.account_transaction_id).first()
+            deposit_id=deposit.deposit_id if deposit else None
+        elif transaction.transaction_type in {'DEPOSIT_APPLIED','DEPOSIT_RETURN'}:
+            movement=db.query(models.FinancingDepositMovement).filter_by(comp_code=comp_code,transaction_id=transaction.account_transaction_id).first()
+            deposit_id=movement.deposit_id if movement else None
         source_type = {"RECEIPT": "RECEIPT", "PAYMENT": "PAYMENT"}.get(transaction.transaction_type, "OPENING_BALANCE")
+        if deposit_id:source_type='FINANCING_DEPOSIT'
         return [{"memo": memo, "box_qty": None, "weight": None, "unit_price": None,
                  "line_amount": None, "product_name": None, "line_no": None,
                  "lot_code": None, "reference": None,
-                 "source_type": source_type, "source_id": transaction.account_transaction_id}]
+                 "source_type": source_type, "source_id": deposit_id or transaction.account_transaction_id}]
 
     items = sorted(items, key=lambda item: (item.line_no, item.purchase_item_id if hasattr(item, "purchase_item_id") else item.sale_item_id))
     if not items:
@@ -179,7 +198,7 @@ def build_account_ledger(db, comp_code: str, account_id: int, start_date: date, 
             "reference": " · ".join(references) or None,
             "transaction_amount": int(amount),
             "sales_amount": int(amount) if kind == "SALES_RECEIVABLE" else 0,
-            "receipt_amount": int(amount) if kind == "RECEIPT" else 0,
+            "receipt_amount": int(amount) if kind in {"RECEIPT","DEPOSIT_APPLIED"} else 0,
             "purchase_amount": int(amount) if kind == "PURCHASE_PAYABLE" else 0,
             "payment_amount": int(amount) if kind == "PAYMENT" else 0,
             "net_change": int(net_change),

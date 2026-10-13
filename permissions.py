@@ -31,6 +31,8 @@ MENU_DEFINITIONS = (
     ("RECEIPT_MANAGEMENT", "입금관리", "입금/출금관리", 230),
     ("PAYMENT_MANAGEMENT", "지급관리", "입금/출금관리", 240),
     ("ACCOUNT_LEDGER", "거래처원장", "조회/출력", 250),
+    ("FINANCING_DEPOSIT", "보증금 관리", "파이낸싱/계약판매", 230),
+    ("FINANCING_CLOSE", "최종정산/계약마감", "파이낸싱/계약판매", 231),
     ("FINANCING_RELEASE", "출고정산/입금요청", "파이낸싱/계약판매", 229),
     ("FINANCING_DOCUMENT", "계약서 작성/조회", "파이낸싱/계약판매", 226),
     ("IMPORT_INTAKE", "수입접수", "파이낸싱/계약판매", 227),
@@ -65,15 +67,16 @@ def permission_for_request(method: str, path: str, lookup_for: str = "") -> Rout
         return None
     # Only existing list endpoints may borrow the caller's workflow READ permission.
     parts = path.strip("/").split("/")
-    workflow_lookups = {"FINANCING_DOCUMENT", "IMPORT_INTAKE", "IMPORT_COST", "FINANCING_RELEASE"}
+    workflow_lookups = {"FINANCING_DOCUMENT", "IMPORT_INTAKE", "IMPORT_COST", "FINANCING_RELEASE", "FINANCING_DEPOSIT", "FINANCING_CLOSE"}
     workflow_list = len(parts) == 5 and parts[:3] == ["api", "v1", "companies"] and parts[4] in {"financing-contracts", "import-cases"}
     workflow_list = workflow_list or (lookup_for == "IMPORT_COST" and len(parts) == 6 and parts[:3] == ["api", "v1", "companies"] and parts[4] == "import-cases" and parts[5].isdigit())
+    workflow_list = workflow_list or (len(parts)==5 and parts[:3]==["api","v1","companies"] and parts[4]=="financing-releases" and lookup_for=="FINANCING_DEPOSIT")
     if method == "GET" and workflow_list and lookup_for in workflow_lookups:
         return RoutePermission(lookup_for, "read")
-    if method == "GET" and len(parts) == 5 and parts[:3] == ["api", "v1", "companies"] and parts[4] == "lots" and lookup_for in {"IMPORT_INTAKE", "IMPORT_COST", "FINANCING_RELEASE"}:
+    if method == "GET" and len(parts) == 5 and parts[:3] == ["api", "v1", "companies"] and parts[4] == "lots" and lookup_for in {"IMPORT_INTAKE", "IMPORT_COST", "FINANCING_RELEASE", "FINANCING_DEPOSIT", "FINANCING_CLOSE"}:
         return RoutePermission(lookup_for, "read")
     lookup_path = path == "/api/v1/products" or (len(parts) == 5 and parts[:3] == ["api", "v1", "companies"] and parts[4] == "accounts")
-    if method.upper() == "GET" and lookup_path and lookup_for in {"PURCHASE_GENERAL", "SALES_GENERAL", "FINANCING_CONTRACT", "FINANCING_DOCUMENT", "IMPORT_INTAKE", "IMPORT_COST", "FINANCING_RELEASE"}:
+    if method.upper() == "GET" and lookup_path and lookup_for in {"PURCHASE_GENERAL", "SALES_GENERAL", "FINANCING_CONTRACT", "FINANCING_DOCUMENT", "IMPORT_INTAKE", "IMPORT_COST", "FINANCING_RELEASE", "FINANCING_DEPOSIT", "FINANCING_CLOSE"}:
         return RoutePermission(lookup_for, "read")
     action = action_for_method(method)
     relative = path.removeprefix("/api/v1/")
@@ -115,6 +118,8 @@ def permission_for_request(method: str, path: str, lookup_for: str = "") -> Rout
             "sales": "SALES_GENERAL",
             "financing-contracts": "FINANCING_CONTRACT",
             "financing-releases": "FINANCING_RELEASE",
+            "financing-deposits": "FINANCING_DEPOSIT",
+            "financing-closures": "FINANCING_CLOSE",
             "financing-special-shippers": "FINANCING_CONTRACT",
             "contract-documents": "FINANCING_DOCUMENT",
             "import-cases": "IMPORT_INTAKE",
@@ -125,7 +130,7 @@ def permission_for_request(method: str, path: str, lookup_for: str = "") -> Rout
             "payment-payable-summary": "PAYMENT_MANAGEMENT",
             "account-ledger": "ACCOUNT_LEDGER",
         }.get(resource, "SYS_COMPANY")
-        if resource in {"financing-releases", "financing-special-shippers"} and method == "POST" and len(parts)>4:
+        if resource in {"financing-releases", "financing-special-shippers", "financing-deposits", "financing-closures"} and method == "POST" and len(parts)>4:
             action="update"
         if resource in {"contract-documents", "import-cases", "import-costs"} and method == "POST" and len(parts) > 4 and parts[4] in {"confirm", "cancel", "start", "close"}:
             action = "update"

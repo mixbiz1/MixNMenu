@@ -17,6 +17,7 @@ _NET_SIGNS = {
     "SALES_RECEIVABLE": 1,
     "PAYMENT": 1,
     "RECEIPT": -1,
+    "DEPOSIT_APPLIED": -1,
     "OPENING_PAYABLE": -1,
     "PURCHASE_PAYABLE": -1,
 }
@@ -52,6 +53,9 @@ def settlement_allocated(db, settlement_id):
 
 
 def clear_settlement_allocations(db, settlement_id):
+    from financing_close_routes import ensure_source_mutable
+    for allocation in db.query(models.AccountTransactionAllocation).filter_by(settlement_transaction_id=settlement_id).all():
+        ensure_source_mutable(db,allocation.source_transaction_id)
     db.query(models.AccountTransactionAllocation).filter(
         models.AccountTransactionAllocation.settlement_transaction_id == settlement_id
     ).delete(synchronize_session=False)
@@ -100,8 +104,19 @@ def allocate_settlement_fifo(db, settlement, *, source_types, settlement_type):
     remaining -= min(advance, remaining)
     for source in reversed(sources):
         if remaining <= 0: break
-        reversible = source_allocated(db, source.account_transaction_id)
+        if settlement_type=='RECEIPT':
+            # Ordinary negative receipts can reverse ordinary receipts only;
+            # reserved/applied collateral must return through the deposit workflow.
+            value=db.query(func.coalesce(func.sum(models.AccountTransactionAllocation.allocated_amount),0)).join(
+                models.AccountTransaction,models.AccountTransaction.account_transaction_id==models.AccountTransactionAllocation.settlement_transaction_id).filter(
+                    models.AccountTransactionAllocation.source_transaction_id==source.account_transaction_id,
+                    models.AccountTransaction.transaction_type=='RECEIPT').scalar()
+            reversible=Decimal(value or 0)
+        else:
+            reversible = source_allocated(db, source.account_transaction_id)
         if reversible <= 0: continue
+        from financing_close_routes import ensure_source_mutable
+        ensure_source_mutable(db,source.account_transaction_id)
         reversed_amount = min(reversible, remaining)
         db.add(models.AccountTransactionAllocation(source_transaction_id=source.account_transaction_id,
             settlement_transaction_id=settlement.account_transaction_id, allocated_amount=-reversed_amount))

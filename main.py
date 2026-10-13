@@ -60,6 +60,10 @@ app.include_router(financing_intake_router)
 from financing_release_routes import router as financing_release_router, agreement_router
 app.include_router(financing_release_router)
 app.include_router(agreement_router)
+from financing_deposit_routes import router as financing_deposit_router
+app.include_router(financing_deposit_router)
+from financing_close_routes import router as financing_close_router
+app.include_router(financing_close_router)
 
 # =============================================================================
 # Login Schema
@@ -3607,7 +3611,7 @@ def get_sales_receivable_summary(comp_code:str,account_id:int,transaction_date:d
     rows=db.query(models.AccountTransaction).filter(models.AccountTransaction.comp_code==comp_code,models.AccountTransaction.account_id==account_id).all()
     previous=sum((transaction_net_delta(x) for x in rows if x.transaction_date < transaction_date),Decimal(0))
     today_sales=sum((Decimal(x.original_amount) for x in rows if x.transaction_date==transaction_date and x.transaction_type=="SALES_RECEIVABLE"),Decimal(0))
-    today_receipt=sum((Decimal(x.original_amount) for x in rows if x.transaction_date==transaction_date and x.transaction_type=="RECEIPT"),Decimal(0))
+    today_receipt=sum((Decimal(x.original_amount) for x in rows if x.transaction_date==transaction_date and x.transaction_type in {"RECEIPT","DEPOSIT_APPLIED"}),Decimal(0))
     return {"previous_receivable":int(previous),"today_sales":int(today_sales),"today_receipt":int(today_receipt),"current_receivable":int(account_net_balance(db,comp_code,account_id,transaction_date))}
 
 @app.get("/api/v1/companies/{comp_code}/purchase-payable-summary")

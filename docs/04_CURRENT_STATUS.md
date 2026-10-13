@@ -1,5 +1,19 @@
 # MXMN CURRENT STATUS
 
+## 2026-10-13 2차 통합 후속 — c973443 기준 / 미배포 / 부분완료
+
+1차 변경을 포함하여 명시된 현재 회사의 과세·면세 별도비용 채권/FIFO·원장 연결, COST 포함 FREE, 명시 연장수수료, 독립 보증금/분산배정/충당/반환/복원, 최종대사/CLOSED 및 연결 반제 Guard, GUI/PDF를 구현했다.
+전체 411 passed, 1 warning. 신규 db_financing_phase2_migrate.py 필요(6개 테이블 + 기존 원장유형/계약상태 CHECK 2개 확장). 실제 SQL Server/Windows 검증 및 운영 배포는 하지 않았다.
+1차 patch와 통합 patch 중복 적용 금지. 타법인 청구/이자형 반품/제3자 상계/월별 기청구/마감 reopen은 미지원 Guard 유지.
+상세: [23 통합 인수인계](23_MXMN_PHASE1_FULL_INTEGRATED_HANDOFF_20261013.md). 아래 22 및 과거 기록은 당시 상태다.
+
+## 2026-10-13 후속 변경 — c973443 기준 / 미배포 / 부분완료
+
+기간 적용일별 이자·창고료 계산, 확정 국내 면세매입 LOT 원가 연결, 저장 Snapshot 기반 한글 A4 입금요청서 PDF를 보완했다.
+전체 자동검증 380 passed, 1 warning. 이번 변경은 추가 Migration 없음. Git commit/push·운영 DB·SERVER 변경 없음.
+혼합 과세/별도청구, 자유형/이자형 반품, 연장수수료/기청구관리, 보증금·최종정산/CLOSED는 여전히 미완료다.
+Windows GUI·SQL Server 실제 업무 검증 필요. 상세 지원범위/적용순서: [22 후속 인수인계](22_MXMN_PHASE1_REMAINING_FEATURES_HANDOFF_20261013.md).
+
 ## 2026-10-13 일반유통 확인 및 Financing 출고 연결
 
 시작 main `0ee3395`에서 일반유통/기존 계약·문서·원가정산을 재검증하고,

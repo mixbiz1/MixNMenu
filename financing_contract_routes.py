@@ -150,7 +150,7 @@ def _account(db: Session, comp_code: str, account_id: int, *, require_sale: bool
 
 
 def _contract(db: Session, comp_code: str, contract_id: int):
-    row = (db.query(models.FinancingContract)
+    row = (db.query(models.FinancingContract).with_hint(models.FinancingContract, 'WITH (UPDLOCK, HOLDLOCK)', dialect_name='mssql').with_for_update()
            .filter_by(comp_code=comp_code, contract_id=contract_id).first())
     if row is None:
         _err(404, "파이낸싱 계약을 찾을 수 없습니다.")
@@ -654,6 +654,9 @@ def cancel_contract(comp_code: str, contract_id: int, data: CancelInput, request
     if (db.query(models.ContractDocument).filter_by(contract_id=contract_id, status="CONFIRMED").first()
             or db.query(models.ImportCase).filter_by(contract_id=contract_id).first()):
         _err(409, "계약서 확정본 또는 수입건이 연결된 계약은 취소할 수 없습니다.")
+    if db.query(models.FinancingRelease).filter(models.FinancingRelease.comp_code==comp_code,
+            models.FinancingRelease.contract_id==contract_id,models.FinancingRelease.status!='CANCELLED').first() or db.query(models.FinancingDepositAssignment).filter_by(comp_code=comp_code,contract_id=contract_id,status='ACTIVE').first():
+        _err(409,"미취소 출고정산 또는 보증금 배정이 연결된 계약은 취소할 수 없습니다.")
     # Preserve downstream confirmed snapshots and import references.
     actor = _actor(request)
     before = {"status": row.status}

@@ -1,6 +1,6 @@
 """A single work screen: contract -> saved quote -> bank check -> ERP sale."""
 from uuid import uuid4
-from PySide6.QtWidgets import QTableWidget,QTableWidgetItem,QPlainTextEdit,QMessageBox
+from PySide6.QtWidgets import QTableWidget,QTableWidgetItem,QPlainTextEdit,QMessageBox,QFileDialog
 from PySide6.QtCore import Qt
 from views.financing_intake import WorkWindow,line
 from app_context import app_context
@@ -20,14 +20,15 @@ class FinancingReleaseWindow(WorkWindow):
         self.add_button('선택행 제외',self.remove_line,'create')
         self.result=QPlainTextEdit();self.result.setReadOnly(True);self.result.setMinimumHeight(180)
         self.form.addRow('계산 / 입금요청 / SALE 연결',self.result)
-        self.evidence=line('실제 은행입금 확인 근거');self.received=line('확인한 실제 금액(원)');self.reason=line('취소 사유')
+        self.evidence=line('실제 은행입금 / 전액충당 합의 근거');self.received=line('확인한 실제 금액(원)');self.reason=line('취소 사유')
         self.form.addRow('은행입금 근거',self.evidence);self.form.addRow('입금 확인액',self.received);self.form.addRow('사유',self.reason)
         self.add_button('출고정산 초안 생성',self.create,'create')
         self.add_button('입금요청 확정',self.confirm,'update')
-        self.add_button('은행입금 확인',self.check_payment,'update')
+        self.add_button('은행입금/충당 확인',self.check_payment,'update')
         self.add_button('SALE / 출고 생성',self.ship,'update')
         self.add_button('취소 / 출고 복원',self.cancel,'update')
         self.add_button('연결 매출 열기',self.open_sale)
+        self.add_button('입금요청서 PDF',self.export_pdf)
         self.run(self.refresh)
     def pick_contract(self):
         if self.current:raise ValueError('저장된 정산은 변경할 수 없습니다. 새 입력을 선택하십시오.')
@@ -99,14 +100,27 @@ class FinancingReleaseWindow(WorkWindow):
         for item in snapshot['lines']:
             lines.append(f"{item['lot_code']} {item['product_name']} / {item['box_qty']} Box / {item['weight']} Kg / {item['unit_price']}원/Kg")
             labels={'COST':'원가','INTEREST':'이자','STORAGE':'보관료','INOUT':'입출고비','WEIGHING':'계근비','BROKERAGE':'수수료'}
-            lines.append(' / '.join(f"{labels[key]} {value}원" for key,value in item['components'].items()))
+            lines.append(' / '.join(f"{labels.get(key,key)} {value}원" for key,value in item['components'].items()))
             lines.append(f"조정 {item['adjustment']}원 / 단가 원단위 올림 차이 {item['rounding_difference']}원")
+        for charge in snapshot.get('separate_charges',[]):
+            lines.append(f"별도청구 {charge['name']} / {charge['evidence_type']} / 공급 {charge['supply_amount']}원 / 세액 {charge['tax_amount']}원 / 합계 {charge['total_amount']}원 (상품요청액 제외)")
+        funding=self.request('get',f"/{row['release_id']}/funding")
+        lines.append(f"보증금 충당 {funding['deposit_applied']}원 / 실제 은행 확인 필요액 {funding['cash_required']}원")
+        self.received.setText(str(funding['cash_required']) if row.get('payment_evidence') else '')
         self.result.setPlainText('\n'.join(lines))
     def clear(self):
         super().clear();self.request_key=uuid4().hex
         for field in [self.contract,self.shipper,self.day,self.start,self.start_reason,self.year_days,self.evidence,self.received,self.reason]:field.clear();field.setProperty('pk',None)
         self.goods.setRowCount(0);self.goods.setEditTriggers(QTableWidget.DoubleClicked|QTableWidget.EditKeyPressed)
         self.day.setReadOnly(False);self.year_days.setReadOnly(False);self.start.setReadOnly(False);self.start_reason.setReadOnly(False);self.result.clear()
+    def export_pdf(self):
+        if not self.current:raise ValueError('저장된 출고정산을 선택하십시오.')
+        row=self.request('get',f"/{self.current[self.pk]}")
+        filename,_=QFileDialog.getSaveFileName(self,'입금요청서 PDF',f"입금요청서_{row[self.pk]}.pdf",'PDF (*.pdf)')
+        if not filename:return
+        from financing_release_document import export_request_pdf
+        export_request_pdf(row,filename)
+    def open_source_id(self,identity):self.load(self.request('get',f'/{identity}'))
     def open_sale(self):
         if not self.current or not self.current.get('sale_id'):return
         # Reuse existing stable-ID drill-down entry point in the MDI owner.

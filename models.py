@@ -1024,3 +1024,109 @@ class FinancingRelease(Base):
     updated_by = Column(String(50), ForeignKey('tb_user.user_id'), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class FinancingCharge(Base):
+    """Separate service invoice/receivable; never materializes inventory."""
+    __tablename__='tb_fin_charge'
+    __table_args__=(UniqueConstraint('comp_code','release_id',name='UQ_fin_charge_release'),
+        CheckConstraint("status IN ('CONFIRMED','CANCELLED')",name='CK_fin_charge_status'),
+        Index('UQ_fin_charge_transaction','transaction_id',unique=True,mssql_where=text('transaction_id IS NOT NULL'),sqlite_where=text('transaction_id IS NOT NULL')))
+    charge_id=Column(Integer,primary_key=True,autoincrement=True)
+    comp_code=Column(String(10),ForeignKey('tb_company.comp_code'),nullable=False,index=True)
+    contract_id=Column(Integer,ForeignKey('tb_fin_contract.contract_id'),nullable=False,index=True)
+    release_id=Column(Integer,ForeignKey('tb_fin_release.release_id'),nullable=False)
+    account_id=Column(Integer,ForeignKey('tb_account.account_id'),nullable=False)
+    charge_date=Column(Date,nullable=False)
+    status=Column(String(20),nullable=False,default='CONFIRMED')
+    transaction_id=Column(Integer,ForeignKey('tb_account_transaction.account_transaction_id'))
+    supply_amount=Column(Numeric(18,0),nullable=False)
+    tax_amount=Column(Numeric(18,0),nullable=False)
+    total_amount=Column(Numeric(18,0),nullable=False)
+    snapshot_json=Column(UnicodeText().with_variant(NVARCHAR(None),'mssql'),nullable=False)
+    created_by=Column(String(50),ForeignKey('tb_user.user_id'),nullable=False)
+    created_at=Column(DateTime(timezone=True),server_default=func.now(),nullable=False)
+
+
+class FinancingDeposit(Base):
+    """Actual bank deposit; independent from ordinary receipt/FIFO."""
+    __tablename__='tb_fin_deposit'
+    __table_args__=(UniqueConstraint('comp_code','request_key',name='UQ_fin_deposit_request'),
+        CheckConstraint('amount > 0',name='CK_fin_deposit_amount'),
+        CheckConstraint("status IN ('CONFIRMED','CANCELLED')",name='CK_fin_deposit_status'))
+    deposit_id=Column(Integer,primary_key=True,autoincrement=True)
+    comp_code=Column(String(10),ForeignKey('tb_company.comp_code'),nullable=False,index=True)
+    account_id=Column(Integer,ForeignKey('tb_account.account_id'),nullable=False)
+    received_on=Column(Date,nullable=False)
+    amount=Column(Numeric(18,0),nullable=False)
+    request_key=Column(String(64),nullable=False)
+    bank_reference=Column(Unicode(200),nullable=False)
+    transaction_id=Column(Integer,ForeignKey('tb_account_transaction.account_transaction_id'),nullable=False,unique=True)
+    status=Column(String(20),nullable=False,default='CONFIRMED')
+    snapshot_json=Column(UnicodeText().with_variant(NVARCHAR(None),'mssql'),nullable=False)
+    created_by=Column(String(50),ForeignKey('tb_user.user_id'),nullable=False)
+    created_at=Column(DateTime(timezone=True),server_default=func.now(),nullable=False)
+
+
+class FinancingDepositAssignment(Base):
+    __tablename__='tb_fin_deposit_assignment'
+    __table_args__=(UniqueConstraint('comp_code','request_key',name='UQ_fin_deposit_assign_request'),
+        CheckConstraint('amount > 0',name='CK_fin_deposit_assign_amount'),
+        CheckConstraint("status IN ('ACTIVE','CANCELLED')",name='CK_fin_deposit_assign_status'))
+    assignment_id=Column(Integer,primary_key=True,autoincrement=True)
+    comp_code=Column(String(10),ForeignKey('tb_company.comp_code'),nullable=False,index=True)
+    deposit_id=Column(Integer,ForeignKey('tb_fin_deposit.deposit_id'),nullable=False,index=True)
+    contract_id=Column(Integer,ForeignKey('tb_fin_contract.contract_id'),nullable=False,index=True)
+    assigned_on=Column(Date,nullable=False)
+    amount=Column(Numeric(18,0),nullable=False)
+    request_key=Column(String(64),nullable=False)
+    status=Column(String(20),nullable=False,default='ACTIVE')
+    created_by=Column(String(50),ForeignKey('tb_user.user_id'),nullable=False)
+    created_at=Column(DateTime(timezone=True),server_default=func.now(),nullable=False)
+
+
+class FinancingDepositMovement(Base):
+    __tablename__='tb_fin_deposit_movement'
+    __table_args__=(UniqueConstraint('comp_code','request_key',name='UQ_fin_deposit_move_request'),
+        CheckConstraint('amount > 0',name='CK_fin_deposit_move_amount'),
+        CheckConstraint("kind IN ('APPLY','RETURN')",name='CK_fin_deposit_move_kind'),
+        CheckConstraint("status IN ('CONFIRMED','CANCELLED')",name='CK_fin_deposit_move_status'),
+        Index('UQ_fin_deposit_move_transaction','transaction_id',unique=True,mssql_where=text('transaction_id IS NOT NULL'),sqlite_where=text('transaction_id IS NOT NULL')))
+    movement_id=Column(Integer,primary_key=True,autoincrement=True)
+    comp_code=Column(String(10),ForeignKey('tb_company.comp_code'),nullable=False,index=True)
+    deposit_id=Column(Integer,ForeignKey('tb_fin_deposit.deposit_id'),nullable=False,index=True)
+    assignment_id=Column(Integer,ForeignKey('tb_fin_deposit_assignment.assignment_id'))
+    release_id=Column(Integer,ForeignKey('tb_fin_release.release_id'),index=True)
+    movement_date=Column(Date,nullable=False)
+    amount=Column(Numeric(18,0),nullable=False)
+    kind=Column(String(20),nullable=False)
+    status=Column(String(20),nullable=False,default='CONFIRMED')
+    request_key=Column(String(64),nullable=False)
+    bank_reference=Column(Unicode(200))
+    transaction_id=Column(Integer,ForeignKey('tb_account_transaction.account_transaction_id'))
+    snapshot_json=Column(UnicodeText().with_variant(NVARCHAR(None),'mssql'),nullable=False)
+    created_by=Column(String(50),ForeignKey('tb_user.user_id'),nullable=False)
+    created_at=Column(DateTime(timezone=True),server_default=func.now(),nullable=False)
+
+
+class FinancingClosure(Base):
+    __tablename__='tb_fin_closure'
+    closure_id=Column(Integer,primary_key=True,autoincrement=True)
+    comp_code=Column(String(10),ForeignKey('tb_company.comp_code'),nullable=False,index=True)
+    contract_id=Column(Integer,ForeignKey('tb_fin_contract.contract_id'),nullable=False,unique=True)
+    closed_on=Column(Date,nullable=False)
+    snapshot_json=Column(UnicodeText().with_variant(NVARCHAR(None),'mssql'),nullable=False)
+    created_by=Column(String(50),ForeignKey('tb_user.user_id'),nullable=False)
+    created_at=Column(DateTime(timezone=True),server_default=func.now(),nullable=False)
+
+
+class FinancingBankEvidence(Base):
+    """One structured bank transfer reference may back one cash ledger only."""
+    __tablename__='tb_fin_bank_evidence'
+    __table_args__=(UniqueConstraint('comp_code','reference',name='UQ_fin_bank_reference'),)
+    evidence_id=Column(Integer,primary_key=True,autoincrement=True)
+    comp_code=Column(String(10),ForeignKey('tb_company.comp_code'),nullable=False,index=True)
+    reference=Column(Unicode(200),nullable=False)
+    source_type=Column(String(30),nullable=False)
+    source_id=Column(Integer,nullable=False)
+    created_at=Column(DateTime(timezone=True),server_default=func.now(),nullable=False)

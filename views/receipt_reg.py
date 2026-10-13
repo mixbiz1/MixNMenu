@@ -41,6 +41,7 @@ class ReceiptRegWindow(QWidget):
         self.account = QComboBox(); self.account.setMinimumWidth(260)
         self.amount = QDoubleSpinBox(); self.amount.setDecimals(0); self.amount.setRange(-999999999999999, 999999999999999); self.amount.setGroupSeparatorShown(True); self.amount.setSuffix(" 원"); self.amount.lineEdit().textEdited.connect(self._format_amount_input)
         self._amount_is_blank = True
+        self.bank_reference=QLineEdit();self.bank_reference.setPlaceholderText("권장: 은행 고유 거래근거 / 보증금 중복수취 검사")
         self.memo = QLineEdit(); self.memo.setPlaceholderText("입금방법·통장·비고 등")
         self.audit_reason = QLineEdit(); self.audit_reason.setPlaceholderText("수정 사유를 입력해 주세요")
         self.prev_balance = QLabel("0 원")
@@ -53,6 +54,7 @@ class ReceiptRegWindow(QWidget):
         form.addRow("입금일 *", self.receipt_date)
         form.addRow("거래처 *", self.account)
         form.addRow("입금액 *", self.amount)
+        form.addRow("은행 거래근거",self.bank_reference)
         form.addRow("적요", self.memo)
         self.audit_reason_label = QLabel("수정사유")
         form.addRow(self.audit_reason_label, self.audit_reason)
@@ -91,7 +93,7 @@ class ReceiptRegWindow(QWidget):
         self.receipt_date.dateChanged.connect(self.load_summary)
         self.btn_new.setShortcut("F2"); self.btn_save.setShortcut("F4"); self.btn_delete.setShortcut("F6"); self.btn_search.setShortcut("F7")
         self.btn_delete.setEnabled(False)
-        self.nav = [self.receipt_date, self.account, self.amount, self.memo]
+        self.nav = [self.receipt_date, self.account, self.amount, self.bank_reference, self.memo]
         for widget in self.nav: widget.installEventFilter(self)
         self._set_amount_blank()
 
@@ -235,7 +237,7 @@ class ReceiptRegWindow(QWidget):
         if not keep_context:
             self.receipt_date.setDate(QDate.currentDate())
         self._set_amount_blank()
-        self.memo.clear()
+        self.memo.clear();self.bank_reference.clear()
         self.audit_reason.clear()
         self.table.clearSelection()
         self.audit_reason_label.setVisible(False)
@@ -262,7 +264,7 @@ class ReceiptRegWindow(QWidget):
         self.btn_save.setText("수정저장 [F4]")
         self.receipt_date.setDate(QDate.fromString(str(item["receipt_date"]), "yyyy-MM-dd"))
         self.account.setCurrentIndex(max(0, self.account.findData(item["account_id"])))
-        self._set_amount_value(item["amount"]); self.memo.setText(item.get("memo") or ""); self.audit_reason.clear()
+        self._set_amount_value(item["amount"]); self.memo.setText(item.get("memo") or ""); self.bank_reference.setText(item.get("bank_reference") or "");self.audit_reason.clear()
         self.audit_reason_label.setVisible(True); self.audit_reason.setVisible(True)
         self.load_summary()
 
@@ -274,6 +276,7 @@ class ReceiptRegWindow(QWidget):
         payload = {
             "receipt_date": self.receipt_date.date().toString("yyyy-MM-dd"),
             "account_id": self.account.currentData(), "amount": rounded,
+            "bank_reference":self.bank_reference.text().strip() or None,
             "memo": self.memo.text().strip() or None, "audit_reason": self.audit_reason.text().strip() or None,
         }
         self.btn_save.setEnabled(False); self.btn_save.setText("저장 중...")

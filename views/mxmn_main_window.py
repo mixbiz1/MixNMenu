@@ -925,12 +925,15 @@ class MixNMainWindow(QMainWindow):
         self.menu9.addAction(self.action_financing_contract)
         from views.financing_intake import ContractDocumentWindow, ImportCaseWindow, ImportCostWindow
         from views.financing_release import FinancingReleaseWindow, SpecialShipperWindow
+        from views.financing_settlement import FinancingDepositWindow, FinancingClosureWindow
         for attribute, title, widget in [
             ('action_contract_document', '2.계약서 작성/조회', ContractDocumentWindow),
             ('action_import_case', '3.수입접수', ImportCaseWindow),
             ('action_import_cost', '4.수입원가정산', ImportCostWindow),
             ('action_financing_release', '5.출고정산/입금요청', FinancingReleaseWindow),
-            ('action_financing_agreement', '6.특별출고약정', SpecialShipperWindow)]:
+            ('action_financing_agreement', '6.특별출고약정', SpecialShipperWindow),
+            ('action_financing_deposit', '7.보증금 관리', FinancingDepositWindow),
+            ('action_financing_close', '8.최종정산/계약마감', FinancingClosureWindow)]:
             action = QAction(title, self)
             action.triggered.connect(lambda checked=False, cls=widget, text=title: self._open_single_mdi(cls, text, text))
             setattr(self, attribute, action); self.menu9.addAction(action)
@@ -982,6 +985,8 @@ class MixNMainWindow(QMainWindow):
             "IMPORT_INTAKE": self.action_import_case,
             "IMPORT_COST": self.action_import_cost,
             "FINANCING_RELEASE": self.action_financing_release,
+            "FINANCING_DEPOSIT": self.action_financing_deposit,
+            "FINANCING_CLOSE": self.action_financing_close,
         }
         for code, action in mapping.items():
             action.setVisible(app_context.can(code, "read"))
@@ -1647,6 +1652,10 @@ class MixNMainWindow(QMainWindow):
             "RECEIPT": (ReceiptRegWindow, "입금관리", "입금/출금관리 → 입금관리"),
             "PAYMENT": (PaymentRegWindow, "지급관리", "입금/출금관리 → 지급관리"),
         }
+        from views.financing_release import FinancingReleaseWindow
+        from views.financing_settlement import FinancingDepositWindow
+        mapping.update({'FINANCING_RELEASE':(FinancingReleaseWindow,'출고정산/입금요청','파이낸싱/계약판매 → 출고정산'),
+                        'FINANCING_DEPOSIT':(FinancingDepositWindow,'보증금 관리','파이낸싱/계약판매 → 보증금')})
         target = mapping.get(source_type)
         if target is None:
             return
